@@ -1,5 +1,10 @@
 # Testing
 
+For the full scenario-by-scenario field test plan (all five use cases, per
+platform, with pass criteria), see [`docs/TEST_PLAN.md`](docs/TEST_PLAN.md).
+This file covers the automated unit tests and the low-level 2-peer transport
+check they build on.
+
 ## Unit tests (`npm run test:unit`)
 
 Fast, deterministic vitest suites covering the pure logic — no network, no DOM.
