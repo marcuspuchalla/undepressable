@@ -18,9 +18,16 @@
           <span class="text-sm font-medium">{{ formatDuration(recordingDuration) }}</span>
         </div>
 
-        <!-- Peer Count -->
-        <div v-if="peerCount > 0" class="absolute top-4 right-4 px-3 py-1.5 bg-primary-600/90 rounded-full">
-          <span class="text-sm font-medium">{{ peerCount }} collector{{ peerCount === 1 ? '' : 's' }}</span>
+        <!-- Live swarm counts -->
+        <div class="absolute top-4 right-4 flex gap-2">
+          <div class="px-3 py-1.5 bg-primary-600/90 rounded-full flex items-center gap-1.5" title="People watching your stream">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+            <span class="text-sm font-medium tabular-nums">{{ counts.watching }}</span>
+          </div>
+          <div class="px-3 py-1.5 bg-red-600/90 rounded-full flex items-center gap-1.5" title="People recording a copy right now">
+            <div class="w-2.5 h-2.5 bg-white rounded-full" />
+            <span class="text-sm font-medium tabular-nums">{{ counts.recording }}</span>
+          </div>
         </div>
 
         <!-- Strategy Badges -->
@@ -201,6 +208,7 @@ const copied = ref(false)
 let durationInterval: number | null = null
 
 const peerCount = computed(() => trystero.peerCount.value)
+const counts = computed(() => trystero.counts.value)
 
 onMounted(async () => {
   // Generate room code
@@ -242,19 +250,17 @@ async function initStream() {
       videoPreview.value.srcObject = localStream.value
     }
 
-    // Join room with both strategies
+    // Open the room AS the streamer, handing it the stream so every peer —
+    // including ones who join later — receives the video via onPeerJoin.
     const fullRoomId = `p2pstream-v1-${roomCode.value}`
-    const joined = await trystero.joinRoom(fullRoomId, ['both'])
-    if (!joined) {
-      throw new Error('Failed to join room')
+    const created = await trystero.createRoom(fullRoomId, ['both'], localStream.value)
+    if (!created) {
+      throw new Error('Failed to create room')
     }
-    
+
     isRoomJoined.value = true
 
-    // Share stream - add stream to all rooms
-    trystero.updateStream(localStream.value)
-    
-    console.log('[StreamView] Stream initialized and room joined')
+    console.log('[StreamView] Stream initialized and room created')
     
     // Auto-start recording when stream is ready
     setTimeout(() => {
@@ -276,6 +282,7 @@ async function startRecording() {
   const success = await recording.startRecording(localStream.value)
   if (success) {
     isRecording.value = true
+    trystero.setRecording(true)
     recordingDuration.value = 0
     
     durationInterval = window.setInterval(() => {
@@ -299,6 +306,7 @@ async function stopRecording() {
   
   await recording.stopRecording()
   isRecording.value = false
+  trystero.setRecording(false)
 }
 
 function endStream() {

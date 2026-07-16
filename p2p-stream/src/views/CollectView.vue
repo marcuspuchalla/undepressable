@@ -90,9 +90,16 @@
         <span class="text-sm font-medium">{{ formatDuration(recordingDuration) }}</span>
       </div>
 
-      <!-- Peer Info -->
-      <div v-if="peerCount > 0" class="absolute top-4 right-4 px-3 py-1.5 bg-black/70 rounded-full">
-        <span class="text-sm font-medium">Connected</span>
+      <!-- Live swarm counts -->
+      <div v-if="isConnected || remoteStream" class="absolute top-4 right-4 flex gap-2">
+        <div class="px-3 py-1.5 bg-black/70 rounded-full flex items-center gap-1.5" title="People watching this stream">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+          <span class="text-sm font-medium tabular-nums">{{ counts.watching }}</span>
+        </div>
+        <div class="px-3 py-1.5 bg-red-600/80 rounded-full flex items-center gap-1.5" title="People recording a copy right now">
+          <div class="w-2.5 h-2.5 bg-white rounded-full" />
+          <span class="text-sm font-medium tabular-nums">{{ counts.recording }}</span>
+        </div>
       </div>
 
       <!-- Strategy Badges -->
@@ -286,7 +293,7 @@ const selectedCameraId = ref('')
 const availableCameras = ref<MediaDeviceInfo[]>([])
 let durationInterval: number | null = null
 
-const peerCount = computed(() => trystero.peerCount.value)
+const counts = computed(() => trystero.counts.value)
 
 onMounted(async () => {
   // Auto-join from URL only - don't request camera permission
@@ -386,6 +393,7 @@ async function startRecording() {
   const success = await recording.startRecording(remoteStream.value)
   if (success) {
     isRecording.value = true
+    trystero.setRecording(true)
     recordingDuration.value = 0
     
     durationInterval = window.setInterval(() => {
@@ -404,7 +412,8 @@ async function stopRecording() {
   
   const saved = await recording.stopRecording()
   isRecording.value = false
-  
+  trystero.setRecording(false)
+
   if (saved) {
     savedRecording.value = saved
     console.log('[CollectView] Recording saved:', saved.id)
