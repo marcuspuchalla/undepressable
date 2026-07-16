@@ -1,8 +1,8 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "P2P Emergency Stream",
+  "productName": "Undepressable",
   "version": "0.1.0",
-  "identifier": "com.p2pstream.emergency",
+  "identifier": "app.undepressable",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:4400",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "P2P Emergency Stream",
+        "title": "Undepressable",
         "width": 1024,
         "height": 768,
         "minWidth": 800,
@@ -41,7 +41,7 @@
     "copyright": "",
     "category": "SocialNetworking",
     "shortDescription": "Censorship-resistant P2P live streaming",
-    "longDescription": "P2P Emergency Stream enables censorship-resistant live streaming with multi-device recording for evidence preservation.",
+    "longDescription": "Undepressable enables censorship-resistant live streaming with multi-device recording for evidence preservation.",
     "macOS": {
       "entitlements": "./entitlements.plist",
       "exceptionDomain": "*",

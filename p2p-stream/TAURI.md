@@ -201,7 +201,7 @@ jobs:
 This is Gatekeeper blocking unsigned apps. Fix:
 ```bash
 # Remove quarantine attribute
-xattr -cr "/Applications/P2P Emergency Stream.app"
+xattr -cr "/Applications/Undepressable.app"
 
 # Or right-click the app → Open (first time only)
 ```
@@ -223,7 +223,7 @@ For emergency/activist use, unsigned builds are fine - users just need to bypass
 ### Camera not working
 
 1. Check macOS System Settings → Privacy & Security → Camera
-2. Make sure "P2P Emergency Stream" is allowed
+2. Make sure "Undepressable" is allowed
 3. Restart the app
 
 ### Build fails
@@ -283,7 +283,7 @@ Edit `src-tauri/tauri.conf.json`:
 {
   "app": {
     "windows": [{
-      "title": "P2P Emergency Stream",
+      "title": "Undepressable",
       "width": 1024,
       "height": 768,
       "minWidth": 800,
