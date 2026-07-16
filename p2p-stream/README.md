@@ -1,211 +1,105 @@
-# P2P Emergency Stream
+# Undepressable
 
-Censorship-resistant peer-to-peer live streaming application for emergency evidence preservation.
+**Live truth that can't be erased.**
 
-## Overview
+Censorship-resistant, peer-to-peer live streaming for human-rights documentation
+and citizen journalism. A streamer goes live from their phone; trusted people
+scan a QR code to watch and keep their own signed copy. Even if the streamer's
+phone is seized, the footage already lives on other devices — there is nothing
+to delete in one place.
 
-This application enables activists and citizen journalists to stream live video directly to multiple collectors (witnesses) who simultaneously record the content locally. Even if the streamer's phone is confiscated, the video evidence is already preserved on collectors' devices.
+> Built for public-interest documentation. Designed to reduce censorship and data
+> loss, not to incite harm. Know your local laws and prioritise safety.
 
-## Features
+## What it does
 
-- 🔒 **End-to-End Encryption**: WebRTC's native DTLS/SRTP encryption
-- 📡 **Peer-to-Peer**: No central media servers; video flows directly between peers
-- 💾 **Instant Recording**: 1-second chunks saved immediately to local storage
-- 📱 **PWA**: Works offline after first load; installable on mobile
-- 🌐 **Censorship Resistant**: Multiple signaling fallbacks (WebSocket, QR code, libp2p)
-- 🚀 **Zero Infrastructure**: Can work entirely without servers using QR code exchange
-
-## Quick Start
-
-### Prerequisites
-
-- Node.js 18+
-- Modern browser with WebRTC support (Chrome, Firefox, Safari, Edge)
-
-### Installation
-
-```bash
-# Clone repository
-git clone <repo-url>
-cd p2p-stream
-
-# Install client dependencies
-npm install
-
-# Install server dependencies (optional, for signaling)
-cd server && npm install && cd ..
-```
-
-### Development
-
-```bash
-# Terminal 1: Start signaling server (optional)
-cd server && npm run dev
-
-# Terminal 2: Start client
-npm run dev
-```
-
-Open http://localhost:3000 in your browser.
-
-### Production Build
-
-```bash
-npm run build
-```
+- **Go live with no central server.** Signaling rides Trystero over the
+  BitTorrent DHT and Nostr relays; media flows directly between peers over
+  WebRTC (DTLS/SRTP encrypted). There is no media server to block or subpoena.
+- **Join by QR or code.** A short room code and QR are generated ahead of time;
+  collectors scan or type it. Late joiners still receive the live stream.
+- **Everyone keeps a copy.** The streamer and every collector record locally in
+  1-second chunks to the Origin Private File System (OPFS).
+- **Live watching / recording counts.** Every peer broadcasts a tiny stat over a
+  data channel, so all peers see how many are watching and how many are
+  recording — in real time.
+- **Tamper-evident recordings.** Each recording's chunks are SHA-256 hashed into
+  a Merkle tree; the root is signed with an anonymous Ed25519 key. Anyone can
+  later verify the footage is unaltered.
+- **Works offline / installable.** A PWA that runs from cache with no network;
+  two phones on one hotspot can connect with no internet at all.
+- **Cross-network.** A TURN relay (bundled, or self-hosted) lets peers connect
+  across strict/carrier NAT, not just the same network.
 
 ## Architecture
 
-### Network Topology
-
 ```
-Streamer → Primary Collectors (2-3) → Secondary Collectors (2-4 each)
-```
-
-- Streamer uploads to 2-3 primary collectors
-- Each primary forwards to 2-4 secondary collectors
-- Scales to 10+ collectors with manageable bandwidth
-
-### Data Flow
-
-1. Streamer starts camera and creates campaign
-2. Collectors join via QR code or campaign ID
-3. WebRTC peer connections established
-4. Video streamed P2P to collectors
-5. Collectors record in 1-second chunks to OPFS
-6. If streamer is disconnected, recordings remain on collectors
-
-### Storage
-
-- **OPFS (Origin Private File System)**: Stores video chunks
-- **IndexedDB**: Recording metadata
-- **SQLite WASM** (future): Chunk indexing and queries
-
-## Project Structure
-
-```
-p2p-stream/
-├── src/
-│   ├── components/      # Vue components
-│   ├── composables/     # Reusable composition functions
-│   ├── stores/          # Pinia stores
-│   ├── types/           # TypeScript types
-│   ├── views/           # Page components
-│   ├── App.vue          # Root component
-│   └── main.ts          # Entry point
-├── server/              # Signaling server
-├── public/              # Static assets
-├── index.html
-├── package.json
-├── vite.config.ts
-└── README.md
+Streamer ──WebRTC──▶ Collector A  (watches + records)
+    │                Collector B  (watches + records)
+    │                Collector C  (watches + records)
+    └── signaling: Trystero (BitTorrent DHT + Nostr) — no server
+        counts:    Trystero data-channel "stat" action
+        media:     RTCPeerConnection, STUN + TURN for NAT traversal
 ```
 
-## Usage
+Key modules:
 
-### As a Streamer
+| Path | Responsibility |
+|------|----------------|
+| `src/composables/useTrystero.ts` | Room lifecycle, media, and the swarm-stat channel |
+| `src/lib/swarm/stats.ts` | Pure reducer for watching/recording counts |
+| `src/composables/useRecording.ts` | MediaRecorder → OPFS + integrity proof |
+| `src/lib/integrity/` | SHA-256 + Merkle + Ed25519 tamper-evidence (framework-agnostic) |
+| `src/composables/useQRScanner.ts` | Native BarcodeDetector with a jsQR fallback |
+| `src/views/{Stream,Collect,Recordings}View.vue` | The three screens |
 
-1. Open the app and tap "Start Streaming"
-2. Allow camera access
-3. Share the QR code or campaign ID with collectors
-4. Streaming starts automatically when collectors join
-5. Tap "Stop Streaming" when done
+Stack: Vue 3 + TypeScript + Vite + Pinia + Tailwind, Trystero for P2P, optional
+Tauri desktop shell.
 
-### As a Collector
+## Quick start
 
-1. Open the app and tap "Collect Stream"
-2. Scan the streamer's QR code or enter campaign ID
-3. Recording starts automatically
-4. Video is saved locally in real-time
-5. Tap "Leave & Save" when done
+```bash
+npm install
+npm run dev -- --host      # open the printed LAN URL on your phone
+```
 
-### Exporting Recordings
+- **Go live:** open **Stream**, allow the camera, share the code/QR.
+- **Watch & keep a copy:** open **Collect**, scan the QR or type the code.
+- **Verify later:** open **Recordings** → **Verify integrity**.
 
-1. Go to "Recordings" tab
-2. Tap play to preview
-3. Tap download to save to device
+```bash
+npm run build          # production PWA build
+npm run test:unit      # 49 unit tests (integrity, counts, room codes)
+npm run tauri:build    # optional native desktop app
+```
 
-## Censorship Resistance
+See [TESTING.md](./TESTING.md) for the test map and the two-peer / two-phone
+verification procedure.
 
-### Deployment Strategies
+## Configuration
 
-1. **GitHub Pages**: Primary deployment
-2. **IPFS**: Content-addressed, distributed hosting
-3. **Single-file HTML**: Emergency distribution via messaging apps
-4. **Netlify/Vercel**: Additional mirrors
+TURN relay for cross-network streaming defaults to the free Open Relay Project.
+To self-host, set build-time env vars:
 
-### Signaling Fallbacks
+```
+VITE_TURN_URL=turn:your-relay:3478
+VITE_TURN_USERNAME=user
+VITE_TURN_CREDENTIAL=pass
+```
 
-1. **WebSocket Server**: Primary (can be self-hosted)
-2. **libp2p DHT**: Decentralized discovery
-3. **QR Code Exchange**: Serverless, manual SDP exchange
-4. **Pastebin**: Encrypted SDP via pastebin services
+## Notes & honest limitations
 
-## Security Considerations
+- **Privacy-first fonts.** The UI does **not** load web fonts from a CDN (that
+  would leak every viewer's IP and break offline); it uses a system font stack.
+  Self-hosted Fraunces/Archivo woff2 can be dropped into `tailwind.config.js`.
+- **TURN is a relay.** A direct P2P path is preferred; TURN only relays
+  (still end-to-end encrypted) when strict NAT blocks a direct connection. It is
+  the one optional "central" component and can be self-hosted.
+- **Not yet built** (see `../PROJECT_PLAN.md`): hierarchical relay for very large
+  swarms, at-rest encryption of recordings, and cross-collector aggregation.
 
-- Video is encrypted in transit via WebRTC DTLS/SRTP
-- No persistent logs on signaling server
-- No user accounts or PII required
-- Storage is origin-isolated (same-origin policy)
+## Provenance
 
-## Browser Support
-
-| Feature | Chrome | Firefox | Safari | Edge |
-|---------|--------|---------|--------|------|
-| WebRTC | ✅ | ✅ | ✅ | ✅ |
-| MediaRecorder | ✅ | ✅ | ✅ | ✅ |
-| OPFS | ✅ | ✅ | ✅ | ✅ |
-| PWA | ✅ | ✅ | ✅ | ✅ |
-
-## Roadmap
-
-### Phase 1: Foundation ✅
-- [x] Vue 3 + TypeScript setup
-- [x] Camera access and preview
-- [x] Basic WebRTC peer connection
-- [x] MediaRecorder with chunked recording
-- [x] OPFS storage
-- [x] Simple signaling server
-
-### Phase 2: Multi-Peer (In Progress)
-- [ ] Hierarchical relay topology
-- [ ] Primary/secondary collector roles
-- [ ] Video forwarding
-- [ ] Connection quality monitoring
-
-### Phase 3: Campaign Management
-- [ ] Campaign creation/joining
-- [ ] QR code generation
-- [ ] Campaign state synchronization
-- [ ] Peer discovery
-
-### Phase 4: Censorship Resistance
-- [ ] libp2p fallback
-- [ ] QR code SDP exchange
-- [ ] Multi-domain deployment
-- [ ] Single-file build
-
-### Phase 5: Production
-- [ ] Security audit
-- [ ] Mobile optimization
-- [ ] Comprehensive testing
-- [ ] Documentation
-
-## Contributing
-
-Contributions are welcome! Please read our contributing guidelines and submit PRs.
-
-## License
-
-MIT License - See LICENSE file
-
-## Disclaimer
-
-This tool is designed for citizen journalism and evidence preservation. Users are responsible for complying with local laws. Always prioritize personal safety.
-
-## Acknowledgments
-
-- WebRTC community
-- Vue.js team
-- IPFS/libp2p team
-- All contributors and testers
+This is the consolidation of several prototype attempts; see
+[docs/DECISIONS.md](./docs/DECISIONS.md) for why this base was chosen and what
+was ported in.
