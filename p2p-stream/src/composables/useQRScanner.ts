@@ -1,6 +1,19 @@
 import { ref } from 'vue'
 import jsQR from 'jsqr'
 
+// Build a native BarcodeDetector limited to QR, or null if unavailable/unusable.
+async function createNativeDetector(): Promise<{ detect: (src: CanvasImageSource) => Promise<any[]> } | null> {
+  const BD = (globalThis as any).BarcodeDetector
+  if (!BD) return null
+  try {
+    const formats: string[] | undefined = await BD.getSupportedFormats?.()
+    if (formats && !formats.includes('qr_code')) return null
+    return new BD({ formats: ['qr_code'] })
+  } catch {
+    return null
+  }
+}
+
 export function useQRScanner() {
   const isScanning = ref(false)
   const error = ref<string | null>(null)
@@ -102,34 +115,57 @@ export function useQRScanner() {
         throw new Error('Could not get canvas context')
       }
 
-      // Scan loop
+      // Prefer the native BarcodeDetector where the browser has it (Android /
+      // desktop Chromium): it's hardware-accelerated and far more robust than a
+      // JS decoder. iOS Safari has no BarcodeDetector, so we fall back to jsQR —
+      // which is what keeps iPhone scanning working.
+      const nativeDetector = await createNativeDetector()
+      console.log(`[QRScanner] Using ${nativeDetector ? 'native BarcodeDetector' : 'jsQR fallback'}`)
+
+      let detecting = false
+      const handleHit = (value: string) => {
+        console.log('[QRScanner] Code detected:', value)
+        onDetect(value)
+        stopScanning()
+      }
+
       const scan = () => {
         if (!isScanning.value) return
 
         if (videoEl.readyState === videoEl.HAVE_ENOUGH_DATA && videoEl.videoWidth > 0) {
-          // Match canvas size to video
-          if (canvasEl.width !== videoEl.videoWidth || canvasEl.height !== videoEl.videoHeight) {
-            canvasEl.width = videoEl.videoWidth
-            canvasEl.height = videoEl.videoHeight
-          }
-          
-          ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height)
-          
-          const imageData = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height)
-          
-          try {
-            const code = jsQR(imageData.data, imageData.width, imageData.height, {
-              inversionAttempts: 'attemptBoth'
-            })
-
-            if (code?.data) {
-              console.log('[QRScanner] Code detected:', code.data)
-              onDetect(code.data)
-              stopScanning()
-              return
+          if (nativeDetector) {
+            // Native detect() is async; guard against overlapping calls.
+            if (!detecting) {
+              detecting = true
+              nativeDetector
+                .detect(videoEl)
+                .then((codes: any[]) => {
+                  const value = codes?.[0]?.rawValue
+                  if (value && isScanning.value) handleHit(value)
+                })
+                .catch(() => {})
+                .finally(() => {
+                  detecting = false
+                })
             }
-          } catch (err) {
-            // jsQR errors are usually benign (no QR found)
+          } else {
+            if (canvasEl.width !== videoEl.videoWidth || canvasEl.height !== videoEl.videoHeight) {
+              canvasEl.width = videoEl.videoWidth
+              canvasEl.height = videoEl.videoHeight
+            }
+            ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height)
+            const imageData = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height)
+            try {
+              const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                inversionAttempts: 'attemptBoth'
+              })
+              if (code?.data) {
+                handleHit(code.data)
+                return
+              }
+            } catch (err) {
+              // jsQR throws on some frames; benign (just no QR this frame)
+            }
           }
         }
 

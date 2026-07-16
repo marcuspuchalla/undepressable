@@ -81,6 +81,13 @@
           </div>
           <p class="text-gray-400 mb-2">Waiting for stream...</p>
           <p v-if="isConnecting" class="text-sm text-gray-500">Connecting...</p>
+          <div v-else-if="noStreamHint" class="mt-2 max-w-xs mx-auto">
+            <p class="text-sm text-yellow-400/90 font-medium">Couldn't reach the stream yet</p>
+            <p class="text-xs text-gray-500 mt-1">
+              The streamer may not be live, or a strict network is blocking the connection. This will connect
+              automatically once they're reachable.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -291,7 +298,13 @@ const playbackUrl = ref<string | null>(null)
 const showQRScanner = ref(false)
 const selectedCameraId = ref('')
 const availableCameras = ref<MediaDeviceInfo[]>([])
+const noStreamHint = ref(false)
 let durationInterval: number | null = null
+let streamWatchdog: number | null = null
+
+// How long to wait after joining before telling the user we can't reach the
+// stream. It keeps trying in the background; this is just honest feedback.
+const STREAM_TIMEOUT_MS = 20000
 
 const counts = computed(() => trystero.counts.value)
 
@@ -333,18 +346,27 @@ async function joinStream(shortCode: string) {
     }
     
     isConnected.value = true
-    
+
+    // Reachability watchdog: if no stream arrives in time, say so (keeps trying).
+    noStreamHint.value = false
+    if (streamWatchdog) clearTimeout(streamWatchdog)
+    streamWatchdog = window.setTimeout(() => {
+      if (!remoteStream.value) noStreamHint.value = true
+    }, STREAM_TIMEOUT_MS)
+
     // Set up stream received callback
     trystero.setOnStreamReceived((stream: MediaStream) => {
       console.log('[CollectView] Received remote stream')
       remoteStream.value = stream
-      
+      noStreamHint.value = false
+      if (streamWatchdog) { clearTimeout(streamWatchdog); streamWatchdog = null }
+
       // Auto-start recording when stream received
       if (!isRecording.value && !savedRecording.value) {
         setTimeout(() => startRecording(), 1000)
       }
     })
-    
+
     console.log('[CollectView] Successfully joined room')
     
   } catch (err: any) {
@@ -384,6 +406,8 @@ function disconnect() {
   trystero.leaveRoom()
   remoteStream.value = null
   isConnected.value = false
+  noStreamHint.value = false
+  if (streamWatchdog) { clearTimeout(streamWatchdog); streamWatchdog = null }
 }
 
 async function startRecording() {
@@ -559,6 +583,7 @@ watch(remoteStream, (newStream) => {
 // Cleanup
 onUnmounted(() => {
   if (durationInterval) clearInterval(durationInterval)
+  if (streamWatchdog) clearTimeout(streamWatchdog)
   if (isRecording.value) {
     recording.stopRecording()
   }
