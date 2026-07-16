@@ -1,0 +1,23 @@
+{
+  "name": "P2P Emergency Stream",
+  "short_name": "P2PStream",
+  "description": "Censorship-resistant P2P live streaming for evidence preservation",
+  "theme_color": "#111827",
+  "background_color": "#111827",
+  "display": "standalone",
+  "orientation": "portrait",
+  "scope": "/",
+  "start_url": "/",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

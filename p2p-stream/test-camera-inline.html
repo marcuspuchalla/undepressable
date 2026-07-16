@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Camera Test - Inline Only</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #111; color: white; }
+    video { width: 100%; max-width: 400px; border: 2px solid #444; }
+    button { padding: 15px 30px; font-size: 16px; margin: 10px 0; cursor: pointer; }
+    #log { background: #222; padding: 10px; font-family: monospace; font-size: 12px; max-height: 200px; overflow-y: auto; }
+    .error { color: #ff4444; }
+    .success { color: #44ff44; }
+    .info { color: #4488ff; }
+  </style>
+</head>
+<body>
+  <h1>📷 Camera Access Test</h1>
+  <p>Protocol: <strong id="protocol">checking...</strong></p>
+  <p>Secure Context: <strong id="secure">checking...</strong></p>
+  
+  <button onclick="testCamera()">1. Test Camera Access</button>
+  <button onclick="stopCamera()">2. Stop Camera</button>
+  
+  <div id="status"></div>
+  <video id="video" autoplay playsinline muted></video>
+  
+  <h3>Log:</h3>
+  <div id="log"></div>
+
+  <script>
+    // ALL JavaScript is inline - no external files
+    const logEl = document.getElementById('log');
+    const videoEl = document.getElementById('video');
+    const statusEl = document.getElementById('status');
+    let stream = null;
+
+    function log(msg, type = 'info') {
+      const div = document.createElement('div');
+      div.className = type;
+      div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      logEl.appendChild(div);
+      console.log(msg);
+    }
+
+    // Check protocol
+    document.getElementById('protocol').textContent = location.protocol;
+    document.getElementById('secure').textContent = window.isSecureContext;
+    
+    log('Page loaded');
+    log(`Protocol: ${location.protocol}`);
+    log(`isSecureContext: ${window.isSecureContext}`);
+    log(`mediaDevices available: ${!!navigator.mediaDevices}`);
+    log(`getUserMedia available: ${!!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia)}`);
+
+    async function testCamera() {
+      log('Requesting camera...', 'info');
+      statusEl.innerHTML = '<p>Requesting camera permission...</p>';
+      
+      try {
+        // Check if mediaDevices exists
+        if (!navigator.mediaDevices) {
+          throw new Error('navigator.mediaDevices is undefined. Camera not supported in this context.');
+        }
+        
+        if (!navigator.mediaDevices.getUserMedia) {
+          throw new Error('getUserMedia is not supported in this browser.');
+        }
+
+        // Request camera
+        stream = await navigator.mediaDevices.getUserMedia({ 
+          video: { facingMode: 'environment' },
+          audio: false 
+        });
+        
+        log('✅ Camera access GRANTED!', 'success');
+        log(`Tracks: ${stream.getVideoTracks().length} video`);
+        
+        // Show video
+        videoEl.srcObject = stream;
+        statusEl.innerHTML = '<p class="success">✅ Camera working!</p>';
+        
+      } catch (err) {
+        log(`❌ Camera error: ${err.name}`, 'error');
+        log(`Message: ${err.message}`, 'error');
+        statusEl.innerHTML = `<p class="error">❌ Error: ${err.name}<br>${err.message}</p>`;
+      }
+    }
+
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(track => track.stop());
+        videoEl.srcObject = null;
+        stream = null;
+        log('Camera stopped');
+        statusEl.innerHTML = '<p>Camera stopped</p>';
+      }
+    }
+  </script>
+</body>
+</html>

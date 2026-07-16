@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NSCameraUsageDescription</key>
+    <string>P2P Emergency Stream needs camera access to stream video to other devices for evidence preservation.</string>
+    <key>NSMicrophoneUsageDescription</key>
+    <string>P2P Emergency Stream needs microphone access to stream audio with your video.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>P2P Emergency Stream uses local network to connect directly to other devices for peer-to-peer streaming.</string>
+</dict>
+</plist>

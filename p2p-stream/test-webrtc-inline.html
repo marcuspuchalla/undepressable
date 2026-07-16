@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WebRTC + Camera Test</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #111; color: white; }
+    video { width: 100%; max-width: 400px; border: 2px solid #444; }
+    button { padding: 15px 30px; font-size: 16px; margin: 10px 0; cursor: pointer; }
+    #log { background: #222; padding: 10px; font-family: monospace; font-size: 12px; max-height: 300px; overflow-y: auto; }
+    .error { color: #ff4444; }
+    .success { color: #44ff44; }
+    .info { color: #4488ff; }
+    .warning { color: #ffaa00; }
+  </style>
+</head>
+<body>
+  <h1>📡 WebRTC + Camera Test</h1>
+  
+  <div style="background: #333; padding: 15px; margin-bottom: 20px; border-radius: 8px;">
+    <strong>Context Info:</strong><br>
+    Protocol: <span id="protocol"></span><br>
+    Secure Context: <span id="secure"></span><br>
+    Location: <span id="location"></span>
+  </div>
+
+  <button onclick="testCamera()">1. Test Camera (getUserMedia)</button>
+  <button onclick="testWebRTC()">2. Test WebRTC (RTCPeerConnection)</button>
+  <button onclick="testDataChannel()">3. Test DataChannel</button>
+  <button onclick="stopAll()">4. Stop Everything</button>
+  
+  <div id="status"></div>
+  <video id="localVideo" autoplay playsinline muted style="max-width: 200px;"></video>
+  <video id="remoteVideo" autoplay playsinline style="max-width: 200px;"></video>
+  
+  <h3>Log:</h3>
+  <div id="log"></div>
+
+  <script>
+    const logEl = document.getElementById('log');
+    const localVideo = document.getElementById('localVideo');
+    const remoteVideo = document.getElementById('remoteVideo');
+    const statusEl = document.getElementById('status');
+    let localStream = null;
+    let pc1 = null;
+    let pc2 = null;
+
+    function log(msg, type = 'info') {
+      const div = document.createElement('div');
+      div.className = type;
+      const time = new Date().toLocaleTimeString();
+      div.textContent = `[${time}] ${msg}`;
+      logEl.appendChild(div);
+      console.log(`[${type.toUpperCase()}]`, msg);
+    }
+
+    // Show context info
+    document.getElementById('protocol').textContent = location.protocol;
+    document.getElementById('secure').textContent = window.isSecureContext;
+    document.getElementById('location').textContent = location.href.substring(0, 50) + '...';
+
+    log('=== Browser Context Check ===');
+    log(`Protocol: ${location.protocol}`);
+    log(`isSecureContext: ${window.isSecureContext}`);
+    log(`mediaDevices: ${!!navigator.mediaDevices}`);
+    log(`RTCPeerConnection: ${!!window.RTCPeerConnection}`);
+
+    // Camera test
+    async function testCamera() {
+      log('--- Testing Camera (getUserMedia) ---', 'info');
+      
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('getUserMedia not available');
+        }
+
+        localStream = await navigator.mediaDevices.getUserMedia({ 
+          video: true, 
+          audio: false 
+        });
+        
+        localVideo.srcObject = localStream;
+        log('✅ Camera: SUCCESS - Video stream obtained', 'success');
+        log(`   Tracks: ${localStream.getVideoTracks().length} video`);
+        statusEl.innerHTML = '<p class="success">✅ Camera working</p>';
+        
+      } catch (err) {
+        log(`❌ Camera: FAILED - ${err.name}`, 'error');
+        log(`   Message: ${err.message}`, 'error');
+        statusEl.innerHTML = `<p class="error">❌ Camera: ${err.message}</p>`;
+      }
+    }
+
+    // WebRTC test
+    async function testWebRTC() {
+      log('--- Testing WebRTC (RTCPeerConnection) ---', 'info');
+      
+      if (!localStream) {
+        log('⚠️ Please start camera first!', 'warning');
+        return;
+      }
+
+      try {
+        if (!window.RTCPeerConnection) {
+          throw new Error('RTCPeerConnection not available');
+        }
+
+        // Create two peer connections to simulate P2P
+        const config = { 
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] 
+        };
+        
+        pc1 = new RTCPeerConnection(config);
+        pc2 = new RTCPeerConnection(config);
+        
+        log('Created RTCPeerConnections');
+
+        // Add stream to pc1
+        localStream.getTracks().forEach(track => {
+          pc1.addTrack(track, localStream);
+        });
+        log('Added local stream to PC1');
+
+        // ICE candidate handling
+        pc1.onicecandidate = (e) => {
+          if (e.candidate) {
+            log('PC1 got ICE candidate');
+            pc2.addIceCandidate(e.candidate).catch(err => {
+              log(`ICE error: ${err.message}`, 'error');
+            });
+          }
+        };
+        
+        pc2.onicecandidate = (e) => {
+          if (e.candidate) {
+            log('PC2 got ICE candidate');
+            pc1.addIceCandidate(e.candidate).catch(err => {
+              log(`ICE error: ${err.message}`, 'error');
+            });
+          }
+        };
+
+        // Show remote stream
+        pc2.ontrack = (e) => {
+          log('✅ PC2 received remote stream!', 'success');
+          remoteVideo.srcObject = e.streams[0];
+        };
+
+        // Create offer
+        log('Creating offer...');
+        const offer = await pc1.createOffer();
+        await pc1.setLocalDescription(offer);
+        log('PC1: Created and set local description (offer)');
+
+        // Set remote description on pc2
+        await pc2.setRemoteDescription(offer);
+        log('PC2: Set remote description');
+
+        // Create answer
+        const answer = await pc2.createAnswer();
+        await pc2.setLocalDescription(answer);
+        log('PC2: Created and set local description (answer)');
+
+        // Set remote description on pc1
+        await pc1.setRemoteDescription(answer);
+        log('PC1: Set remote description');
+
+        log('✅ WebRTC: Connection established locally!', 'success');
+        statusEl.innerHTML += '<p class="success">✅ WebRTC working</p>';
+
+      } catch (err) {
+        log(`❌ WebRTC: FAILED - ${err.name}`, 'error');
+        log(`   Message: ${err.message}`, 'error');
+        statusEl.innerHTML += `<p class="error">❌ WebRTC: ${err.message}</p>`;
+      }
+    }
+
+    // DataChannel test
+    async function testDataChannel() {
+      log('--- Testing DataChannel ---', 'info');
+      
+      try {
+        const pc = new RTCPeerConnection({});
+        const channel = pc.createDataChannel('test');
+        
+        channel.onopen = () => {
+          log('✅ DataChannel opened!', 'success');
+          channel.send('Hello from DataChannel!');
+          log('Sent test message');
+        };
+        
+        channel.onmessage = (e) => {
+          log(`✅ Received message: ${e.data}`, 'success');
+        };
+        
+        channel.onerror = (err) => {
+          log(`❌ DataChannel error: ${err}`, 'error');
+        };
+
+        log('Created DataChannel (waiting for connection to open)...');
+        
+      } catch (err) {
+        log(`❌ DataChannel: FAILED - ${err.message}`, 'error');
+      }
+    }
+
+    function stopAll() {
+      if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
+      }
+      if (pc1) { pc1.close(); pc1 = null; }
+      if (pc2) { pc2.close(); pc2 = null; }
+      localVideo.srcObject = null;
+      remoteVideo.srcObject = null;
+      log('Everything stopped');
+      statusEl.innerHTML = '<p>Stopped</p>';
+    }
+  </script>
+</body>
+</html>

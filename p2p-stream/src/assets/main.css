@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply h-full;
+  }
+  
+  body {
+    @apply h-full overflow-hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  
+  #app {
+    @apply h-full;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  
+  .btn-primary {
+    @apply btn bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+  }
+  
+  .btn-emergency {
+    @apply btn bg-emergency-600 text-white hover:bg-emergency-700 focus:ring-emergency-500 animate-pulse-fast;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-gray-700 text-white hover:bg-gray-600 focus:ring-gray-500;
+  }
+  
+  .card {
+    @apply bg-gray-800 rounded-xl border border-gray-700 p-4 shadow-lg;
+  }
+  
+  .input {
+    @apply w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+  }
+  
+  .video-container {
+    @apply relative bg-black rounded-lg overflow-hidden;
+  }
+  
+  .video-container video {
+    @apply w-full h-full object-cover;
+  }
+}
+
+@layer utilities {
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}

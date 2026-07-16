@@ -1,0 +1,482 @@
+import { ref } from 'vue'
+import { useOPFS } from './useOPFS'
+import type { Recording, RecordingChunk, VideoQuality } from '../types'
+import { v4 as uuidv4 } from 'uuid'
+
+// In-memory storage for continuous recording (for download)
+interface RecordingSession {
+  chunks: Blob[]
+  mimeType: string
+  recording: Recording
+}
+
+const activeSessions = new Map<string, RecordingSession>()
+
+// Background save state
+interface BackgroundSaveState {
+  recordingId: string
+  campaignId: string
+  chunkCount: number
+  lastChunkIndex: number
+  timestamp: number
+  status: 'recording' | 'completed'
+}
+
+// Beacon sync state tracking
+// This could be used in the future for recovery UI to show last known state
+// const lastBeaconState: BackgroundSaveState | null = null
+
+export function useRecording() {
+  const opfs = useOPFS()
+  
+  const isRecording = ref(false)
+  const error = ref<string | null>(null)
+  let mediaRecorder: MediaRecorder | null = null
+  let currentRecording: Recording | null = null
+  let chunkIndex = 0
+  let currentCampaignId: string = ''
+  let currentSessionId: string = ''
+  let inMemoryChunks: Blob[] = []
+  let currentMimeType: string = ''
+  let pendingChunks = 0
+  let lastChunkSaveTime = 0
+  let visibilityHandler: ((() => void) | null) = null
+  let beforeUnloadHandler: ((() => void) | null) = null
+  let pageHideHandler: ((() => void) | null) = null
+
+  // Sync current recording state to sessionStorage for recovery
+  function syncRecordingState() {
+    if (!currentRecording || !isRecording.value) return
+    
+    const state: BackgroundSaveState = {
+      recordingId: currentRecording.id,
+      campaignId: currentCampaignId,
+      chunkCount: currentRecording.chunks.length,
+      lastChunkIndex: chunkIndex,
+      timestamp: Date.now(),
+      status: 'recording'
+    }
+    
+    try {
+      sessionStorage.setItem('p2pstream_recording_state', JSON.stringify(state))
+      lastChunkSaveTime = Date.now()
+    } catch (e) {
+      // Session storage might be full or unavailable
+      console.warn('[useRecording] Failed to sync state:', e)
+    }
+  }
+
+  // Mark recording as completed in sessionStorage
+  function markRecordingComplete() {
+    try {
+      sessionStorage.removeItem('p2pstream_recording_state')
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  // Check for orphaned recordings on startup
+  async function checkForOrphanedRecordings(): Promise<BackgroundSaveState | null> {
+    try {
+      const saved = sessionStorage.getItem('p2pstream_recording_state')
+      if (saved) {
+        const state: BackgroundSaveState = JSON.parse(saved)
+        // If recording was in progress and less than 1 hour old, consider it orphaned
+        const age = Date.now() - state.timestamp
+        if (age < 3600000) { // 1 hour
+          console.log('[useRecording] Found orphaned recording:', state)
+          return state
+        }
+      }
+    } catch (e) {
+      console.warn('[useRecording] Error checking for orphaned recordings:', e)
+    }
+    return null
+  }
+
+  // Send beacon to preserve recording info on page close
+  function sendBeacon() {
+    if (!currentRecording || !isRecording.value) return
+    
+    const state: BackgroundSaveState = {
+      recordingId: currentRecording.id,
+      campaignId: currentCampaignId,
+      chunkCount: currentRecording.chunks.length,
+      lastChunkIndex: chunkIndex,
+      timestamp: Date.now(),
+      status: 'recording'
+    }
+    
+    // Try to use Beacon API first (most reliable for page close)
+    // Use a data URL since we don't have a real endpoint
+    // The beacon will at least attempt to send the data
+    try {
+      navigator.sendBeacon?.('data:application/json;base64,' + btoa(JSON.stringify(state)))
+    } catch {
+      // Beacon might not be supported
+    }
+    
+    // Also sync to sessionStorage as backup
+    try {
+      sessionStorage.setItem('p2pstream_recording_state', JSON.stringify(state))
+    } catch (e) {
+      // Ignore
+    }
+    
+    console.log('[useRecording] Beacon sent for recording:', currentRecording.id)
+  }
+
+  // Handle visibility change (page hidden/visible)
+  function handleVisibilityChange() {
+    if (document.hidden) {
+      // Page is going to background - sync state immediately
+      console.log('[useRecording] Page hidden, syncing recording state')
+      syncRecordingState()
+      sendBeacon()
+    } else {
+      // Page is visible again
+      console.log('[useRecording] Page visible')
+    }
+  }
+
+  // Handle before unload
+  function handleBeforeUnload() {
+    if (isRecording.value && currentRecording) {
+      console.log('[useRecording] Before unload - sending beacon')
+      sendBeacon()
+      
+      // Request final chunk data
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.requestData()
+      }
+    }
+  }
+
+  // Handle page hide (mobile browsers)
+  function handlePageHide(_e: PageTransitionEvent) {
+    if (isRecording.value && currentRecording) {
+      console.log('[useRecording] Page hide - syncing state')
+      syncRecordingState()
+      sendBeacon()
+      
+      // Request final chunk data
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.requestData()
+      }
+    }
+  }
+
+  // Set up background/close handlers
+  function setupBackgroundHandlers() {
+    // Visibility API for background detection
+    visibilityHandler = handleVisibilityChange
+    document.addEventListener('visibilitychange', visibilityHandler)
+    
+    // Before unload for desktop browsers
+    beforeUnloadHandler = handleBeforeUnload
+    window.addEventListener('beforeunload', beforeUnloadHandler)
+    
+    // Page hide for mobile browsers
+    pageHideHandler = handlePageHide as any
+    window.addEventListener('pagehide', pageHideHandler as any)
+  }
+
+  // Remove background handlers
+  function removeBackgroundHandlers() {
+    if (visibilityHandler) {
+      document.removeEventListener('visibilitychange', visibilityHandler)
+      visibilityHandler = null
+    }
+    if (beforeUnloadHandler) {
+      window.removeEventListener('beforeunload', beforeUnloadHandler)
+      beforeUnloadHandler = null
+    }
+    if (pageHideHandler) {
+      window.removeEventListener('pagehide', pageHideHandler as any)
+      pageHideHandler = null
+    }
+  }
+
+  async function startRecording(
+    stream: MediaStream, 
+    quality: VideoQuality = 'medium',
+    campaignId?: string
+  ): Promise<boolean> {
+    try {
+      error.value = null
+      chunkIndex = 0
+      inMemoryChunks = []
+      pendingChunks = 0
+      lastChunkSaveTime = 0
+
+      // Check for orphaned recordings first
+      const orphaned = await checkForOrphanedRecordings()
+      if (orphaned) {
+        console.log('[useRecording] Previous recording may be incomplete:', orphaned)
+      }
+
+      // Determine MIME type - prefer VP8 for better compatibility
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
+        ? 'video/webm;codecs=vp8,opus'
+        : MediaRecorder.isTypeSupported('video/webm;codecs=vp9,opus')
+          ? 'video/webm;codecs=vp9,opus'
+          : 'video/webm'
+      
+      currentMimeType = mimeType
+
+      mediaRecorder = new MediaRecorder(stream, {
+        mimeType,
+        videoBitsPerSecond: quality === 'high' ? 5000000 : quality === 'medium' ? 2500000 : 1000000
+      })
+
+      const recCampaignId = campaignId || `rec-${Date.now()}`
+      currentCampaignId = recCampaignId
+      const recordingId = uuidv4()
+      currentSessionId = recordingId
+      const recordedBy = 'local-' + Math.random().toString(36).substring(2, 8)
+
+      currentRecording = {
+        id: recordingId,
+        campaignId: recCampaignId,
+        recordedBy,
+        startedAt: new Date(),
+        status: 'recording',
+        chunks: [],
+        metadata: {
+          resolution: quality === 'high' ? { width: 1920, height: 1080 } : quality === 'medium' ? { width: 1280, height: 720 } : { width: 854, height: 480 },
+          bitrate: quality === 'high' ? 5000000 : quality === 'medium' ? 2500000 : 1000000,
+          codec: mimeType
+        }
+      }
+
+      // Store session for later download
+      activeSessions.set(recordingId, {
+        chunks: [],
+        mimeType,
+        recording: currentRecording
+      })
+
+      // Handle data available
+      mediaRecorder.ondataavailable = async (event) => {
+        if (event.data.size === 0) {
+          pendingChunks = Math.max(0, pendingChunks - 1)
+          return
+        }
+
+        pendingChunks++
+
+        // Store in memory for continuous playback/download
+        inMemoryChunks.push(event.data)
+        
+        // Also store in session
+        const session = activeSessions.get(currentSessionId)
+        if (session) {
+          session.chunks.push(event.data)
+        }
+
+        try {
+          // Write to OPFS for persistence
+          const opfsPath = await opfs.writeChunk(currentCampaignId, currentRecording!.id, chunkIndex, event.data)
+          
+          if (!opfsPath) {
+            console.error('Failed to write chunk to OPFS')
+            pendingChunks = Math.max(0, pendingChunks - 1)
+            return
+          }
+          
+          const buffer = await event.data.arrayBuffer()
+          const chunk: RecordingChunk = {
+            index: chunkIndex,
+            timestamp: new Date(),
+            duration: 1000, // 1 second chunks
+            size: event.data.size,
+            opfsPath,
+            checksum: await computeChecksum(buffer)
+          }
+          
+          currentRecording?.chunks.push(chunk)
+          chunkIndex++
+          
+          // Sync state periodically (every 5 chunks or 10 seconds)
+          if (chunkIndex % 5 === 0 || Date.now() - lastChunkSaveTime > 10000) {
+            syncRecordingState()
+          }
+        } catch (err: any) {
+          console.error('Error saving chunk:', err)
+        } finally {
+          pendingChunks = Math.max(0, pendingChunks - 1)
+        }
+      }
+
+      // Start recording with 1 second timeslice
+      mediaRecorder.start(1000)
+      isRecording.value = true
+
+      // Set up background/close handlers
+      setupBackgroundHandlers()
+
+      console.log('[useRecording] Recording started:', recordingId, 'MIME:', mimeType)
+      return true
+
+    } catch (err: any) {
+      error.value = err.message || 'Failed to start recording'
+      console.error('[useRecording] Error:', err)
+      return false
+    }
+  }
+
+  async function stopRecording(): Promise<Recording | null> {
+    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
+      return null
+    }
+
+    // Remove background handlers
+    removeBackgroundHandlers()
+
+    return new Promise((resolve) => {
+      // Request final data before stopping
+      mediaRecorder!.requestData()
+      
+      // Set up stop handler
+      mediaRecorder!.onstop = async () => {
+        if (!currentRecording) {
+          resolve(null)
+          return
+        }
+
+        // Wait for any pending chunks to be processed
+        let waitCount = 0
+        const maxWait = 50 // 5 seconds max
+        
+        while (pendingChunks > 0 && waitCount < maxWait) {
+          await new Promise(r => setTimeout(r, 100))
+          waitCount++
+        }
+
+        if (pendingChunks > 0) {
+          console.warn('[useRecording] Timeout waiting for chunks, proceeding with available data')
+        }
+
+        currentRecording.endedAt = new Date()
+        currentRecording.status = 'completed'
+
+        try {
+          // Save metadata to IndexedDB via store
+          await saveRecordingMetadata(currentRecording)
+          
+          // Mark recording as complete
+          markRecordingComplete()
+          
+          console.log('[useRecording] Recording saved:', currentRecording.id, 'Chunks:', inMemoryChunks.length, 'Pending:', pendingChunks)
+          resolve(currentRecording)
+        } catch (err: any) {
+          console.error('[useRecording] Error saving recording:', err)
+          error.value = err.message
+          resolve(null)
+        }
+      }
+
+      // Stop the recorder
+      mediaRecorder!.stop()
+      isRecording.value = false
+    })
+  }
+
+  async function saveRecordingMetadata(recording: Recording) {
+    const DB_NAME = 'P2PStreamRecordings'
+    const DB_VERSION = 1
+    const STORE_NAME = 'recordings'
+    
+    return new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open(DB_NAME, DB_VERSION)
+      
+      request.onerror = () => reject(request.error)
+      request.onsuccess = () => {
+        const db = request.result
+        const transaction = db.transaction(STORE_NAME, 'readwrite')
+        const store = transaction.objectStore(STORE_NAME)
+        
+        // Serialize for IndexedDB
+        const serialized: any = {
+          id: recording.id,
+          campaignId: recording.campaignId,
+          recordedBy: recording.recordedBy,
+          startedAt: recording.startedAt.toISOString(),
+          status: recording.status,
+          metadata: recording.metadata,
+          chunks: recording.chunks.map(c => ({
+            index: c.index,
+            timestamp: c.timestamp.toISOString(),
+            duration: c.duration,
+            size: c.size,
+            opfsPath: c.opfsPath,
+            checksum: c.checksum
+          }))
+        }
+        
+        if (recording.endedAt) {
+          serialized.endedAt = recording.endedAt.toISOString()
+        }
+        
+        const putRequest = store.put(serialized)
+        putRequest.onsuccess = () => resolve()
+        putRequest.onerror = () => reject(putRequest.error)
+      }
+      
+      request.onupgradeneeded = (event) => {
+        const db = (event.target as IDBOpenDBRequest).result
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          db.createObjectStore(STORE_NAME, { keyPath: 'id' })
+        }
+      }
+    })
+  }
+
+  // Get the continuous Blob for download (properly formatted WebM)
+  function getRecordingBlob(recordingId: string): Blob | null {
+    const session = activeSessions.get(recordingId)
+    if (!session || session.chunks.length === 0) {
+      return null
+    }
+    
+    // Create a single Blob from all chunks - this creates a valid WebM
+    // because all chunks have the same MIME type and format
+    return new Blob(session.chunks, { type: session.mimeType })
+  }
+
+  // Get the current in-progress recording blob
+  function getCurrentRecordingBlob(): Blob | null {
+    if (inMemoryChunks.length === 0) return null
+    return new Blob(inMemoryChunks, { type: currentMimeType })
+  }
+
+  // Create a URL for playback (works with MediaSource or direct playback)
+  function getPlaybackUrl(recordingId: string): string | null {
+    const blob = getRecordingBlob(recordingId)
+    if (!blob) return null
+    return URL.createObjectURL(blob)
+  }
+
+  // Cleanup session after download
+  function cleanupSession(recordingId: string) {
+    activeSessions.delete(recordingId)
+  }
+
+  async function computeChecksum(buffer: ArrayBuffer): Promise<string> {
+    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16)
+  }
+
+  return {
+    isRecording,
+    error,
+    startRecording,
+    stopRecording,
+    getRecordingBlob,
+    getCurrentRecordingBlob,
+    getPlaybackUrl,
+    cleanupSession,
+    checkForOrphanedRecordings
+  }
+}
