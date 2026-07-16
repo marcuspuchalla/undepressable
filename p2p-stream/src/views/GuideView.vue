@@ -68,7 +68,11 @@ function link(x1: number, y1: number, x2: number, y2: number, color: string, das
 const EMBER = '#fb7185'
 const GLOW = '#7dd3fc'
 const MOSS = '#6ee7b7'
-const svg = (inner: string) => `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:520px;display:block;margin:auto">${inner}</svg>`
+const svg = (inner: string, h = H) => `<svg viewBox="0 0 ${W} ${h}" width="100%" style="max-width:520px;display:block;margin:auto">${inner}</svg>`
+// Small caption helper — keeps label text out of the node/arrow geometry.
+function note(x: number, y: number, text: string, color: string, size = 9) {
+  return `<text x="${x}" y="${y}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="${size}" fill="${color}">${text}</text>`
+}
 
 const cases = [
   {
@@ -77,9 +81,10 @@ const cases = [
     title: 'One to one',
     body: 'Hand your stream to a single trusted person. Your phone connects directly to theirs over an encrypted peer-to-peer link — nothing passes through a server. They watch and record a copy.',
     svg: svg(
-      person(90, 70, 'You', EMBER) +
-        link(120, 60, 400, 60, GLOW, false, 'live + recorded') +
-        person(430, 70, 'Friend', GLOW),
+      person(95, 60, 'You', EMBER) +
+        link(125, 50, 395, 50, GLOW, false, 'live + recorded') +
+        person(425, 60, 'Friend', GLOW),
+      110,
     ),
   },
   {
@@ -88,13 +93,14 @@ const cases = [
     title: 'One to many',
     body: 'Share the room code with a group. Everyone who joins sees the same live stream and keeps their own independent recording, so there is no single copy to seize. You can see how many are watching and recording.',
     svg: svg(
-      person(80, 75, 'You', EMBER) +
-        link(110, 55, 300, 30, GLOW) +
-        link(110, 70, 300, 70, GLOW) +
-        link(110, 85, 300, 112, GLOW) +
-        person(330, 40, 'F1', GLOW) +
+      person(80, 80, 'You', EMBER) +
+        link(110, 66, 300, 42, GLOW) +
+        link(110, 80, 300, 80, GLOW) +
+        link(110, 94, 300, 118, GLOW) +
+        person(330, 42, 'F1', GLOW) +
         person(330, 80, 'F2', GLOW) +
-        person(330, 120, 'F3', GLOW),
+        person(330, 118, 'F3', GLOW),
+      158,
     ),
   },
   {
@@ -103,16 +109,19 @@ const cases = [
     title: 'Your personal hotspot (survives the internet dropping)',
     body: 'Friends near you join your phone’s personal hotspot. The video travels locally between phones, so even if your mobile internet is cut or jammed, the stream to the people around you keeps running. Pair over QR for a fully offline start.',
     svg: svg(
-      `<rect x="30" y="18" width="330" height="118" rx="10" fill="none" stroke="${GLOW}" stroke-width="1.2" stroke-dasharray="5 4"/>
-       <text x="45" y="34" font-family="ui-monospace,monospace" font-size="10" fill="#7dd3fc">personal hotspot (local)</text>` +
-        person(90, 85, 'You', EMBER) +
-        link(120, 75, 250, 55, GLOW) +
-        link(120, 90, 250, 110, GLOW) +
-        person(280, 65, 'F1', GLOW) +
-        person(280, 118, 'F2', GLOW) +
-        link(90, 55, 90, 26, '#64748b', true, '') +
-        `<text x="90" y="20" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9" fill="#64748b">internet</text>` +
-        `<text x="200" y="150" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#64748b">uplink may drop ✕ — local stream continues</text>`,
+      // internet uplink (may drop) — sits above the local-hotspot box
+      note(115, 22, 'internet ✕', '#64748b') +
+        link(115, 28, 115, 44, '#64748b', true, '') +
+        // the local hotspot: everything inside keeps working with no internet
+        `<rect x="40" y="46" width="380" height="116" rx="10" fill="none" stroke="${GLOW}" stroke-width="1.2" stroke-dasharray="5 4"/>` +
+        note(112, 63, 'local hotspot', GLOW, 10) +
+        person(115, 104, 'You', EMBER) +
+        link(145, 96, 317, 82, GLOW) +
+        link(145, 112, 317, 124, GLOW) +
+        person(345, 82, 'F1', GLOW) +
+        person(345, 126, 'F2', GLOW) +
+        note(230, 184, 'local video keeps flowing even if the uplink drops', '#64748b'),
+      196,
     ),
   },
   {
@@ -121,13 +130,14 @@ const cases = [
     title: 'Relay to a safe place',
     body: 'A friend watches nearby while their always-on home computer sits in the same room and archives the recording. If a phone at the scene is taken, the footage is already saved somewhere safe. Any trusted device left running can be the archive.',
     svg: svg(
-      person(70, 70, 'You', EMBER) +
-        link(100, 60, 210, 60, GLOW, false, 'live') +
-        person(240, 70, 'Friend', GLOW) +
-        link(270, 60, 400, 60, MOSS, false, 'forwarded') +
-        home(440, 62, 'Home PC', MOSS) +
-        `<text x="240" y="128" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9" fill="#fb7185">phone can be seized</text>
-         <text x="440" y="112" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9" fill="#6ee7b7">copy is safe here</text>`,
+      person(70, 62, 'You', EMBER) +
+        link(100, 52, 205, 52, GLOW, false, 'live') +
+        person(235, 62, 'Friend', GLOW) +
+        link(265, 52, 395, 52, MOSS, false, 'forwarded') +
+        home(435, 54, 'Home PC', MOSS) +
+        note(235, 118, 'phone can be seized', '#fb7185') +
+        note(435, 100, 'copy is safe here', '#6ee7b7'),
+      132,
     ),
   },
   {
@@ -136,12 +146,13 @@ const cases = [
     title: 'Off-grid mesh (planned, native app)',
     body: 'When Wi-Fi and mobile data are both jammed, a future native build could fall back to a phone-to-phone mesh that pairs over Bluetooth and carries video over device-to-device Wi-Fi (Android Nearby Connections / iOS MultipeerConnectivity). Bluetooth alone is too slow for video, so this needs the native app — not the web version.',
     svg: svg(
-      person(90, 70, 'You', EMBER) +
-        link(120, 60, 240, 60, '#64748b', true, 'BT pair') +
-        link(240, 62, 360, 62, MOSS, true, 'wifi-direct video') +
-        person(270, 70, 'F1', GLOW) +
-        person(400, 70, 'F2', GLOW) +
-        `<text x="240" y="128" text-anchor="middle" font-family="ui-monospace,monospace" font-size="10" fill="#64748b">no internet · no access point</text>`,
+      person(80, 62, 'You', EMBER) +
+        link(108, 52, 222, 52, '#64748b', true, 'BT pair') +
+        person(250, 62, 'F1', GLOW) +
+        link(278, 52, 402, 52, MOSS, true, 'wi-fi direct') +
+        person(430, 62, 'F2', GLOW) +
+        note(255, 118, 'no internet · no access point', '#64748b'),
+      132,
     ),
   },
 ]
