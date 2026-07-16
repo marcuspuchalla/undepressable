@@ -18,6 +18,8 @@
     "tauri:build:win": "echo 'Windows builds must be done on Windows or via CI/CD. See TAURI.md for details'"
   },
   "dependencies": {
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
     "jsqr": "^1.4.0",
     "pinia": "^2.1.7",
     "primeicons": "^7.0.0",
