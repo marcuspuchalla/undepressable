@@ -27,6 +27,62 @@
 
         <h2 class="font-display font-bold text-lg text-slate-100 mb-1">{{ uc.title }}</h2>
         <p class="text-sm text-slate-400 leading-relaxed">{{ uc.body }}</p>
+
+        <!-- step-by-step walkthrough (collapsed by default) -->
+        <div v-if="walks[uc.n]" class="mt-3 border-t border-line pt-3">
+          <button
+            class="flex items-center gap-2 text-sm font-medium text-glow"
+            :aria-expanded="expanded.has(uc.n)"
+            @click="toggle(uc.n)"
+          >
+            <svg
+              class="w-4 h-4 transition-transform"
+              :class="expanded.has(uc.n) ? 'rotate-90' : ''"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            ><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
+            {{ expanded.has(uc.n) ? 'Hide the walkthrough' : 'Show me how, step by step' }}
+          </button>
+
+          <div v-if="expanded.has(uc.n)" class="mt-3 space-y-4">
+            <!-- platform selector -->
+            <div>
+              <p class="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">I’m using</p>
+              <div class="inline-flex rounded-lg border border-line overflow-hidden">
+                <button
+                  v-for="p in PLATFORMS"
+                  :key="p.id"
+                  class="px-3 py-1.5 text-xs font-medium transition-colors"
+                  :class="platform === p.id ? 'bg-glow/15 text-glow' : 'text-slate-400 hover:text-slate-200'"
+                  @click="platform = p.id"
+                >{{ p.label }}</button>
+              </div>
+            </div>
+
+            <!-- open the app (platform-specific) -->
+            <div>
+              <h3 class="text-sm font-semibold text-slate-100 mb-1.5">Open the app</h3>
+              <ol class="list-decimal list-inside space-y-1 text-sm text-slate-400 marker:text-slate-600">
+                <li v-for="(s, i) in openApp[platform]" :key="i">{{ s }}</li>
+              </ol>
+            </div>
+
+            <!-- platform caveat -->
+            <p
+              v-if="walks[uc.n].caveat?.[platform]"
+              class="text-xs text-slate-300 bg-glow/5 border border-glow/20 rounded-lg px-3 py-2 leading-relaxed"
+            >{{ walks[uc.n].caveat?.[platform] }}</p>
+
+            <!-- role-based steps -->
+            <div v-for="role in walks[uc.n].roles" :key="role.who">
+              <h3 class="text-sm font-semibold text-slate-100 mb-1.5">{{ role.who }}</h3>
+              <ol class="list-decimal list-inside space-y-1 text-sm text-slate-400 marker:text-slate-600">
+                <li v-for="(s, i) in role.steps" :key="i">{{ s }}</li>
+              </ol>
+            </div>
+          </div>
+        </div>
       </article>
 
       <p class="text-xs text-slate-500 text-center px-6 leading-relaxed">
@@ -38,6 +94,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 
 // --- tiny SVG toolkit for the node-link topology diagrams (retro technical look) ---
@@ -156,4 +213,180 @@ const cases = [
     ),
   },
 ]
+
+// --- per-use-case walkthroughs, tailored to the reader's platform ---
+type Platform = 'ios' | 'android' | 'desktop'
+const PLATFORMS: { id: Platform; label: string }[] = [
+  { id: 'ios', label: 'iPhone' },
+  { id: 'android', label: 'Android' },
+  { id: 'desktop', label: 'Computer' },
+]
+const PLAT_KEY = 'undepressable_guide_platform'
+const platform = ref<Platform>(
+  ((): Platform => {
+    const s = localStorage.getItem(PLAT_KEY)
+    return s === 'ios' || s === 'android' || s === 'desktop' ? s : 'android'
+  })(),
+)
+watch(platform, (p) => {
+  try {
+    localStorage.setItem(PLAT_KEY, p)
+  } catch {
+    /* storage blocked */
+  }
+})
+
+// How you open/install the app — the same across every use case.
+const openApp: Record<Platform, string[]> = {
+  ios: [
+    'Open undepressable in Safari on your iPhone.',
+    'Tap the Share button, then “Add to Home Screen”, so it opens full-screen like a normal app.',
+    'Launch it from your Home Screen. Allow the camera and microphone if it asks.',
+  ],
+  android: [
+    'Open undepressable in Chrome on your Android phone.',
+    'Accept Chrome’s “Install app” prompt (or menu → “Add to Home screen”).',
+    'Launch it from your app drawer. Allow the camera and microphone if it asks.',
+  ],
+  desktop: [
+    'Open undepressable in Chrome, Edge or Firefox.',
+    'Optional: click the install icon in the address bar to run it in its own window.',
+    'Allow the camera and microphone if it asks (only needed if this device will stream).',
+  ],
+}
+
+interface Role {
+  who: string
+  steps: string[]
+}
+interface Walk {
+  roles: Role[]
+  caveat?: Partial<Record<Platform, string>>
+}
+
+const walks: Record<string, Walk> = {
+  '01': {
+    roles: [
+      {
+        who: 'You — share your stream',
+        steps: [
+          'Go to the Stream tab.',
+          'A room code, a link and a QR code appear.',
+          'Send the link to your trusted person, or let them scan the QR.',
+          'You’re live. Tap the red button to stop when you’re done.',
+        ],
+      },
+      {
+        who: 'Them — watch and keep a copy',
+        steps: [
+          'Go to the Collect tab.',
+          'Scan your QR, paste your link, or type the room code.',
+          'Their device starts watching and automatically records a signed copy.',
+          'The copy stays under Recordings, even if the connection drops.',
+        ],
+      },
+    ],
+  },
+  '02': {
+    roles: [
+      {
+        who: 'You — broadcast to the group',
+        steps: [
+          'Go to the Stream tab and share the one room code or QR with everyone.',
+          'The counters at the top show how many people are watching and recording.',
+          'Tap the red button to stop when you’re done.',
+        ],
+      },
+      {
+        who: 'Everyone watching',
+        steps: [
+          'Go to Collect and scan the QR or enter the code.',
+          'Each person keeps their own independent signed recording — there is no single copy to seize.',
+        ],
+      },
+    ],
+  },
+  '03': {
+    caveat: {
+      ios: 'iPhone hotspot: Settings → Personal Hotspot → “Allow Others to Join”. Note: recent iOS versions sometimes stop hotspot phones from talking directly to each other. If a watcher can’t connect, keep a normal Wi-Fi or mobile path as a backup.',
+      android: 'Android hotspot: Settings → Network & internet → Hotspot & tethering → Wi-Fi hotspot. Android usually lets connected phones reach each other directly.',
+      desktop: 'A laptop can share a local network too, but at a scene a phone’s Personal Hotspot is the usual setup — pick iPhone or Android above for the exact steps.',
+    },
+    roles: [
+      {
+        who: 'You — host the local stream',
+        steps: [
+          'Turn on your phone’s Personal Hotspot (see the note above for your phone).',
+          'Have the people near you join your hotspot’s Wi-Fi.',
+          'Go to Stream and share the room code or QR.',
+          'The video now travels phone-to-phone over the hotspot, so it keeps running even if your mobile internet is cut or jammed.',
+        ],
+      },
+      {
+        who: 'Each watcher',
+        steps: [
+          'Join the host’s hotspot Wi-Fi first.',
+          'Go to Collect and scan the QR (this works with no internet) or type the code.',
+        ],
+      },
+    ],
+  },
+  '04': {
+    caveat: {
+      desktop: 'A home computer is the best archive — it stays on, online, and out of reach at the scene.',
+      ios: 'A spare iPhone or iPad can be the archive, but keep the app open, on power, and set Auto-Lock to Never so it doesn’t sleep.',
+      android: 'A spare Android phone or tablet can be the archive, but keep the app open, on power, and the screen timeout long so it doesn’t sleep.',
+    },
+    roles: [
+      {
+        who: 'At home, before you leave — set up the archive',
+        steps: [
+          'On the device that stays safe at home, open “Set up a home archive” from the Home screen.',
+          'Leave it open and online. It shows a pairing QR and an 8-character code.',
+        ],
+      },
+      {
+        who: 'On the phone you take with you — pair once',
+        steps: [
+          'While you still have a good connection, scan the home archive’s QR (or open its link).',
+          'You’ll see “Home archive paired”. That’s it — nothing else to do at the scene.',
+        ],
+      },
+      {
+        who: 'At the scene',
+        steps: [
+          'Use Collect as usual — scan the streamer’s code and watch.',
+          'Your phone quietly forwards what it’s watching to your home device, which records and saves it.',
+          'If your phone is taken, the footage is already safe at home.',
+        ],
+      },
+    ],
+  },
+  '05': {
+    caveat: {
+      ios: 'Planned for the native iPhone app (MultipeerConnectivity). The web version can’t do this yet.',
+      android: 'Planned for the native Android app (Nearby Connections / Wi-Fi Aware). The web version can’t do this yet.',
+      desktop: 'Not applicable — this is a phone-to-phone mode for when there’s no network at all.',
+    },
+    roles: [
+      {
+        who: 'How it will work (not built yet)',
+        steps: [
+          'Install the native app — not the web version.',
+          'Open it near the people you’re streaming to.',
+          'It pairs with nearby phones over Bluetooth, then carries the video over device-to-device Wi-Fi.',
+          'No internet and no Wi-Fi router needed. Bluetooth alone is too slow for video, which is why this needs the native build.',
+        ],
+      },
+    ],
+  },
+}
+
+const expanded = ref<Set<string>>(new Set())
+function toggle(n: string) {
+  const s = new Set(expanded.value)
+  if (s.has(n)) s.delete(n)
+  else s.add(n)
+  expanded.value = s
+}
 </script>
