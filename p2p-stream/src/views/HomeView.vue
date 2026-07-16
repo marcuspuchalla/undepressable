@@ -4,7 +4,11 @@
     <section class="organic-veil px-5 pt-10 pb-8 text-center">
       <p class="text-xs uppercase tracking-[0.2em] text-glow/80 mb-4">Censorship-resistant streaming</p>
       <h1 class="font-display font-black text-slate-50 leading-[1.05] text-[2.5rem] sm:text-5xl mb-4 max-w-lg mx-auto">
-        Live truth that<br />can't be erased.
+        Live truth that<br />can't be erased<a
+          href="#erasable-footnote"
+          class="text-glow font-body font-normal text-[0.35em] align-super ml-0.5 no-underline hover:underline"
+          aria-label="footnote"
+        >✳</a>
       </h1>
       <p class="text-slate-400 max-w-md mx-auto mb-6 leading-relaxed">
         Stream live from your phone to trusted people with no central server. They watch and keep their own signed
@@ -51,6 +55,13 @@
           Share this app
         </button>
       </div>
+
+      <!-- Self-undercutting footnote — the irony the whole project lives with. -->
+      <p id="erasable-footnote" class="mt-8 pt-4 border-t border-line/60 text-[11px] leading-relaxed text-slate-500 italic max-w-sm mx-auto text-left">
+        <span class="text-glow not-italic mr-0.5">✳</span> Assuming anyone still trusts their own eyes. In
+        <span class="not-italic">1984</span>, rejecting “the evidence of your eyes and ears” was the Party's final,
+        most essential command.
+      </p>
     </section>
 
     <div class="px-4 pb-6 space-y-4">
