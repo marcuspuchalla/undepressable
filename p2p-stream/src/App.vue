@@ -125,6 +125,14 @@
               on other devices — nothing to delete in one place.
             </p>
           </div>
+
+          <RouterLink
+            to="/guide"
+            class="block text-center py-2 rounded-xl border border-line hover:border-glow/50 text-glow text-sm transition-colors"
+            @click="showHelp = false"
+          >
+            See all the ways to use it →
+          </RouterLink>
         </div>
       </div>
     </div>

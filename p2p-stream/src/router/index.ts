@@ -3,6 +3,7 @@ import HomeView from '../views/HomeView.vue'
 import StreamView from '../views/StreamView.vue'
 import CollectView from '../views/CollectView.vue'
 import RecordingsView from '../views/RecordingsView.vue'
+import GuideView from '../views/GuideView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -32,6 +33,11 @@ const router = createRouter({
       path: '/recordings',
       name: 'recordings',
       component: RecordingsView
+    },
+    {
+      path: '/guide',
+      name: 'guide',
+      component: GuideView
     }
   ]
 })

@@ -126,7 +126,10 @@
 
       <!-- How it works -->
       <div class="card">
-        <h3 class="font-display font-bold text-lg mb-4 text-slate-100">A workflow built for real life</h3>
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="font-display font-bold text-lg text-slate-100">A workflow built for real life</h3>
+          <RouterLink to="/guide" class="text-xs text-glow hover:underline whitespace-nowrap">Ways to use it →</RouterLink>
+        </div>
         <div class="space-y-4">
           <div class="flex items-start gap-4">
             <div class="w-8 h-8 rounded-full bg-glow/15 text-glow flex items-center justify-center flex-shrink-0 font-semibold text-sm">1</div>
