@@ -1,6 +1,13 @@
 # P2P Live Streaming for Emergency Evidence Preservation
 ## Comprehensive Implementation Plan
 
+> ⚠️ **Historical planning document.** This week-by-week plan predates the
+> **Trystero migration** — it still lists `simple-peer` + a custom WebSocket
+> signaling server as deliverables. Those were dropped in favour of serverless
+> signaling (BitTorrent DHT + Nostr). `PROJECT_PLAN.md` (with its update banner)
+> is the more current design source; `README.md` documents what is actually
+> built. Kept for the phased roadmap and requirement history.
+
 > **Project Goal**: Create a censorship-resistant, P2P live streaming application that ensures video evidence survives phone confiscation during protests or emergency situations.
 
 ---

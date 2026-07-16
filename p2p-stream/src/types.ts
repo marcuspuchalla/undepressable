@@ -1,3 +1,5 @@
+import type { RecordingProof } from "./lib/integrity";
+
 // User roles in the P2P network
 export type UserRole = 'streamer' | 'collector'
 
@@ -39,6 +41,8 @@ export interface Recording {
     bitrate: number
     codec: string
   }
+  // Tamper-evidence: Merkle root over chunk hashes, signed by an anonymous key.
+  proof?: RecordingProof
 }
 
 // Peer information

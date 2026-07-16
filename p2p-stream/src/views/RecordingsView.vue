@@ -80,6 +80,25 @@
                 {{ formatDuration(recording.endedAt.getTime() - recording.startedAt.getTime()) }}
               </span>
             </div>
+
+            <!-- Tamper-evidence -->
+            <div v-if="recording.proof" class="mt-2 flex flex-wrap items-center gap-2 text-xs">
+              <button
+                class="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 flex items-center gap-1 transition-colors"
+                @click="verify(recording)"
+              >
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                Verify integrity
+              </button>
+              <span
+                v-if="verifyResults[recording.id]"
+                :class="verifyResults[recording.id].valid ? 'text-green-400' : 'text-red-400'"
+                class="font-medium"
+              >
+                {{ verifyResults[recording.id].valid ? '✓ Unaltered' : '✗ ' + verifyResults[recording.id].reason }}
+              </span>
+              <span class="text-gray-600 font-mono" title="Anonymous signing key">signer {{ recording.proof.pubKey.slice(0, 8) }}…</span>
+            </div>
           </div>
 
           <!-- Actions -->
@@ -143,10 +162,13 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRecordingStore } from '../stores/recording'
 import { useOPFS } from '../composables/useOPFS'
+import { useRecording } from '../composables/useRecording'
 import type { Recording } from '../types'
+import type { VerificationResult } from '../lib/integrity'
 
 const recordingStore = useRecordingStore()
 const opfs = useOPFS()
+const recorder = useRecording()
 
 // State
 const recordings = computed(() => recordingStore.recordings)
@@ -154,6 +176,11 @@ const storageUsed = ref(0)
 const storageQuota = ref(0)
 const playingRecording = ref<Recording | null>(null)
 const playerVideo = ref<HTMLVideoElement>()
+const verifyResults = ref<Record<string, VerificationResult>>({})
+
+function verify(recording: Recording) {
+  verifyResults.value = { ...verifyResults.value, [recording.id]: recorder.verifyRecording(recording) }
+}
 
 const storagePercent = computed(() => {
   if (!storageQuota.value) return 0

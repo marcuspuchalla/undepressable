@@ -2,6 +2,42 @@ import { ref } from 'vue'
 import { useOPFS } from './useOPFS'
 import type { Recording, RecordingChunk, VideoQuality } from '../types'
 import { v4 as uuidv4 } from 'uuid'
+import {
+  sha256,
+  toHex,
+  buildProof,
+  verifyProof,
+  generateIdentity,
+  serializeIdentity,
+  deserializeIdentity,
+  type Identity,
+  type VerificationResult,
+} from '../lib/integrity'
+
+// A single anonymous Ed25519 identity per browser, used to sign recording
+// proofs. Persisted (no PII — just a random keypair) so a device's recordings
+// share one verifiable signer.
+const IDENTITY_KEY = 'undepressable_identity'
+let cachedIdentity: Identity | null = null
+function getIdentity(): Identity {
+  if (cachedIdentity) return cachedIdentity
+  try {
+    const saved = localStorage.getItem(IDENTITY_KEY)
+    if (saved) {
+      cachedIdentity = deserializeIdentity(JSON.parse(saved))
+      return cachedIdentity
+    }
+  } catch {
+    /* corrupt/absent — regenerate below */
+  }
+  cachedIdentity = generateIdentity()
+  try {
+    localStorage.setItem(IDENTITY_KEY, JSON.stringify(serializeIdentity(cachedIdentity)))
+  } catch {
+    /* storage blocked; identity still valid for this session */
+  }
+  return cachedIdentity
+}
 
 // In-memory storage for continuous recording (for download)
 interface RecordingSession {
@@ -37,6 +73,7 @@ export function useRecording() {
   let currentCampaignId: string = ''
   let currentSessionId: string = ''
   let inMemoryChunks: Blob[] = []
+  let chunkHashes: string[] = [] // full SHA-256 hex per chunk, for the Merkle proof
   let currentMimeType: string = ''
   let pendingChunks = 0
   let lastChunkSaveTime = 0
@@ -94,76 +131,31 @@ export function useRecording() {
     return null
   }
 
-  // Send beacon to preserve recording info on page close
-  function sendBeacon() {
-    if (!currentRecording || !isRecording.value) return
-    
-    const state: BackgroundSaveState = {
-      recordingId: currentRecording.id,
-      campaignId: currentCampaignId,
-      chunkCount: currentRecording.chunks.length,
-      lastChunkIndex: chunkIndex,
-      timestamp: Date.now(),
-      status: 'recording'
+  // Flush the recorder and persist state when the page is backgrounded or
+  // closing — the confiscation scenario. We can't reach a server (P2P, no
+  // backend), so "preserve" means: force MediaRecorder to emit its buffered
+  // data (so the last second lands in OPFS) and write a recovery marker to
+  // sessionStorage. There is no network beacon — a data: URL beacon goes
+  // nowhere; the real safety net is that other collectors hold independent
+  // copies.
+  function flushForBackground() {
+    if (!isRecording.value || !currentRecording) return
+    syncRecordingState()
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.requestData()
     }
-    
-    // Try to use Beacon API first (most reliable for page close)
-    // Use a data URL since we don't have a real endpoint
-    // The beacon will at least attempt to send the data
-    try {
-      navigator.sendBeacon?.('data:application/json;base64,' + btoa(JSON.stringify(state)))
-    } catch {
-      // Beacon might not be supported
-    }
-    
-    // Also sync to sessionStorage as backup
-    try {
-      sessionStorage.setItem('p2pstream_recording_state', JSON.stringify(state))
-    } catch (e) {
-      // Ignore
-    }
-    
-    console.log('[useRecording] Beacon sent for recording:', currentRecording.id)
   }
 
-  // Handle visibility change (page hidden/visible)
   function handleVisibilityChange() {
-    if (document.hidden) {
-      // Page is going to background - sync state immediately
-      console.log('[useRecording] Page hidden, syncing recording state')
-      syncRecordingState()
-      sendBeacon()
-    } else {
-      // Page is visible again
-      console.log('[useRecording] Page visible')
-    }
+    if (document.hidden) flushForBackground()
   }
 
-  // Handle before unload
   function handleBeforeUnload() {
-    if (isRecording.value && currentRecording) {
-      console.log('[useRecording] Before unload - sending beacon')
-      sendBeacon()
-      
-      // Request final chunk data
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.requestData()
-      }
-    }
+    flushForBackground()
   }
 
-  // Handle page hide (mobile browsers)
   function handlePageHide(_e: PageTransitionEvent) {
-    if (isRecording.value && currentRecording) {
-      console.log('[useRecording] Page hide - syncing state')
-      syncRecordingState()
-      sendBeacon()
-      
-      // Request final chunk data
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.requestData()
-      }
-    }
+    flushForBackground()
   }
 
   // Set up background/close handlers
@@ -206,6 +198,7 @@ export function useRecording() {
       error.value = null
       chunkIndex = 0
       inMemoryChunks = []
+      chunkHashes = []
       pendingChunks = 0
       lastChunkSaveTime = 0
 
@@ -285,13 +278,17 @@ export function useRecording() {
           }
           
           const buffer = await event.data.arrayBuffer()
+          // Full SHA-256 hex feeds the Merkle proof; the chunk's own `checksum`
+          // keeps its short prefix for quick display/back-compat.
+          const fullHash = toHex(await sha256(buffer))
+          chunkHashes.push(fullHash)
           const chunk: RecordingChunk = {
             index: chunkIndex,
             timestamp: new Date(),
             duration: 1000, // 1 second chunks
             size: event.data.size,
             opfsPath,
-            checksum: await computeChecksum(buffer)
+            checksum: fullHash.slice(0, 16)
           }
           
           currentRecording?.chunks.push(chunk)
@@ -360,6 +357,17 @@ export function useRecording() {
         currentRecording.endedAt = new Date()
         currentRecording.status = 'completed'
 
+        // Build the tamper-evidence proof: Merkle root over all chunk hashes,
+        // signed by this device's anonymous key.
+        try {
+          if (chunkHashes.length > 0) {
+            currentRecording.proof = buildProof(currentRecording.id, chunkHashes, getIdentity())
+            console.log('[useRecording] Proof built, merkle root:', currentRecording.proof.merkleRoot.slice(0, 16))
+          }
+        } catch (e) {
+          console.warn('[useRecording] Failed to build integrity proof:', e)
+        }
+
         try {
           // Save metadata to IndexedDB via store
           await saveRecordingMetadata(currentRecording)
@@ -417,7 +425,11 @@ export function useRecording() {
         if (recording.endedAt) {
           serialized.endedAt = recording.endedAt.toISOString()
         }
-        
+
+        if (recording.proof) {
+          serialized.proof = recording.proof // already a plain JSON object
+        }
+
         const putRequest = store.put(serialized)
         putRequest.onsuccess = () => resolve()
         putRequest.onerror = () => reject(putRequest.error)
@@ -462,10 +474,11 @@ export function useRecording() {
     activeSessions.delete(recordingId)
   }
 
-  async function computeChecksum(buffer: ArrayBuffer): Promise<string> {
-    const hashBuffer = await crypto.subtle.digest('SHA-256', buffer)
-    const hashArray = Array.from(new Uint8Array(hashBuffer))
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('').substring(0, 16)
+  // Re-derive the Merkle root from stored chunk hashes and check the signature,
+  // proving the recording hasn't been altered since it was saved.
+  function verifyRecording(recording: Recording): VerificationResult {
+    if (!recording.proof) return { valid: false, reason: 'No integrity proof was recorded' }
+    return verifyProof(recording.proof)
   }
 
   return {
@@ -477,6 +490,8 @@ export function useRecording() {
     getCurrentRecordingBlob,
     getPlaybackUrl,
     cleanupSession,
-    checkForOrphanedRecordings
+    checkForOrphanedRecordings,
+    verifyRecording,
+    getIdentity
   }
 }

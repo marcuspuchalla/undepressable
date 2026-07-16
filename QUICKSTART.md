@@ -1,5 +1,12 @@
 # P2P Emergency Stream - Quick Start Guide
 
+> ⚠️ **Partially superseded (2026-07).** The signaling description below (a
+> WebSocket server at `ws://localhost:3001`, `useWebRTC.ts`, `signaling.ts`) is
+> **out of date** — those were removed when the project migrated to **Trystero**
+> (serverless signaling over BitTorrent DHT + Nostr; no signaling server to run).
+> See `README.md` and `PROJECT_PLAN.md` for the current architecture. The
+> "Known Limitations / Next Steps" notes here are still broadly accurate.
+
 ## 🎯 Working Prototype Status
 
 This is a functional P2P live streaming application with the following capabilities:
