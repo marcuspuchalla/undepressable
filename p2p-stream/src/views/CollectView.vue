@@ -130,6 +130,32 @@
 
     <!-- Controls -->
     <div class="flex-none p-4 bg-gray-900 border-t border-gray-800 space-y-4">
+      <!-- Home archive forwarding -->
+      <div class="flex items-center gap-2 text-xs">
+        <svg class="w-4 h-4 shrink-0" :class="pairedHome ? 'text-moss' : 'text-slate-500'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+        <template v-if="pairedHome">
+          <span class="text-slate-400">
+            Home archive
+            <span class="font-mono text-slate-300">{{ pairedHome }}</span>:
+            <span :class="forwarding ? 'text-moss' : 'text-slate-500'">{{ forwarding ? 'forwarding ✓' : (remoteStream ? 'connecting…' : 'ready') }}</span>
+          </span>
+          <button class="ml-auto text-slate-500 hover:text-slate-300 underline" @click="unpairHome">unpair</button>
+        </template>
+        <template v-else>
+          <span class="text-slate-500">No home archive.</span>
+          <button class="text-glow hover:underline" @click="showPair = !showPair">Forward to a home device</button>
+        </template>
+      </div>
+      <div v-if="showPair && !pairedHome" class="flex gap-2">
+        <input
+          v-model="pairInput"
+          placeholder="Home code (8 chars)"
+          class="input flex-1 text-center font-mono uppercase text-sm"
+          @input="pairInput = pairInput.toUpperCase().replace(/[^A-Z0-9]/g, '')"
+        />
+        <button class="btn-secondary px-4 text-sm" @click="pairHome">Pair</button>
+      </div>
+
       <!-- Connection Controls -->
       <div v-if="!isConnected && !remoteStream && !showQRScanner" class="space-y-3">
         <!-- Room Code Input with Scan Button -->
@@ -268,6 +294,7 @@ import { useRecording } from '../composables/useRecording'
 import { useQRScanner } from '../composables/useQRScanner'
 import type { Recording } from '../types'
 import { getFullRoomId, isValidShortRoomId } from '../utils/roomId'
+import { getPairedHome, setPairedHome, clearPairedHome, archiveRoomId } from '../lib/archive'
 import DebugModal from '../components/DebugModal.vue'
 
 const qrScanner = useQRScanner()
@@ -307,6 +334,46 @@ let streamWatchdog: number | null = null
 const STREAM_TIMEOUT_MS = 20000
 
 const counts = computed(() => trystero.counts.value)
+
+// --- home archive forwarding ---
+// A second, independent P2P connection: while this phone watches the demo, it
+// re-broadcasts the received stream to the friend's home device so a copy is
+// safe there too. The streamer is unaffected — it still sends just one stream.
+const archiveFwd = useTrystero()
+const pairedHome = ref<string | null>(getPairedHome())
+const forwarding = ref(false)
+const showPair = ref(false)
+const pairInput = ref('')
+watch(() => archiveFwd.peerCount.value, (n) => (forwarding.value = n > 0))
+
+async function startForwarding(stream: MediaStream) {
+  if (!pairedHome.value) return
+  try {
+    await archiveFwd.init(['both'])
+    await archiveFwd.createRoom(archiveRoomId(pairedHome.value), ['both'], stream)
+    console.log('[CollectView] Forwarding stream to home archive', pairedHome.value)
+  } catch (e) {
+    console.warn('[CollectView] Failed to start home forwarding:', e)
+  }
+}
+function stopForwarding() {
+  archiveFwd.leaveRoom()
+  forwarding.value = false
+}
+function pairHome() {
+  if (setPairedHome(pairInput.value)) {
+    pairedHome.value = pairInput.value.toUpperCase()
+    showPair.value = false
+    pairInput.value = ''
+    // If already watching, begin forwarding immediately.
+    if (remoteStream.value) startForwarding(remoteStream.value)
+  }
+}
+function unpairHome() {
+  stopForwarding()
+  clearPairedHome()
+  pairedHome.value = null
+}
 
 onMounted(async () => {
   // Auto-join from URL only - don't request camera permission
@@ -365,6 +432,10 @@ async function joinStream(shortCode: string) {
       if (!isRecording.value && !savedRecording.value) {
         setTimeout(() => startRecording(), 1000)
       }
+
+      // If a home archive is paired, forward this stream on to it so a copy is
+      // safe at home even if this phone is later seized.
+      if (pairedHome.value) startForwarding(stream)
     })
 
     console.log('[CollectView] Successfully joined room')
@@ -404,6 +475,7 @@ function disconnect() {
   }
   
   trystero.leaveRoom()
+  stopForwarding()
   remoteStream.value = null
   isConnected.value = false
   noStreamHint.value = false
@@ -592,6 +664,7 @@ onUnmounted(() => {
   }
   stopQRScanner()
   trystero.leaveRoom()
+  archiveFwd.leaveRoom()
 })
 
 // Expose validation function to template

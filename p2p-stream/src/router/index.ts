@@ -4,6 +4,8 @@ import StreamView from '../views/StreamView.vue'
 import CollectView from '../views/CollectView.vue'
 import RecordingsView from '../views/RecordingsView.vue'
 import GuideView from '../views/GuideView.vue'
+import ArchiveView from '../views/ArchiveView.vue'
+import PairHomeView from '../views/PairHomeView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -38,6 +40,17 @@ const router = createRouter({
       path: '/guide',
       name: 'guide',
       component: GuideView
+    },
+    {
+      path: '/archive',
+      name: 'archive',
+      component: ArchiveView
+    },
+    {
+      path: '/pair-home/:code',
+      name: 'pair-home',
+      component: PairHomeView,
+      props: true
     }
   ]
 })
