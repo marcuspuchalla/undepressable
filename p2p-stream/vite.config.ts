@@ -133,7 +133,10 @@ export default defineConfig({
   },
   server: {
     port: 4400,
-    host: true
+    host: true,
+    // Allow reaching the dev server through a tunnel host (e.g. *.trycloudflare.com)
+    // for on-device testing over HTTPS. Dev-only; does not affect production builds.
+    allowedHosts: true
   },
   build: {
     target: 'esnext',
