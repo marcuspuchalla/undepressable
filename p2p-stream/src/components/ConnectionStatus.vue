@@ -1,42 +1,25 @@
 <template>
-  <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-800 border border-gray-700">
-    <div 
-      class="w-2 h-2 rounded-full"
-      :class="statusClass"
-    />
-    <span class="text-xs font-medium text-gray-300">{{ statusText }}</span>
+  <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-haze border border-line">
+    <div class="w-2 h-2 rounded-full" :class="online ? 'bg-moss' : 'bg-slate-500'" />
+    <span class="text-xs font-medium text-slate-300">{{ online ? 'Online' : 'Offline' }}</span>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
-import { useTrystero } from '../composables/useTrystero'
+// A lightweight network indicator for the header. Live peer/stream status is
+// shown inside the Stream/Collect views (which own the P2P connection).
+import { ref, onMounted, onUnmounted } from 'vue'
 
-const trystero = useTrystero()
-
-const statusClass = computed(() => {
-  if (trystero.isConnecting.value) {
-    return 'bg-yellow-500 animate-pulse'
-  }
-  if (trystero.peerCount.value > 0) {
-    return 'bg-green-500'
-  }
-  if (trystero.error.value) {
-    return 'bg-red-500'
-  }
-  return 'bg-gray-500'
+const online = ref(typeof navigator !== 'undefined' ? navigator.onLine : true)
+function update() {
+  online.value = navigator.onLine
+}
+onMounted(() => {
+  window.addEventListener('online', update)
+  window.addEventListener('offline', update)
 })
-
-const statusText = computed(() => {
-  if (trystero.isConnecting.value) {
-    return 'Connecting...'
-  }
-  if (trystero.peerCount.value > 0) {
-    return `${trystero.peerCount.value} Peer${trystero.peerCount.value !== 1 ? 's' : ''}`
-  }
-  if (trystero.error.value) {
-    return 'Failed'
-  }
-  return 'Ready'
+onUnmounted(() => {
+  window.removeEventListener('online', update)
+  window.removeEventListener('offline', update)
 })
 </script>

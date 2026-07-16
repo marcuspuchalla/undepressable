@@ -6,46 +6,56 @@
   html {
     @apply h-full;
   }
-  
+
   body {
-    @apply h-full overflow-hidden;
+    @apply h-full overflow-hidden bg-ink text-slate-200 font-body antialiased;
     -webkit-tap-highlight-color: transparent;
   }
-  
+
   #app {
     @apply h-full;
+  }
+
+  h1,
+  h2,
+  h3 {
+    @apply font-display;
   }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center px-4 py-2 rounded-lg font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-xl font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-ink disabled:opacity-50 disabled:cursor-not-allowed;
   }
-  
+
+  /* Primary action — cyan "signal" accent on ink text. */
   .btn-primary {
-    @apply btn bg-primary-600 text-white hover:bg-primary-700 focus:ring-primary-500;
+    @apply btn bg-glow text-ink hover:bg-primary-200 focus:ring-glow;
   }
-  
+
+  /* Go-live / record — the one loud, urgent control. */
   .btn-emergency {
-    @apply btn bg-emergency-600 text-white hover:bg-emergency-700 focus:ring-emergency-500 animate-pulse-fast;
+    @apply btn bg-ember text-ink font-semibold hover:bg-rose-300 focus:ring-ember;
   }
-  
+
   .btn-secondary {
-    @apply btn bg-gray-700 text-white hover:bg-gray-600 focus:ring-gray-500;
+    @apply btn bg-haze text-slate-200 border border-line hover:border-glow/50 focus:ring-glow;
   }
-  
-  .card {
-    @apply bg-gray-800 rounded-xl border border-gray-700 p-4 shadow-lg;
+
+  /* Glassmorphism surface — the signature panel of the brand. */
+  .card,
+  .glass-panel {
+    @apply rounded-2xl border border-line bg-night/70 backdrop-blur-md p-4 shadow-soft;
   }
-  
+
   .input {
-    @apply w-full px-3 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+    @apply w-full px-3 py-2 bg-haze border border-line rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-glow focus:border-transparent;
   }
-  
+
   .video-container {
-    @apply relative bg-black rounded-lg overflow-hidden;
+    @apply relative bg-black rounded-2xl overflow-hidden;
   }
-  
+
   .video-container video {
     @apply w-full h-full object-cover;
   }
@@ -56,8 +66,24 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
-  
+
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Ambient tri-color gradient wash for hero/backdrops. */
+  .organic-veil {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .organic-veil::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    background-image: theme("backgroundImage.radial-fade");
+    filter: blur(8px);
+    opacity: 0.9;
   }
 }
