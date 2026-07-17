@@ -66,10 +66,19 @@ await fwd.createRoom('some-room-id', ['both'], stream)   // now broadcasting
 
 **Pass criteria**
 
-- B shows A's video within a few seconds. ⬜ (E3)
-- B records automatically; the file appears under Recordings. ✅ recording engine (E2), ⬜ from a real camera (E3)
+- B shows A's video within a few seconds. ✅ 2026-07-17 — real iPhone streamer over the HTTPS tunnel, watched from a browser collector; 1280×720 stream received.
+- B records automatically; the file appears under Recordings. ✅ 2026-07-17 — recorded from the real camera: 459 chunks, 1280×720, 2:02.
 - A's counter reads `watching 1`; B leaving drops it to `0`. ✅ (E2, verified live between tabs)
-- Integrity check reports **Unaltered**; a byte-flipped chunk reports **Merkle root mismatch**. ✅ (E1 + E2)
+- Integrity check reports **Unaltered**; a byte-flipped chunk reports **Merkle root mismatch**. ✅ (E1 + E2; and **Unaltered** confirmed on the real-camera recording 2026-07-17)
+
+**Bugs found during this run (owed a fix before launch):**
+
+- **Collector video won't autoplay** — the `<video>` isn't muted and carries
+  audio, so browsers block autoplay; the watcher sees black until they tap.
+  Fix: mute by default with a tap-to-unmute, or muted-autoplay + a play overlay.
+- **Stale "Retry" error bar** — the red Retry bar stays visible over a stream
+  that is actually playing (error/no-stream state not cleared once the stream
+  arrives).
 
 ---
 
@@ -202,8 +211,28 @@ no network at all.
 - **Dev service worker caches aggressively:** during development, unregister the
   SW and clear caches before trusting what the browser shows.
 
+## Critical bug found & fixed during on-device testing (2026-07-17)
+
+Real two-device testing surfaced a launch-blocker the synthetic tests had
+hidden: **peer discovery was crippled by Trystero's default Nostr relays.**
+The streamer's console was flooded with `relay failure … blocked: not on
+white-list` / `invalid: ephemeral event expired`, so watchers sat on "waiting
+for stream" — only the very first viewer (sometimes) ever connected, and
+discovery could take 3+ minutes. Fixed by pinning a curated set of open relays
+(`NOSTR_RELAYS` in `src/types.ts`, passed as `relayUrls`). Controlled repro
+after the fix: discovery ~13s, and **both early and late joiners** receive the
+stream with consistent counts (streaming 1, watching 2, total 3). This confirms
+the late-joiner forwarding was always correct — the relays were the bug.
+
+Lesson for the test plan: peer discovery over public relays **must** be
+exercised on real, separate devices; a single machine warmed up by prior runs
+masks relay failures.
+
 ## What has been verified so far (2026-07)
 
+- ✅ **Real phone camera → P2P → collector** (2026-07-17, over the HTTPS tunnel):
+  1280×720 stream received, recorded (459 chunks, 2:02), integrity **Unaltered**.
+- ✅ Peer discovery reliable after the relay fix; early + late joiners both get video.
 - ✅ Unit suite green (see TESTING.md count).
 - ✅ Live counts between two tabs: join/record/stop/leave all propagate correctly.
 - ✅ Late-joiner receives the stream (streamer re-forwards on peer join).
