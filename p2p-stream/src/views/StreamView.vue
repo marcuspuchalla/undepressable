@@ -357,22 +357,25 @@ async function shareViaNative() {
   }
 }
 
-// Generate QR code when modal is shown
+// Generate QR code when modal is shown.
+// Wait for the modal's v-if to render the canvas FIRST — at the moment
+// showQRModal flips true the canvas doesn't exist yet, so nextTick must come
+// before we read qrCanvas (otherwise the QR silently never draws — blank box).
 watch(showQRModal, async (show) => {
-  if (show && qrCanvas.value) {
-    await nextTick()
-    try {
-      await QRCode.toCanvas(qrCanvas.value, shareUrl.value, {
-        width: 192,
-        margin: 2,
-        color: {
-          dark: '#000000',
-          light: '#ffffff'
-        }
-      })
-    } catch (err) {
-      console.error('Failed to generate QR code:', err)
-    }
+  if (!show) return
+  await nextTick()
+  if (!qrCanvas.value || !shareUrl.value) return
+  try {
+    await QRCode.toCanvas(qrCanvas.value, shareUrl.value, {
+      width: 192,
+      margin: 2,
+      color: {
+        dark: '#000000',
+        light: '#ffffff'
+      }
+    })
+  } catch (err) {
+    console.error('Failed to generate QR code:', err)
   }
 })
 
