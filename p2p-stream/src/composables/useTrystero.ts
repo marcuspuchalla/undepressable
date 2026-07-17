@@ -1,6 +1,6 @@
 import { ref, computed, markRaw } from "vue";
 import type { PeerInfo, UserRole } from "../types";
-import { RTC_CONFIG } from "../types";
+import { RTC_CONFIG, NOSTR_RELAYS } from "../types";
 import { computeCounts, pruneStale, isValidStat, type SwarmStat } from "../lib/swarm/stats";
 
 // Trystero strategies - lazy loaded
@@ -104,7 +104,13 @@ export function useTrystero() {
     for (const strategy of resolveStrategies(strategies)) {
       const join = strategy === "nostr" ? joinRoomNostr : joinRoomTorrent;
       // Passing rtcConfig lets us add TURN relays for cross-network reach.
-      const room: TrysteroRoom = join({ appId: "p2p-es-v1", rtcConfig: RTC_CONFIG }, campaignId);
+      // For the nostr strategy, pin a curated relay list — Trystero's defaults
+      // include relays that reject our signaling and stall peer discovery.
+      const config =
+        strategy === "nostr"
+          ? { appId: "p2p-es-v1", rtcConfig: RTC_CONFIG, relayUrls: NOSTR_RELAYS }
+          : { appId: "p2p-es-v1", rtcConfig: RTC_CONFIG };
+      const room: TrysteroRoom = join(config, campaignId);
       rooms.value.set(strategy, markRaw(room));
       if (!selfId.value) selfId.value = room.selfId;
       setupRoomHandlers(room, role);

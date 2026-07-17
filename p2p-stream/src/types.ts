@@ -134,3 +134,19 @@ export const RTC_CONFIG: RTCConfiguration = {
   iceServers: ICE_SERVERS.iceServers,
   iceCandidatePoolSize: 10
 }
+
+// Nostr relays used for peer discovery/signaling.
+//
+// Trystero's built-in default relay list has rotted: several of its defaults
+// now reject our ephemeral signaling events ("blocked: not on white-list",
+// "invalid: ephemeral event expired"), which made peer discovery take minutes
+// or fail outright. We pin a curated set of large, open relays that accept
+// ephemeral events, so two peers find each other in seconds.
+export const NOSTR_RELAYS = [
+  'wss://relay.damus.io',
+  'wss://nos.lol',
+  'wss://relay.primal.net',
+  'wss://nostr.mom',
+  'wss://offchain.pub',
+  'wss://relay.snort.social'
+]
