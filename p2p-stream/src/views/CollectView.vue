@@ -22,9 +22,19 @@
         :srcObject="remoteStream"
         autoplay
         playsinline
+        :muted="videoMuted"
         class="w-full h-full object-cover"
         @canplay="handleVideoCanPlay"
       />
+      <!-- Muted-by-default so the browser always autoplays the video; tap for sound. -->
+      <button
+        v-if="remoteStream && videoMuted"
+        class="absolute bottom-20 right-4 z-10 px-3 py-1.5 bg-black/70 hover:bg-black/85 rounded-full text-white text-xs flex items-center gap-1.5"
+        @click="unmuteVideo"
+      >
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l4-4m0 4l-4-4" /></svg>
+        Tap for sound
+      </button>
       
       <!-- QR Scanner View -->
       <div v-else-if="showQRScanner" class="absolute inset-0 bg-black">
@@ -115,8 +125,8 @@
         <span class="px-2 py-1 bg-gray-800/80 rounded text-xs">🐦 Nostr</span>
       </div>
 
-      <!-- Connection Error -->
-      <div v-if="trystero.error" class="absolute inset-x-4 bottom-20 p-4 bg-red-900/90 rounded-lg text-center">
+      <!-- Connection Error (never over a stream that's actually playing) -->
+      <div v-if="trystero.error && !remoteStream" class="absolute inset-x-4 bottom-20 p-4 bg-red-900/90 rounded-lg text-center">
         <p class="text-red-200 mb-2">{{ trystero.error }}</p>
         <button
           v-if="!isRetrying"
@@ -310,6 +320,7 @@ const recording = useRecording()
 
 // State
 const videoPlayer = ref<HTMLVideoElement>()
+const videoMuted = ref(true)
 const qrVideo = ref<HTMLVideoElement>()
 const qrCanvas = ref<HTMLCanvasElement>()
 const debugModal = ref<InstanceType<typeof DebugModal>>()
@@ -426,6 +437,7 @@ async function joinStream(shortCode: string) {
       console.log('[CollectView] Received remote stream')
       remoteStream.value = stream
       noStreamHint.value = false
+      trystero.error.value = null // clear any stale connection error now that video is here
       if (streamWatchdog) { clearTimeout(streamWatchdog); streamWatchdog = null }
 
       // Auto-start recording when stream received
@@ -554,10 +566,26 @@ function closePlayback() {
 }
 
 function handleVideoCanPlay() {
-  console.log('[CollectView] Video can play')
+  const v = videoPlayer.value
+  if (!v) return
+  // Force the muted property (Vue doesn't reliably set it on first render) so
+  // autoplay is allowed, then play. If somehow still blocked, retry muted.
+  v.muted = videoMuted.value
+  v.play().catch(() => {
+    v.muted = true
+    videoMuted.value = true
+    v.play().catch(err => console.warn('Auto-play failed even muted:', err))
+  })
+}
+
+function unmuteVideo() {
+  videoMuted.value = false
   if (videoPlayer.value) {
-    videoPlayer.value.play().catch(err => {
-      console.warn('Auto-play failed:', err)
+    videoPlayer.value.muted = false
+    videoPlayer.value.play().catch(() => {
+      // If the browser rejects unmuted playback, stay muted.
+      videoMuted.value = true
+      if (videoPlayer.value) videoPlayer.value.muted = true
     })
   }
 }
