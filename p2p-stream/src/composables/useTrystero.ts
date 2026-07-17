@@ -6,8 +6,9 @@ import { computeCounts, pruneStale, isValidStat, type SwarmStat } from "../lib/s
 // Trystero strategies - lazy loaded
 let joinRoomTorrent: any = null;
 let joinRoomNostr: any = null;
+let joinRoomMqtt: any = null;
 
-export type TrysteroStrategy = "torrent" | "nostr" | "both";
+export type TrysteroStrategy = "torrent" | "nostr" | "mqtt" | "both";
 
 // Trystero's action send/receive tuple. `send(data, targetPeers?)`; `receive`
 // fires per incoming message with the sender's peer id.
@@ -50,6 +51,9 @@ export function useTrystero() {
   const peerCount = computed(() => peers.value.size);
   const isConnected = computed(() => peerCount.value > 0);
   const peerList = computed(() => Array.from(peers.value.values()));
+  // The transports actually open right now (torrent / nostr / mqtt) — used for
+  // the on-screen connection badges.
+  const connectedStrategies = computed(() => Array.from(rooms.value.keys()));
 
   const selfStat = computed<SwarmStat>(() => ({
     role: myRole.value,
@@ -60,13 +64,16 @@ export function useTrystero() {
   const counts = computed(() => computeCounts([selfStat.value, ...peerStats.value.values()]));
 
   // Lazy load strategy modules
-  async function loadStrategy(strategy: "torrent" | "nostr") {
+  async function loadStrategy(strategy: "torrent" | "nostr" | "mqtt") {
     if (strategy === "torrent" && !joinRoomTorrent) {
       const mod = await import("trystero/torrent");
       joinRoomTorrent = mod.joinRoom;
     } else if (strategy === "nostr" && !joinRoomNostr) {
       const mod = await import("trystero/nostr");
       joinRoomNostr = mod.joinRoom;
+    } else if (strategy === "mqtt" && !joinRoomMqtt) {
+      const mod = await import("trystero/mqtt");
+      joinRoomMqtt = mod.joinRoom;
     }
   }
 
@@ -81,6 +88,9 @@ export function useTrystero() {
       if (strategies.includes("nostr") || strategies.includes("both")) {
         await loadStrategy("nostr");
       }
+      if (strategies.includes("mqtt") || strategies.includes("both")) {
+        await loadStrategy("mqtt");
+      }
 
       isReady.value = true;
       return true;
@@ -90,10 +100,12 @@ export function useTrystero() {
     }
   }
 
-  function resolveStrategies(strategies: TrysteroStrategy[]): ("torrent" | "nostr")[] {
+  function resolveStrategies(strategies: TrysteroStrategy[]): ("torrent" | "nostr" | "mqtt")[] {
+    // "both" now means "every zero-config transport" — the more independent
+    // discovery paths, the faster and more reliably peers find each other.
     return strategies.includes("both")
-      ? ["torrent", "nostr"]
-      : (strategies.filter((s) => s !== "both") as ("torrent" | "nostr")[]);
+      ? ["torrent", "nostr", "mqtt"]
+      : (strategies.filter((s) => s !== "both") as ("torrent" | "nostr" | "mqtt")[]);
   }
 
   function openRooms(campaignId: string, strategies: TrysteroStrategy[], role: UserRole, stream?: MediaStream) {
@@ -102,7 +114,8 @@ export function useTrystero() {
     if (stream) localStream.value = stream;
 
     for (const strategy of resolveStrategies(strategies)) {
-      const join = strategy === "nostr" ? joinRoomNostr : joinRoomTorrent;
+      const join =
+        strategy === "nostr" ? joinRoomNostr : strategy === "mqtt" ? joinRoomMqtt : joinRoomTorrent;
       // Passing rtcConfig lets us add TURN relays for cross-network reach.
       // For the nostr strategy, pin a curated relay list — Trystero's defaults
       // include relays that reject our signaling and stall peer discovery.
@@ -301,6 +314,7 @@ export function useTrystero() {
     peerCount,
     isConnected,
     peerList,
+    connectedStrategies,
     counts,
     // Methods
     init,

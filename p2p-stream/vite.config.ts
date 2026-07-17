@@ -121,7 +121,10 @@ export default defineConfig({
         ]
       },
       devOptions: {
-        enabled: true,
+        // Keep the service worker OFF in dev — a caching SW repeatedly served
+        // stale code during on-device testing. Production builds still get the
+        // full PWA/SW; this only affects `npm run dev`.
+        enabled: false,
         type: 'module'
       }
     })

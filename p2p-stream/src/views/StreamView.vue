@@ -30,10 +30,13 @@
           </div>
         </div>
 
-        <!-- Strategy Badges -->
+        <!-- Strategy Badges: the transports actually open right now -->
         <div v-if="isRoomJoined" class="absolute bottom-24 left-4 flex gap-2">
-          <span class="px-2 py-1 bg-gray-800/80 rounded text-xs">🌊 BitTorrent</span>
-          <span class="px-2 py-1 bg-gray-800/80 rounded text-xs">🐦 Nostr</span>
+          <span
+            v-for="s in trystero.connectedStrategies.value"
+            :key="s"
+            class="px-2 py-1 bg-gray-800/80 rounded text-xs"
+          >{{ STRATEGY_LABELS[s] }}</span>
         </div>
 
         <!-- Room Info -->
@@ -171,7 +174,7 @@
           <!-- Instructions -->
           <div class="text-center text-sm text-gray-400 max-w-sm">
             <p>Share this code or QR with collectors to join your stream.</p>
-            <p class="mt-2">Both BitTorrent and Nostr are being used for maximum reliability.</p>
+            <p class="mt-2">BitTorrent, Nostr and MQTT are all used for maximum reliability.</p>
           </div>
         </div>
       </div>
@@ -197,6 +200,11 @@ const localIP = useLocalIP()
 const videoPreview = ref<HTMLVideoElement>()
 const qrCanvas = ref<HTMLCanvasElement>()
 const localStream = ref<MediaStream | null>(null)
+const STRATEGY_LABELS: Record<string, string> = {
+  torrent: '🌊 BitTorrent',
+  nostr: '🐦 Nostr',
+  mqtt: '📡 MQTT',
+}
 const roomCode = ref('')
 const shareUrl = ref('')
 const isRoomJoined = ref(false)

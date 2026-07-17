@@ -26,14 +26,15 @@
         class="w-full h-full object-cover"
         @canplay="handleVideoCanPlay"
       />
-      <!-- Muted-by-default so the browser always autoplays the video; tap for sound. -->
+      <!-- Muted-by-default so the browser always autoplays; toggle sound on/off. -->
       <button
-        v-if="remoteStream && videoMuted"
+        v-if="remoteStream"
         class="absolute bottom-20 right-4 z-10 px-3 py-1.5 bg-black/70 hover:bg-black/85 rounded-full text-white text-xs flex items-center gap-1.5"
-        @click="unmuteVideo"
+        @click="toggleMute"
       >
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l4-4m0 4l-4-4" /></svg>
-        Tap for sound
+        <svg v-if="videoMuted" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14l4-4m0 4l-4-4" /></svg>
+        <svg v-else class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.536 8.464a5 5 0 010 7.072M18.364 5.636a9 9 0 010 12.728" /></svg>
+        {{ videoMuted ? 'Tap for sound' : 'Mute' }}
       </button>
       
       <!-- QR Scanner View -->
@@ -119,10 +120,13 @@
         </div>
       </div>
 
-      <!-- Strategy Badges -->
+      <!-- Strategy Badges: the transports actually open right now -->
       <div v-if="isConnecting || remoteStream" class="absolute bottom-4 left-4 flex gap-2">
-        <span class="px-2 py-1 bg-gray-800/80 rounded text-xs">🌊 BitTorrent</span>
-        <span class="px-2 py-1 bg-gray-800/80 rounded text-xs">🐦 Nostr</span>
+        <span
+          v-for="s in trystero.connectedStrategies.value"
+          :key="s"
+          class="px-2 py-1 bg-gray-800/80 rounded text-xs"
+        >{{ STRATEGY_LABELS[s] }}</span>
       </div>
 
       <!-- Connection Error (never over a stream that's actually playing) -->
@@ -131,7 +135,7 @@
         <button
           v-if="!isRetrying"
           class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white text-sm"
-          @click="retryConnection"
+          @click="retryConnection()"
         >
           Retry
         </button>
@@ -321,6 +325,13 @@ const recording = useRecording()
 // State
 const videoPlayer = ref<HTMLVideoElement>()
 const videoMuted = ref(true)
+
+// Display labels for the live connection badges.
+const STRATEGY_LABELS: Record<string, string> = {
+  torrent: '🌊 BitTorrent',
+  nostr: '🐦 Nostr',
+  mqtt: '📡 MQTT',
+}
 const qrVideo = ref<HTMLVideoElement>()
 const qrCanvas = ref<HTMLCanvasElement>()
 const debugModal = ref<InstanceType<typeof DebugModal>>()
@@ -342,7 +353,11 @@ let streamWatchdog: number | null = null
 
 // How long to wait after joining before telling the user we can't reach the
 // stream. It keeps trying in the background; this is just honest feedback.
-const STREAM_TIMEOUT_MS = 20000
+const STREAM_TIMEOUT_MS = 12000
+// Silently re-establish the connection a couple of times before bothering the
+// user with a manual "Retry" — a fresh join often lands on faster relays.
+const MAX_AUTO_RETRIES = 2
+const autoRetries = ref(0)
 
 const counts = computed(() => trystero.counts.value)
 
@@ -425,11 +440,19 @@ async function joinStream(shortCode: string) {
     
     isConnected.value = true
 
-    // Reachability watchdog: if no stream arrives in time, say so (keeps trying).
+    // Reachability watchdog: if no stream arrives in time, silently re-establish
+    // the connection a couple of times before surfacing a manual retry.
     noStreamHint.value = false
     if (streamWatchdog) clearTimeout(streamWatchdog)
     streamWatchdog = window.setTimeout(() => {
-      if (!remoteStream.value) noStreamHint.value = true
+      if (remoteStream.value) return
+      if (autoRetries.value < MAX_AUTO_RETRIES) {
+        autoRetries.value++
+        console.log(`[CollectView] No stream yet — auto-retry ${autoRetries.value}/${MAX_AUTO_RETRIES}`)
+        retryConnection(true)
+      } else {
+        noStreamHint.value = true
+      }
     }, STREAM_TIMEOUT_MS)
 
     // Set up stream received callback
@@ -437,6 +460,7 @@ async function joinStream(shortCode: string) {
       console.log('[CollectView] Received remote stream')
       remoteStream.value = stream
       noStreamHint.value = false
+      autoRetries.value = 0
       trystero.error.value = null // clear any stale connection error now that video is here
       if (streamWatchdog) { clearTimeout(streamWatchdog); streamWatchdog = null }
 
@@ -460,15 +484,17 @@ async function joinStream(shortCode: string) {
   }
 }
 
-async function retryConnection() {
+async function retryConnection(isAuto = false) {
   if (isRetrying.value) return
-  
+  // A manual retry gives a fresh budget of automatic retries.
+  if (!isAuto) autoRetries.value = 0
+
   const roomCode = props.roomCode || inputRoomCode.value
   if (!roomCode || !isValidShortRoomId(roomCode)) {
     console.error('Cannot retry: no valid room code')
     return
   }
-  
+
   isRetrying.value = true
   
   disconnect()
@@ -578,16 +604,17 @@ function handleVideoCanPlay() {
   })
 }
 
-function unmuteVideo() {
-  videoMuted.value = false
-  if (videoPlayer.value) {
-    videoPlayer.value.muted = false
-    videoPlayer.value.play().catch(() => {
-      // If the browser rejects unmuted playback, stay muted.
-      videoMuted.value = true
-      if (videoPlayer.value) videoPlayer.value.muted = true
-    })
-  }
+function toggleMute() {
+  videoMuted.value = !videoMuted.value
+  const v = videoPlayer.value
+  if (!v) return
+  v.muted = videoMuted.value
+  // Unmuting can require a fresh play() on some browsers; if it's rejected,
+  // fall back to muted so playback never stalls.
+  v.play().catch(() => {
+    videoMuted.value = true
+    v.muted = true
+  })
 }
 
 function formatDuration(ms: number): string {
