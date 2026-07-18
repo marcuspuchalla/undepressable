@@ -72,15 +72,23 @@ export function useRecording() {
   // quota running out, or chunk writes failing (recording continues in memory).
   const storageWarning = ref<string | null>(null)
   let failedChunkWrites = 0
-  let mediaRecorder: MediaRecorder | null = null
-  let currentRecording: Recording | null = null
-  let chunkIndex = 0
-  let currentCampaignId: string = ''
-  let currentSessionId: string = ''
-  let inMemoryChunks: Blob[] = []
-  let chunkHashes: string[] = [] // full SHA-256 hex per chunk, for the Merkle proof
-  let currentMimeType: string = ''
-  let pendingChunks = 0
+
+  // All per-recording state lives in one session object, captured by the
+  // recorder's event closures. This is what makes stop/start re-entrant: when
+  // a stream reconnects we finalize the old segment WHILE the next one starts,
+  // and the finalizer must never read state the new session has replaced
+  // (that race silently mis-filed chunks and resolved the wrong recording).
+  interface LiveSession {
+    recorder: MediaRecorder
+    recording: Recording
+    campaignId: string
+    mimeType: string
+    chunks: Blob[]
+    hashes: string[] // full SHA-256 hex per chunk, for the Merkle proof
+    chunkIndex: number
+    pending: number
+  }
+  let live: LiveSession | null = null
   let lastChunkSaveTime = 0
   let visibilityHandler: ((() => void) | null) = null
   let beforeUnloadHandler: ((() => void) | null) = null
@@ -98,13 +106,13 @@ export function useRecording() {
 
   // Sync current recording state to sessionStorage for recovery
   function syncRecordingState() {
-    if (!currentRecording || !isRecording.value) return
-    
+    if (!live || !isRecording.value) return
+
     const state: BackgroundSaveState = {
-      recordingId: currentRecording.id,
-      campaignId: currentCampaignId,
-      chunkCount: currentRecording.chunks.length,
-      lastChunkIndex: chunkIndex,
+      recordingId: live.recording.id,
+      campaignId: live.campaignId,
+      chunkCount: live.recording.chunks.length,
+      lastChunkIndex: live.chunkIndex,
       timestamp: Date.now(),
       status: 'recording'
     }
@@ -154,10 +162,10 @@ export function useRecording() {
   // nowhere; the real safety net is that other collectors hold independent
   // copies.
   function flushForBackground() {
-    if (!isRecording.value || !currentRecording) return
+    if (!isRecording.value || !live) return
     syncRecordingState()
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.requestData()
+    if (live.recorder.state !== 'inactive') {
+      live.recorder.requestData()
     }
   }
 
@@ -213,10 +221,6 @@ export function useRecording() {
       error.value = null
       storageWarning.value = null
       failedChunkWrites = 0
-      chunkIndex = 0
-      inMemoryChunks = []
-      chunkHashes = []
-      pendingChunks = 0
       lastChunkSaveTime = 0
 
       updateStorageWarning(await checkStorage())
@@ -234,20 +238,16 @@ export function useRecording() {
           ? 'video/webm;codecs=vp9,opus'
           : 'video/webm'
       
-      currentMimeType = mimeType
-
-      mediaRecorder = new MediaRecorder(stream, {
+      const recorder = new MediaRecorder(stream, {
         mimeType,
         videoBitsPerSecond: quality === 'high' ? 5000000 : quality === 'medium' ? 2500000 : 1000000
       })
 
       const recCampaignId = campaignId || `rec-${Date.now()}`
-      currentCampaignId = recCampaignId
       const recordingId = uuidv4()
-      currentSessionId = recordingId
       const recordedBy = 'local-' + Math.random().toString(36).substring(2, 8)
 
-      currentRecording = {
+      const recording: Recording = {
         id: recordingId,
         campaignId: recCampaignId,
         recordedBy,
@@ -261,34 +261,40 @@ export function useRecording() {
         }
       }
 
+      const s: LiveSession = {
+        recorder,
+        recording,
+        campaignId: recCampaignId,
+        mimeType,
+        chunks: [],
+        hashes: [],
+        chunkIndex: 0,
+        pending: 0
+      }
+
       // Store session for later download
       activeSessions.set(recordingId, {
-        chunks: [],
+        chunks: s.chunks,
         mimeType,
-        recording: currentRecording
+        recording
       })
 
-      // Handle data available
-      mediaRecorder.ondataavailable = async (event) => {
+      // Handle data available. Everything is read off `s`, never module state:
+      // a late event from a finalizing recorder must not touch the segment
+      // that started after it.
+      recorder.ondataavailable = async (event) => {
         if (event.data.size === 0) {
-          pendingChunks = Math.max(0, pendingChunks - 1)
           return
         }
 
-        pendingChunks++
+        s.pending++
 
         // Store in memory for continuous playback/download
-        inMemoryChunks.push(event.data)
-        
-        // Also store in session
-        const session = activeSessions.get(currentSessionId)
-        if (session) {
-          session.chunks.push(event.data)
-        }
+        s.chunks.push(event.data)
 
         try {
           // Write to OPFS for persistence
-          const opfsPath = await opfs.writeChunk(currentCampaignId, currentRecording!.id, chunkIndex, event.data)
+          const opfsPath = await opfs.writeChunk(s.campaignId, s.recording.id, s.chunkIndex, event.data)
 
           if (!opfsPath) {
             console.error('Failed to write chunk to OPFS')
@@ -297,12 +303,11 @@ export function useRecording() {
               storageWarning.value =
                 'Storage writes are failing — persistent copy incomplete. Download the recording as soon as it stops.'
             }
-            pendingChunks = Math.max(0, pendingChunks - 1)
             return
           }
 
           // Re-assess headroom periodically (~every 30 s of footage).
-          if (chunkIndex % 30 === 0) {
+          if (s.chunkIndex % 30 === 0) {
             checkStorage().then(updateStorageWarning)
           }
 
@@ -310,32 +315,33 @@ export function useRecording() {
           // Full SHA-256 hex feeds the Merkle proof; the chunk's own `checksum`
           // keeps its short prefix for quick display/back-compat.
           const fullHash = toHex(await sha256(buffer))
-          chunkHashes.push(fullHash)
+          s.hashes.push(fullHash)
           const chunk: RecordingChunk = {
-            index: chunkIndex,
+            index: s.chunkIndex,
             timestamp: new Date(),
             duration: 1000, // 1 second chunks
             size: event.data.size,
             opfsPath,
             checksum: fullHash.slice(0, 16)
           }
-          
-          currentRecording?.chunks.push(chunk)
-          chunkIndex++
-          
+
+          s.recording.chunks.push(chunk)
+          s.chunkIndex++
+
           // Sync state periodically (every 5 chunks or 10 seconds)
-          if (chunkIndex % 5 === 0 || Date.now() - lastChunkSaveTime > 10000) {
+          if (s.chunkIndex % 5 === 0 || Date.now() - lastChunkSaveTime > 10000) {
             syncRecordingState()
           }
         } catch (err: any) {
           console.error('Error saving chunk:', err)
         } finally {
-          pendingChunks = Math.max(0, pendingChunks - 1)
+          s.pending = Math.max(0, s.pending - 1)
         }
       }
 
       // Start recording with 1 second timeslice
-      mediaRecorder.start(1000)
+      recorder.start(1000)
+      live = s
       isRecording.value = true
 
       // Set up background/close handlers
@@ -352,70 +358,73 @@ export function useRecording() {
   }
 
   async function stopRecording(): Promise<Recording | null> {
-    if (!mediaRecorder || mediaRecorder.state === 'inactive') {
-      return null
-    }
+    // Detach the session first: from here on, a new startRecording() may run
+    // concurrently and must not interact with this finalizing segment.
+    const s = live
+    live = null
+    if (!s) return null
 
     // Remove background handlers
     removeBackgroundHandlers()
 
-    return new Promise((resolve) => {
-      // Request final data before stopping
-      mediaRecorder!.requestData()
-      
-      // Set up stop handler
-      mediaRecorder!.onstop = async () => {
-        if (!currentRecording) {
-          resolve(null)
-          return
-        }
+    const finalize = async (): Promise<Recording | null> => {
+      // Wait for any pending chunks to be processed
+      let waitCount = 0
+      const maxWait = 50 // 5 seconds max
 
-        // Wait for any pending chunks to be processed
-        let waitCount = 0
-        const maxWait = 50 // 5 seconds max
-        
-        while (pendingChunks > 0 && waitCount < maxWait) {
-          await new Promise(r => setTimeout(r, 100))
-          waitCount++
-        }
-
-        if (pendingChunks > 0) {
-          console.warn('[useRecording] Timeout waiting for chunks, proceeding with available data')
-        }
-
-        currentRecording.endedAt = new Date()
-        currentRecording.status = 'completed'
-
-        // Build the tamper-evidence proof: Merkle root over all chunk hashes,
-        // signed by this device's anonymous key.
-        try {
-          if (chunkHashes.length > 0) {
-            currentRecording.proof = buildProof(currentRecording.id, chunkHashes, getIdentity())
-            console.log('[useRecording] Proof built, merkle root:', currentRecording.proof.merkleRoot.slice(0, 16))
-          }
-        } catch (e) {
-          console.warn('[useRecording] Failed to build integrity proof:', e)
-        }
-
-        try {
-          // Save metadata to IndexedDB via store
-          await saveRecordingMetadata(currentRecording)
-          
-          // Mark recording as complete
-          markRecordingComplete()
-          
-          console.log('[useRecording] Recording saved:', currentRecording.id, 'Chunks:', inMemoryChunks.length, 'Pending:', pendingChunks)
-          resolve(currentRecording)
-        } catch (err: any) {
-          console.error('[useRecording] Error saving recording:', err)
-          error.value = err.message
-          resolve(null)
-        }
+      while (s.pending > 0 && waitCount < maxWait) {
+        await new Promise(r => setTimeout(r, 100))
+        waitCount++
       }
 
-      // Stop the recorder
-      mediaRecorder!.stop()
-      isRecording.value = false
+      if (s.pending > 0) {
+        console.warn('[useRecording] Timeout waiting for chunks, proceeding with available data')
+      }
+
+      s.recording.endedAt = new Date()
+      s.recording.status = 'completed'
+
+      // Build the tamper-evidence proof: Merkle root over all chunk hashes,
+      // signed by this device's anonymous key.
+      try {
+        if (s.hashes.length > 0) {
+          s.recording.proof = buildProof(s.recording.id, s.hashes, getIdentity())
+          console.log('[useRecording] Proof built, merkle root:', s.recording.proof.merkleRoot.slice(0, 16))
+        }
+      } catch (e) {
+        console.warn('[useRecording] Failed to build integrity proof:', e)
+      }
+
+      try {
+        // Save metadata to IndexedDB via store
+        await saveRecordingMetadata(s.recording)
+
+        // Mark recording as complete (unless a newer segment took over the marker)
+        if (!live) markRecordingComplete()
+
+        console.log('[useRecording] Recording saved:', s.recording.id, 'Chunks:', s.chunks.length)
+        return s.recording
+      } catch (err: any) {
+        console.error('[useRecording] Error saving recording:', err)
+        error.value = err.message
+        return null
+      }
+    }
+
+    if (!live) isRecording.value = false
+
+    // The recorder auto-stops when all its tracks end (e.g. the remote
+    // connection died) — the captured chunks must still be finalized/signed.
+    if (s.recorder.state === 'inactive') {
+      return finalize()
+    }
+
+    return new Promise((resolve) => {
+      s.recorder.requestData()
+      s.recorder.onstop = () => {
+        finalize().then(resolve)
+      }
+      s.recorder.stop()
     })
   }
 
@@ -487,8 +496,8 @@ export function useRecording() {
 
   // Get the current in-progress recording blob
   function getCurrentRecordingBlob(): Blob | null {
-    if (inMemoryChunks.length === 0) return null
-    return new Blob(inMemoryChunks, { type: currentMimeType })
+    if (!live || live.chunks.length === 0) return null
+    return new Blob(live.chunks, { type: live.mimeType })
   }
 
   // Create a URL for playback (works with MediaSource or direct playback)

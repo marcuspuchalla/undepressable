@@ -371,6 +371,15 @@ const wakeLock = useWakeLock()
 let durationInterval: number | null = null
 let streamWatchdog: number | null = null
 
+// Serialize recording lifecycle transitions. Stream-loss finalization and
+// reconnect segment-rolls arrive from independent events and would otherwise
+// interleave stop/start on the recorder.
+let recOps: Promise<unknown> = Promise.resolve()
+function queueRecordingOp(fn: () => Promise<void>): Promise<unknown> {
+  recOps = recOps.then(fn, fn)
+  return recOps
+}
+
 // How long to wait after joining before telling the user we can't reach the
 // stream. It keeps trying in the background; this is just honest feedback.
 const STREAM_TIMEOUT_MS = 12000
@@ -480,17 +489,25 @@ async function joinStream(shortCode: string) {
       watchStreamHealth(stream)
       wakeLock.request()
 
-      if (isReplacement && isRecording.value) {
+      if (isReplacement) {
         // The connection healed and delivered a NEW MediaStream. The recorder
         // is still bound to the dead one and would silently record nothing —
         // finalize that segment (it stays verifiable) and start the next.
-        console.log('[CollectView] Stream replaced mid-recording — rolling to a new segment')
-        await stopRecording()
-        await startRecording()
+        queueRecordingOp(async () => {
+          if (isRecording.value) {
+            console.log('[CollectView] Stream replaced mid-recording — rolling to a new segment')
+            await stopRecording()
+          }
+          if (autoRecord.value && remoteStream.value) await startRecording()
+        })
       } else if (autoRecord.value && !isRecording.value) {
         // Auto-start recording (first stream, or a reconnect after a segment
         // was finalized) unless the user explicitly stopped.
-        setTimeout(() => startRecording(), 1000)
+        setTimeout(() => {
+          queueRecordingOp(async () => {
+            if (autoRecord.value && !isRecording.value && remoteStream.value) await startRecording()
+          })
+        }, 1000)
       }
 
       // If a home archive is paired, forward this stream on to it so a copy is
@@ -535,17 +552,17 @@ function watchStreamHealth(stream: MediaStream) {
   track.onunmute = () => { streamInterrupted.value = false }
 }
 
-async function onStreamLost(reason: string) {
+function onStreamLost(reason: string) {
   if (remoteStream.value === null) return // already disconnected deliberately
   console.warn(`[CollectView] Stream lost (${reason})`)
   streamInterrupted.value = true
   autoRetries.value = 0
   armStreamWatchdog()
-  if (isRecording.value) {
+  queueRecordingOp(async () => {
     // The recorder would silently capture nothing from ended tracks; bank the
     // finished segment now. A reconnect starts the next one automatically.
-    await stopRecording()
-  }
+    if (isRecording.value) await stopRecording()
+  })
 }
 
 async function retryConnection(isAuto = false) {
