@@ -94,46 +94,9 @@ export const VIDEO_QUALITIES: VideoConstraints[] = [
   }
 ]
 
-// ICE Server configuration.
-//
-// STUN lets peers discover their public address for direct P2P. When peers are
-// behind strict/symmetric NAT (common on mobile carriers) a direct path is
-// impossible and the encrypted (DTLS-SRTP) media must be *relayed* through a
-// TURN server — an optional "friendly-jurisdiction relay" in the whitepaper's
-// terms. We ship the free Open Relay Project TURN so cross-network streaming
-// works out of the box with no backend to run. To self-host a relay instead,
-// override VITE_TURN_URL / VITE_TURN_USERNAME / VITE_TURN_CREDENTIAL at build.
-const env = (import.meta as any).env ?? {}
-
-const TURN: RTCIceServer[] = env.VITE_TURN_URL
-  ? [
-      {
-        urls: String(env.VITE_TURN_URL).split(',').map((s: string) => s.trim()),
-        username: env.VITE_TURN_USERNAME ?? '',
-        credential: env.VITE_TURN_CREDENTIAL ?? ''
-      }
-    ]
-  : [
-      {
-        urls: ['turn:openrelay.metered.ca:80', 'turn:openrelay.metered.ca:443'],
-        username: 'openrelayproject',
-        credential: 'openrelayproject'
-      }
-    ]
-
-export const ICE_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-    ...TURN
-  ]
-}
-
-// WebRTC configuration
-export const RTC_CONFIG: RTCConfiguration = {
-  iceServers: ICE_SERVERS.iceServers,
-  iceCandidatePoolSize: 10
-}
+// ICE (STUN/TURN) configuration lives in lib/net/iceConfig.ts — evaluated at
+// join time so a runtime-configured TURN relay applies without a rebuild.
+export { getRtcConfig, STUN_SERVERS } from './lib/net/iceConfig'
 
 // Nostr relays used for peer discovery/signaling.
 //
