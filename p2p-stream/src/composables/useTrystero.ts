@@ -3,6 +3,16 @@ import type { PeerInfo, UserRole } from "../types";
 import { NOSTR_RELAYS } from "../types";
 import { getRtcConfig } from "../lib/net/iceConfig";
 import { computeCounts, pruneStale, isValidStat, type SwarmStat } from "../lib/swarm/stats";
+import {
+  createRoutes,
+  addMember,
+  removeMember,
+  claimOwner,
+  ownerOf,
+  allPeers,
+  roomsWithPeer,
+  clearRoutes,
+} from "../lib/swarm/streamRouting";
 
 // Trystero strategies - lazy loaded
 let joinRoomTorrent: any = null;
@@ -48,6 +58,11 @@ export function useTrystero() {
   const peerStats = ref<Map<string, SwarmStat>>(new Map());
   let statSenders: ActionSend[] = [];
   let heartbeat: ReturnType<typeof setInterval> | null = null;
+
+  // Which room carries media to each peer. Every strategy opens its own
+  // RTCPeerConnection to the same peer, so without this the streamer would
+  // upload one copy of the video per transport per watcher (up to 3×).
+  const routes = createRoutes();
 
   const peerCount = computed(() => peers.value.size);
   const isConnected = computed(() => peerCount.value > 0);
@@ -129,7 +144,7 @@ export function useTrystero() {
       const room: TrysteroRoom = join(config, campaignId);
       rooms.value.set(strategy, markRaw(room));
       if (!selfId.value) selfId.value = room.selfId;
-      setupRoomHandlers(room, role);
+      setupRoomHandlers(room, strategy, role);
       console.log(`[Trystero] ${role === "streamer" ? "Created" : "Joined"} ${strategy} room:`, campaignId);
     }
 
@@ -171,7 +186,7 @@ export function useTrystero() {
   }
 
   // Set up room event handlers
-  function setupRoomHandlers(roomInstance: TrysteroRoom, role: UserRole) {
+  function setupRoomHandlers(roomInstance: TrysteroRoom, strategy: string, role: UserRole) {
     // Per-room stat channel for live watching/recording counts.
     const [sendStat, getStat] = roomInstance.makeAction("stat");
     statSenders.push(sendStat);
@@ -181,7 +196,8 @@ export function useTrystero() {
     });
 
     roomInstance.onPeerJoin((peerId: string) => {
-      console.log(`[Trystero] Peer joined: ${peerId}`);
+      console.log(`[Trystero] Peer joined via ${strategy}: ${peerId}`);
+      addMember(routes, strategy, peerId);
       if (!peers.value.has(peerId)) {
         peers.value.set(peerId, {
           id: peerId,
@@ -195,13 +211,11 @@ export function useTrystero() {
       // Anyone holding a local stream (i.e. the streamer) forwards it to every
       // newcomer — this is what makes LATE joiners actually receive video, the
       // bug in the previous version which only streamed to peers already present.
-      if (localStream.value) {
-        console.log(`[Trystero] Sending stream to ${peerId}`);
-        try {
-          roomInstance.addStream(localStream.value, peerId);
-        } catch (err) {
-          console.warn("[Trystero] addStream failed:", err);
-        }
+      // Only the FIRST room a peer connects through carries the media; the
+      // other transports stay signaling/data-only so the uplink sends one copy.
+      if (localStream.value && claimOwner(routes, strategy, peerId)) {
+        console.log(`[Trystero] Sending stream to ${peerId} via ${strategy}`);
+        sendStreamTo(roomInstance, peerId);
       }
 
       // Announce ourselves to the newcomer so counts converge immediately.
@@ -209,9 +223,21 @@ export function useTrystero() {
     });
 
     roomInstance.onPeerLeave((peerId: string) => {
-      console.log(`[Trystero] Peer left: ${peerId}`);
-      peers.value.delete(peerId);
-      peerStats.value.delete(peerId);
+      console.log(`[Trystero] Peer left ${strategy}: ${peerId}`);
+      const { gone, reassignTo } = removeMember(routes, strategy, peerId);
+      if (gone) {
+        // Only forget the peer once its LAST transport dropped — it may still
+        // be connected (and receiving media) through another room.
+        peers.value.delete(peerId);
+        peerStats.value.delete(peerId);
+      } else if (reassignTo && localStream.value) {
+        // The room that carried the media died; hand off to a surviving one.
+        const survivor = rooms.value.get(reassignTo as TrysteroStrategy);
+        if (survivor) {
+          console.log(`[Trystero] Media handover for ${peerId}: ${strategy} → ${reassignTo}`);
+          sendStreamTo(survivor, peerId);
+        }
+      }
     });
 
     roomInstance.onPeerStream((receivedStream: MediaStream, peerId: string) => {
@@ -258,20 +284,30 @@ export function useTrystero() {
     onStreamReceived.value = callback;
   }
 
+  // Send the current local stream to one peer over one room (the media owner).
+  function sendStreamTo(roomInstance: TrysteroRoom, peerId: string) {
+    if (!localStream.value) return;
+    try {
+      roomInstance.addStream(localStream.value, peerId);
+    } catch (err) {
+      console.warn("[Trystero] addStream failed:", err);
+    }
+  }
+
   // Update / swap the local stream (e.g. camera switch). Sends to all peers,
-  // present and future (future via onPeerJoin reading localStream).
+  // present and future (future via onPeerJoin reading localStream) — one copy
+  // each, over whichever room owns that peer's media.
   function updateStream(stream: MediaStream | null) {
     localStream.value = stream;
-    if (stream) {
-      rooms.value.forEach((room) => {
-        peers.value.forEach((peer) => {
-          try {
-            room.addStream(stream, peer.id);
-          } catch (err) {
-            console.warn("[Trystero] updateStream addStream failed:", err);
-          }
-        });
-      });
+    if (!stream) return;
+    for (const peerId of allPeers(routes)) {
+      let owner = ownerOf(routes, peerId);
+      if (!owner) {
+        owner = roomsWithPeer(routes, peerId)[0];
+        if (owner) claimOwner(routes, owner, peerId);
+      }
+      const room = owner ? rooms.value.get(owner as TrysteroStrategy) : undefined;
+      if (room) sendStreamTo(room, peerId);
     }
   }
 
@@ -282,6 +318,7 @@ export function useTrystero() {
     rooms.value.clear();
     peers.value.clear();
     peerStats.value.clear();
+    clearRoutes(routes);
     statSenders = [];
     selfId.value = "";
     isRecordingLocal.value = false;
