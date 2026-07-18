@@ -105,11 +105,15 @@ export { getRtcConfig, STUN_SERVERS } from './lib/net/iceConfig'
 // "invalid: ephemeral event expired"), which made peer discovery take minutes
 // or fail outright. We pin a curated set of large, open relays that accept
 // ephemeral events, so two peers find each other in seconds.
+// offchain.pub was dropped 2026-07-18: it now rejects our events with
+// "Policy violated and pubkey is not in our web of trust" (seen consistently
+// in live tests) — a dead signaling path that only added latency and noise.
+// relay.damus.io rate-limits our 5.3s announce cadence but still delivers
+// discovery, so it stays.
 export const NOSTR_RELAYS = [
   'wss://relay.damus.io',
   'wss://nos.lol',
   'wss://relay.primal.net',
   'wss://nostr.mom',
-  'wss://offchain.pub',
   'wss://relay.snort.social'
 ]
