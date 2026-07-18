@@ -267,3 +267,24 @@ Full findings in [`RELIABILITY_AUDIT.md`](RELIABILITY_AUDIT.md). Measured/live-v
   cellular↔Wi-Fi handover mid-stream (E4), time-to-first-frame re-measure
   after the dead-TURN removal (expect well under the old ~13 s), storage-low
   warning on a nearly-full phone.
+
+## Relay tree P1 (2026-07-18, E2 verified — 4 isolated tabs, public relays)
+
+Design: [`RELAY_TREE_DESIGN.md`](RELAY_TREE_DESIGN.md). Verified live on a
+night when the public relays were genuinely degraded (damus rate-limiting,
+primal.net 502, nostr.mom now demanding 28-bit proof-of-work — logged for the
+relay-rot ledger):
+
+- ✅ Root uplink capped: with 3 watchers the root streamed to exactly 2; the
+  third was seated under a seed ("seated under seed …").
+- ✅ Seed forwarding delivers real video: leaf played 320×240 and auto-recorded
+  through the seed hop; seed showed "Relaying to 1 viewer".
+- ✅ Seed death heals: closing the seed's tab → orphan report → re-seat → the
+  leaf ended up directly on the freed root slot, playing and recording again.
+  Transient churn (a brief re-seat onto the dying seed before its departure
+  fully registered) converged within seconds.
+- ✅ Zero unhandled rejections across all four tabs (regression guard for the
+  send-path hardening).
+- ⬜ Owed: relay opt-out toggle behavior E2E; >4-watcher load balance across
+  two seeds; real-device latency through a seed hop (extra decode/encode);
+  seed on Wi-Fi with leaves on cellular.

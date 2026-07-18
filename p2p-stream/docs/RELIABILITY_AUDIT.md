@@ -141,6 +141,11 @@ deliberately not decided unilaterally (see last section).
   discovery → kept. Torrent tracker `tracker.btorrent.xyz` (a Trystero default)
   fails WebSocket handshake (525). MQTT default `test.mosquitto.org` /
   `broker.emqx.io` / `broker.hivemq.com` are public *test* brokers with no SLA.
+- Later the same evening (during relay-tree testing): `relay.primal.net`
+  answering 502, and `nostr.mom` now demands 28-bit **proof-of-work** on
+  events — a fourth and fifth data point that pinned relay lists decay in
+  weeks, not years. Discovery still succeeded via the surviving relays
+  (redundancy doing its job), but slower.
 - This is the third relay-rot incident in this project's short history (Trystero
   Nostr defaults, openrelay TURN, now offchain.pub). **Treat public
   infrastructure as perishable.** Recommendation (OPEN): a startup relay
