@@ -3,6 +3,7 @@ import type { PeerInfo, UserRole } from "../types";
 import { NOSTR_RELAYS } from "../types";
 import { getRtcConfig } from "../lib/net/iceConfig";
 import { computeCounts, pruneStale, isValidStat, type SwarmStat } from "../lib/swarm/stats";
+import { capVideoSendersWithRetry, markMotionContent } from "../lib/net/senderTuning";
 import {
   createRoutes,
   addMember,
@@ -34,6 +35,7 @@ export interface TrysteroRoom {
   addStream: (stream: MediaStream, peerId?: string) => void;
   removeStream: (stream: MediaStream, peerId?: string) => void;
   makeAction: (type: string) => [ActionSend, ActionReceive, unknown];
+  getPeers: () => Record<string, RTCPeerConnection>;
   leave: () => void;
 }
 
@@ -127,7 +129,10 @@ export function useTrystero() {
   function openRooms(campaignId: string, strategies: TrysteroStrategy[], role: UserRole, stream?: MediaStream) {
     leaveAllRooms();
     myRole.value = role;
-    if (stream) localStream.value = stream;
+    if (stream) {
+      markMotionContent(stream);
+      localStream.value = stream;
+    }
 
     for (const strategy of resolveStrategies(strategies)) {
       const join =
@@ -289,6 +294,10 @@ export function useTrystero() {
     if (!localStream.value) return;
     try {
       roomInstance.addStream(localStream.value, peerId);
+      // Cap the video bitrate so a weak phone uplink degrades instead of
+      // stalling. Encodings appear only after negotiation, hence the retry.
+      const pc = roomInstance.getPeers?.()[peerId];
+      if (pc) capVideoSendersWithRetry(pc);
     } catch (err) {
       console.warn("[Trystero] addStream failed:", err);
     }
@@ -300,6 +309,7 @@ export function useTrystero() {
   function updateStream(stream: MediaStream | null) {
     localStream.value = stream;
     if (!stream) return;
+    markMotionContent(stream);
     for (const peerId of allPeers(routes)) {
       let owner = ownerOf(routes, peerId);
       if (!owner) {
