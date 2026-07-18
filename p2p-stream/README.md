@@ -28,8 +28,9 @@ to delete in one place.
   later verify the footage is unaltered.
 - **Works offline / installable.** A PWA that runs from cache with no network;
   two phones on one hotspot can connect with no internet at all.
-- **Cross-network.** A TURN relay (bundled, or self-hosted) lets peers connect
-  across strict/carrier NAT, not just the same network.
+- **Cross-network.** A TURN relay (shared via a `?turn=` link, or self-hosted)
+  lets peers connect across strict/carrier NAT, not just the same network. See
+  [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md).
 
 ## Architecture
 
@@ -69,7 +70,7 @@ npm run dev -- --host      # open the printed LAN URL on your phone
 
 ```bash
 npm run build          # production PWA build
-npm run test:unit      # 49 unit tests (integrity, counts, room codes)
+npm run test:unit      # 81 unit tests (integrity, counts, routing, ICE config)
 npm run tauri:build    # optional native desktop app
 ```
 
@@ -78,14 +79,23 @@ verification procedure.
 
 ## Configuration
 
-TURN relay for cross-network streaming defaults to the free Open Relay Project.
-To self-host, set build-time env vars:
+There is deliberately **no default TURN relay** — the free public one this app
+once bundled died and was silently slowing every connection (see
+[docs/RELIABILITY_AUDIT.md](./docs/RELIABILITY_AUDIT.md) §1). When both peers
+sit behind strict NAT, supply a relay one of three ways (highest precedence
+first — full guide in [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md)):
 
-```
-VITE_TURN_URL=turn:your-relay:3478
-VITE_TURN_USERNAME=user
-VITE_TURN_CREDENTIAL=pass
-```
+1. Share link param, persisted on the device:
+   `/collect/CODE?turn=turns%3Ayour-relay%3A443|user|pass`
+2. Build-time env vars:
+
+   ```
+   VITE_TURN_URL=turns:your-relay:443
+   VITE_TURN_USERNAME=user
+   VITE_TURN_CREDENTIAL=pass
+   ```
+
+Prefer `turns:` on port 443 — it survives networks that block UDP/plain TURN.
 
 ## Notes & honest limitations
 

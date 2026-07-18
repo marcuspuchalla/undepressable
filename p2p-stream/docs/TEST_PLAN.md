@@ -241,3 +241,29 @@ masks relay failures.
   the paired archive room → home node auto-records and shows the video →
   finalizes a signed recording on stream end (19 chunks / 0:27).
 - 🟡 Everything marked ⬜ above is owed on real devices (E3/E4/E5) before public release.
+
+## Reliability audit pass (2026-07-18) — E2 verified, device re-checks owed
+
+Full findings in [`RELIABILITY_AUDIT.md`](RELIABILITY_AUDIT.md). Measured/live-verified this session:
+
+- ✅ **Bundled TURN was dead** (openrelay: HTTP 502 on :80, refused on :443 —
+  raw-socket probes). Removed; TURN now runtime-configurable (`?turn=` link
+  param, localStorage, `VITE_TURN_*`); STUN diversified (Google + Cloudflare +
+  Nextcloud:443, all probed alive). ⚠️ E4 "cross-network via bundled TURN"
+  above is obsolete: cross-network now needs a configured TURN when both ends
+  are strict-NAT — retest E4 both with and without a `?turn=` relay.
+- ✅ **Single-copy uplink** (was up to 3× per watcher): live two-tab check shows
+  "Sending stream … via <transport>" exactly once per watcher.
+- ✅ **Media handover**: killing the media-carrying RTCPeerConnection mid-stream
+  → stream re-sent over a surviving transport; killing a non-carrying one →
+  no interruption at all; killed transports reconnect on their own.
+- ✅ **Reconnect recording continuity**: on stream replacement the collector
+  finalizes the current segment (Merkle proof + signature intact — verified:
+  70-chunk segment saved) and auto-starts the next; "Stream interrupted"
+  overlay instead of a frozen last frame.
+- ✅ Sender bitrate cap (1.2 Mbps) present on the live video sender.
+- ✅ Pinned relay `offchain.pub` found rejecting all our events → dropped.
+- ⬜ Owed on real devices: wake lock + screen-lock camera recovery (E3),
+  cellular↔Wi-Fi handover mid-stream (E4), time-to-first-frame re-measure
+  after the dead-TURN removal (expect well under the old ~13 s), storage-low
+  warning on a nearly-full phone.
