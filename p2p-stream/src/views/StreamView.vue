@@ -256,6 +256,14 @@ onMounted(async () => {
 })
 
 async function initStream() {
+  // navigator.mediaDevices only exists in secure contexts (https:// or
+  // localhost). Opening the dev server via a LAN IP over plain http lands
+  // here — fail with a message that says how to fix it, not a TypeError.
+  if (!navigator.mediaDevices?.getUserMedia) {
+    trystero.error.value =
+      'Camera unavailable: this page is not a secure context. Open the app via https:// or localhost (for phones, use an HTTPS tunnel — see docs/ON_DEVICE_TESTING.md).'
+    return
+  }
   try {
     // Initialize Trystero with both strategies (try both)
     const initialized = await trystero.init(['both'])

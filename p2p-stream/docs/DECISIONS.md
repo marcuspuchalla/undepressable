@@ -65,3 +65,37 @@ and improved on top.
   consistent with the whitepaper's "hybrid relay" deployment mode.
 - P2P transport is not automated in CI (it needs live DHT/relay networks); it is
   covered by unit tests on the pure logic plus a documented manual E2E.
+
+---
+
+# ADR — Reliability audit follow-ups (2026-07-18)
+
+_Status: accepted (D2 decided); D1 partially decided; D3 accepted for design + build._
+
+## D2: No invite key / room password — decided AGAINST
+
+The audit (RELIABILITY_AUDIT.md §7, D2) offered an invite key on top of the
+6-char room code (Trystero `password` option) so code-guessers/observers can't
+join or decrypt signaling. **Decision: not worth it.** Rationale (Marcus): the
+key would ride inside the QR/link anyway, so anyone who obtains the share
+artifact still gets in — it only degrades verbal/manual joinability without
+changing the realistic threat (a leaked share is a leaked share). The room code
+remains the sole capability; documented honestly in the audit's known limits.
+
+## D1: TURN relay — self-hosted on existing infra (e.g. a Coolify VPS) is fine
+
+No default relay is shipped. A container/VM on an existing PaaS-managed VPS is
+a perfectly good TURN host — see SELF_HOSTING.md; no bare metal required.
+Caveats: TURN wants host networking (large UDP relay port range) and its own
+TLS port — 443 is usually taken by the PaaS reverse proxy, so use turns:5349 or
+a second IP. Whether to *also* fund a public default relay for strangers
+remains open.
+
+## D3: Watcher relay tree — GO
+
+Accepted for design and implementation. Requirements set by Marcus: ~2 seeds
+fanning out from the streamer; intelligent forwarding; self-healing topology
+(orphaned watchers fail over — ultimately directly to the streamer — and can be
+promoted to seed, coordinator-led rather than full consensus). Receive-and-
+forward simultaneously is already proven by archive mode. Design:
+RELAY_TREE_DESIGN.md.
