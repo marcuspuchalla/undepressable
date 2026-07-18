@@ -31,9 +31,10 @@ physical facts to design around:
    video (~100–500 ms added latency + generational quality loss per hop).
    Acceptable at depth 1–2; this is why depth is capped, and why recordings by
    leaves are recordings *of what the leaf received* (see Trust).
-2. **A seed's uplink carries `children × 1.2 Mbps`** — seeding is for devices
-   on Wi-Fi/unmetered links, not an obligation for every phone at a protest.
-   Hence opt-in (open question Q1).
+2. **A seed's uplink carries `children × 1.2 Mbps`** — significant on metered
+   cellular. **Decided (2026-07-18): hybrid** — watchers are relay-capable by
+   default (zero-friction crowds) with a visible "Help relay" opt-out toggle
+   on the Collect screen; opting out while seeding re-seats the children.
 
 ## Mechanism: same room, directed media
 
