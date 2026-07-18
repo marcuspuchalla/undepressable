@@ -254,6 +254,12 @@ export function useTrystero() {
       } else if (role === "collector") {
         // Announce relay capability so the root can seat us properly.
         sendTreeMsg({ t: "hello", relay: relayEnabled.value }, peerId);
+        // A child can be assigned to us BEFORE our mesh connection to it
+        // exists — deliver the pending forward now that it does.
+        if (forwardingTo.has(peerId) && remoteStreamForTree) {
+          console.log(`[Tree] Forwarding stream to late-connecting child ${peerId}`);
+          sendMediaTo(peerId, remoteStreamForTree);
+        }
       }
 
       // Announce ourselves to the newcomer so counts converge immediately.
@@ -269,16 +275,19 @@ export function useTrystero() {
         peers.value.delete(peerId);
         peerStats.value.delete(peerId);
         forwardingTo.delete(peerId);
+        mediaSentTo.delete(peerId);
         if (role === "streamer") {
           // Prune the tree; a dead seed's children get re-seated here.
           applyAssignments(treePeerLeft(tree, peerId));
         }
-      } else if (reassignTo && localStream.value) {
-        // The room that carried the media died; hand off to a surviving one.
-        const survivor = rooms.value.get(reassignTo as TrysteroStrategy);
-        if (survivor) {
+      } else {
+        // The peer is still reachable via another transport. If the dead one
+        // carried our media, re-send over the survivor (routes already moved
+        // ownership there); sendMediaTo re-adds because the strategy changed.
+        const stream = outboundStreamFor(peerId);
+        if (reassignTo && stream && mediaSentTo.has(peerId)) {
           console.log(`[Trystero] Media handover for ${peerId}: ${strategy} → ${reassignTo}`);
-          sendStreamTo(survivor, peerId);
+          sendMediaTo(peerId, stream);
         }
       }
     });
@@ -300,7 +309,7 @@ export function useTrystero() {
     const wire = { role: myRole.value, recording: isRecordingLocal.value };
     for (const send of statSenders) {
       try {
-        send(wire);
+        quiet(send(wire));
       } catch {
         /* channel not ready yet; the heartbeat will retry */
       }
@@ -333,56 +342,74 @@ export function useTrystero() {
     onStreamReceived.value = callback;
   }
 
-  // The room that carries (or should carry) media to a peer — first transport
-  // the peer connected through, sticky thereafter.
-  function transportFor(peerId: string): TrysteroRoom | undefined {
+  // What we have actually addStream'd, per peer. Duplicate addTrack on the
+  // same RTCPeerConnection throws (and Trystero's async internals turn that
+  // into unhandled rejections), so sends must be idempotent.
+  const mediaSentTo = new Map<string, { strategy: string; stream: MediaStream }>();
+
+  // Trystero's send/addStream are async under the hood; a dead data channel
+  // rejects instead of throwing. Swallow rejections — retries and handovers
+  // are handled explicitly at this layer.
+  function quiet(result: unknown) {
+    if (Array.isArray(result)) {
+      for (const p of result) Promise.resolve(p).catch(() => {});
+    } else if (result instanceof Promise) {
+      result.catch(() => {});
+    }
+  }
+
+  // The strategy that carries (or should carry) media to a peer — first
+  // transport the peer connected through, sticky thereafter.
+  function transportStrategyFor(peerId: string): string | undefined {
     let owner = ownerOf(routes, peerId);
     if (!owner) {
       owner = roomsWithPeer(routes, peerId)[0];
       if (owner) claimOwner(routes, owner, peerId);
     }
-    return owner ? rooms.value.get(owner as TrysteroStrategy) : undefined;
+    return owner;
   }
 
-  // Send a stream to one peer over its owning room, with uplink caps applied.
+  // Send a stream to one peer over its owning room, idempotently, with uplink
+  // caps applied.
   function sendMediaTo(peerId: string, stream: MediaStream) {
-    const room = transportFor(peerId);
-    if (!room) return;
-    try {
-      room.addStream(stream, peerId);
-      // Cap the video bitrate so a weak phone uplink degrades instead of
-      // stalling. Encodings appear only after negotiation, hence the retry.
-      const pc = room.getPeers?.()[peerId];
-      if (pc) capVideoSendersWithRetry(pc);
-    } catch (err) {
-      console.warn("[Trystero] addStream failed:", err);
+    const strategy = transportStrategyFor(peerId);
+    const room = strategy ? rooms.value.get(strategy as TrysteroStrategy) : undefined;
+    if (!strategy || !room) return;
+    const prev = mediaSentTo.get(peerId);
+    if (!prev || prev.strategy !== strategy || prev.stream !== stream) {
+      try {
+        quiet(room.addStream(stream, peerId));
+        mediaSentTo.set(peerId, { strategy, stream });
+      } catch (err) {
+        console.warn("[Trystero] addStream failed:", err);
+        return;
+      }
     }
+    // Cap the video bitrate so a weak phone uplink degrades instead of
+    // stalling. Encodings appear only after negotiation, hence the retry.
+    const pc = room.getPeers?.()[peerId];
+    if (pc) capVideoSendersWithRetry(pc);
   }
 
   // Stop sending our outbound stream to a peer (it moved under a seed).
   function stopMediaTo(peerId: string) {
-    const owner = ownerOf(routes, peerId);
-    const room = owner ? rooms.value.get(owner as TrysteroStrategy) : undefined;
-    const stream = localStream.value ?? remoteStreamForTree;
-    if (!room || !stream) return;
+    const rec = mediaSentTo.get(peerId);
+    if (!rec) return;
+    mediaSentTo.delete(peerId);
+    const room = rooms.value.get(rec.strategy as TrysteroStrategy);
+    if (!room) return;
     try {
-      room.removeStream(stream, peerId);
+      quiet(room.removeStream(rec.stream, peerId));
     } catch {
       /* peer/stream already gone */
     }
   }
 
-  // Kept for the transport-level media handover path.
-  function sendStreamTo(roomInstance: TrysteroRoom, peerId: string) {
-    const stream = localStream.value ?? remoteStreamForTree;
-    if (!stream) return;
-    try {
-      roomInstance.addStream(stream, peerId);
-      const pc = roomInstance.getPeers?.()[peerId];
-      if (pc) capVideoSendersWithRetry(pc);
-    } catch (err) {
-      console.warn("[Trystero] addStream failed:", err);
-    }
+  // The stream this node is responsible for sending to a given peer, if any:
+  // roots serve their direct tree children, seeds serve their assigned leaves.
+  function outboundStreamFor(peerId: string): MediaStream | null {
+    if (myRole.value === "streamer") return localStream.value;
+    return forwardingTo.has(peerId) ? remoteStreamForTree : null;
   }
 
   // --- relay tree plumbing ---
@@ -393,7 +420,7 @@ export function useTrystero() {
     for (const s of treeSenders) {
       if (target && !s.room.getPeers?.()[target]) continue;
       try {
-        s.send(msg, target);
+        quiet(s.send(msg, target));
       } catch {
         /* channel not ready; assignment resends cover this */
       }
@@ -426,14 +453,16 @@ export function useTrystero() {
   }
 
   // SEED ONLY: make actual forwarding match the list the root assigned us.
+  // forwardingTo is the INTENT set — a child we can't reach yet is delivered
+  // by onPeerJoin when its connection appears (sendMediaTo is idempotent).
   function reconcileForwarding() {
     const want = new Set(myTreeChildren.value);
     for (const id of want) {
-      if (!forwardingTo.has(id) && remoteStreamForTree) {
+      if (!forwardingTo.has(id)) {
         console.log(`[Tree] Forwarding stream to ${id}`);
-        sendMediaTo(id, remoteStreamForTree);
         forwardingTo.add(id);
       }
+      if (remoteStreamForTree) sendMediaTo(id, remoteStreamForTree);
     }
     for (const id of [...forwardingTo]) {
       if (!want.has(id)) {
@@ -511,6 +540,7 @@ export function useTrystero() {
     myParent.value = null;
     myTreeChildren.value = [];
     forwardingTo.clear();
+    mediaSentTo.clear();
     remoteStreamForTree = null;
     selfId.value = "";
     isRecordingLocal.value = false;
