@@ -14,6 +14,18 @@ import {
   roomsWithPeer,
   clearRoutes,
 } from "../lib/swarm/streamRouting";
+import {
+  ROOT,
+  createTree,
+  peerJoined as treePeerJoined,
+  peerLeft as treePeerLeft,
+  setRelay as treeSetRelay,
+  reseatOrphan,
+  childrenOf,
+  isTreeMsg,
+  type Assignment,
+  type TreeMsg,
+} from "../lib/swarm/tree";
 
 // Trystero strategies - lazy loaded
 let joinRoomTorrent: any = null;
@@ -65,6 +77,18 @@ export function useTrystero() {
   // RTCPeerConnection to the same peer, so without this the streamer would
   // upload one copy of the video per transport per watcher (up to 3×).
   const routes = createRoutes();
+
+  // --- relay tree (docs/RELAY_TREE_DESIGN.md) ---
+  // As streamer: authoritative topology — up to 2 direct children, relay-
+  // willing children seed up to 4 more each. As collector: our place in it.
+  let tree = createTree();
+  const relayEnabled = ref(true); // hybrid default: willing to relay, opt-out toggle
+  const myParent = ref<string | null>(null);
+  const myTreeChildren = ref<string[]>([]);
+  const forwardingTo = new Set<string>();
+  let remoteStreamForTree: MediaStream | null = null;
+  let treeSenders: { send: ActionSend; room: TrysteroRoom }[] = [];
+  const relayingToCount = computed(() => myTreeChildren.value.length);
 
   const peerCount = computed(() => peers.value.size);
   const isConnected = computed(() => peerCount.value > 0);
@@ -201,6 +225,11 @@ export function useTrystero() {
       peerStats.value.set(peerId, { role: data.role, recording: data.recording, lastSeen: Date.now() });
     });
 
+    // Relay-tree control channel (assignments, capability, orphan reports).
+    const [sendTree, getTree] = roomInstance.makeAction("tree");
+    treeSenders.push({ send: sendTree, room: roomInstance });
+    getTree(handleTreeMsg);
+
     roomInstance.onPeerJoin((peerId: string) => {
       console.log(`[Trystero] Peer joined via ${strategy}: ${peerId}`);
       addMember(routes, strategy, peerId);
@@ -214,14 +243,17 @@ export function useTrystero() {
         });
       }
 
-      // Anyone holding a local stream (i.e. the streamer) forwards it to every
-      // newcomer — this is what makes LATE joiners actually receive video, the
-      // bug in the previous version which only streamed to peers already present.
+      // The relay tree decides who serves each newcomer. As the root we seat
+      // the peer (assumed relay-willing until its hello says otherwise): a
+      // direct child gets our stream — this is what makes LATE joiners
+      // receive video — and one seated under a seed is served by that seed.
       // Only the FIRST room a peer connects through carries the media; the
       // other transports stay signaling/data-only so the uplink sends one copy.
-      if (localStream.value && claimOwner(routes, strategy, peerId)) {
-        console.log(`[Trystero] Sending stream to ${peerId} via ${strategy}`);
-        sendStreamTo(roomInstance, peerId);
+      if (role === "streamer" && localStream.value) {
+        applyAssignments(treePeerJoined(tree, peerId, true));
+      } else if (role === "collector") {
+        // Announce relay capability so the root can seat us properly.
+        sendTreeMsg({ t: "hello", relay: relayEnabled.value }, peerId);
       }
 
       // Announce ourselves to the newcomer so counts converge immediately.
@@ -236,6 +268,11 @@ export function useTrystero() {
         // be connected (and receiving media) through another room.
         peers.value.delete(peerId);
         peerStats.value.delete(peerId);
+        forwardingTo.delete(peerId);
+        if (role === "streamer") {
+          // Prune the tree; a dead seed's children get re-seated here.
+          applyAssignments(treePeerLeft(tree, peerId));
+        }
       } else if (reassignTo && localStream.value) {
         // The room that carried the media died; hand off to a surviving one.
         const survivor = rooms.value.get(reassignTo as TrysteroStrategy);
@@ -248,6 +285,12 @@ export function useTrystero() {
 
     roomInstance.onPeerStream((receivedStream: MediaStream, peerId: string) => {
       console.log(`[Trystero] Received stream from ${peerId}`);
+      if (role === "collector") {
+        // If we're a seed, pass the (possibly replaced) stream straight on to
+        // our children — they roll recording segments exactly like we do.
+        remoteStreamForTree = receivedStream;
+        for (const id of forwardingTo) sendMediaTo(id, receivedStream);
+      }
       onStreamReceived.value?.(receivedStream, peerId);
     });
   }
@@ -290,13 +333,51 @@ export function useTrystero() {
     onStreamReceived.value = callback;
   }
 
-  // Send the current local stream to one peer over one room (the media owner).
-  function sendStreamTo(roomInstance: TrysteroRoom, peerId: string) {
-    if (!localStream.value) return;
+  // The room that carries (or should carry) media to a peer — first transport
+  // the peer connected through, sticky thereafter.
+  function transportFor(peerId: string): TrysteroRoom | undefined {
+    let owner = ownerOf(routes, peerId);
+    if (!owner) {
+      owner = roomsWithPeer(routes, peerId)[0];
+      if (owner) claimOwner(routes, owner, peerId);
+    }
+    return owner ? rooms.value.get(owner as TrysteroStrategy) : undefined;
+  }
+
+  // Send a stream to one peer over its owning room, with uplink caps applied.
+  function sendMediaTo(peerId: string, stream: MediaStream) {
+    const room = transportFor(peerId);
+    if (!room) return;
     try {
-      roomInstance.addStream(localStream.value, peerId);
+      room.addStream(stream, peerId);
       // Cap the video bitrate so a weak phone uplink degrades instead of
       // stalling. Encodings appear only after negotiation, hence the retry.
+      const pc = room.getPeers?.()[peerId];
+      if (pc) capVideoSendersWithRetry(pc);
+    } catch (err) {
+      console.warn("[Trystero] addStream failed:", err);
+    }
+  }
+
+  // Stop sending our outbound stream to a peer (it moved under a seed).
+  function stopMediaTo(peerId: string) {
+    const owner = ownerOf(routes, peerId);
+    const room = owner ? rooms.value.get(owner as TrysteroStrategy) : undefined;
+    const stream = localStream.value ?? remoteStreamForTree;
+    if (!room || !stream) return;
+    try {
+      room.removeStream(stream, peerId);
+    } catch {
+      /* peer/stream already gone */
+    }
+  }
+
+  // Kept for the transport-level media handover path.
+  function sendStreamTo(roomInstance: TrysteroRoom, peerId: string) {
+    const stream = localStream.value ?? remoteStreamForTree;
+    if (!stream) return;
+    try {
+      roomInstance.addStream(stream, peerId);
       const pc = roomInstance.getPeers?.()[peerId];
       if (pc) capVideoSendersWithRetry(pc);
     } catch (err) {
@@ -304,22 +385,116 @@ export function useTrystero() {
     }
   }
 
-  // Update / swap the local stream (e.g. camera switch). Sends to all peers,
-  // present and future (future via onPeerJoin reading localStream) — one copy
-  // each, over whichever room owns that peer's media.
+  // --- relay tree plumbing ---
+
+  // Send a tree message, targeted if `target` is set, via every room that can
+  // reach it (Trystero warns loudly on sends to peers a room doesn't have).
+  function sendTreeMsg(msg: TreeMsg, target?: string) {
+    for (const s of treeSenders) {
+      if (target && !s.room.getPeers?.()[target]) continue;
+      try {
+        s.send(msg, target);
+      } catch {
+        /* channel not ready; assignment resends cover this */
+      }
+    }
+  }
+
+  // ROOT ONLY: enact topology changes — announce them, start/stop our own
+  // media sends, and refresh every seed's forwarding list.
+  function applyAssignments(moves: Assignment[]) {
+    for (const { peer, parent } of moves) {
+      sendTreeMsg({ t: "assign", parent }, peer);
+      if (parent === ROOT) {
+        if (localStream.value) {
+          console.log(`[Tree] Root streams directly to ${peer}`);
+          sendMediaTo(peer, localStream.value);
+        }
+      } else {
+        console.log(`[Tree] ${peer} seated under seed ${parent}`);
+        stopMediaTo(peer);
+      }
+    }
+    if (moves.length > 0) syncSeeds();
+  }
+
+  // ROOT ONLY: every direct child gets its (possibly empty) forwarding list.
+  function syncSeeds() {
+    for (const child of childrenOf(tree, ROOT)) {
+      sendTreeMsg({ t: "children", children: childrenOf(tree, child) }, child);
+    }
+  }
+
+  // SEED ONLY: make actual forwarding match the list the root assigned us.
+  function reconcileForwarding() {
+    const want = new Set(myTreeChildren.value);
+    for (const id of want) {
+      if (!forwardingTo.has(id) && remoteStreamForTree) {
+        console.log(`[Tree] Forwarding stream to ${id}`);
+        sendMediaTo(id, remoteStreamForTree);
+        forwardingTo.add(id);
+      }
+    }
+    for (const id of [...forwardingTo]) {
+      if (!want.has(id)) {
+        stopMediaTo(id);
+        forwardingTo.delete(id);
+      }
+    }
+  }
+
+  // Collector toggle (hybrid model): willing to relay by default, opt out any
+  // time. Opting out while seeding makes the root re-seat our children.
+  function setRelayEnabled(value: boolean) {
+    relayEnabled.value = value;
+    sendTreeMsg({ t: "hello", relay: value });
+  }
+
+  // Called by the view when our incoming stream died but transports look
+  // alive — asks the root to re-seat us (e.g. our seed silently broke).
+  function reportStreamLost() {
+    if (myRole.value !== "collector") return;
+    sendTreeMsg({ t: "orphan" });
+  }
+
+  // Control messages must come from the streamer — peers are untrusted, and a
+  // forged 'children' list would turn collectors into DoS amplifiers.
+  function isFromStreamer(peerId: string): boolean {
+    return peerStats.value.get(peerId)?.role === "streamer";
+  }
+
+  function handleTreeMsg(data: unknown, peerId: string) {
+    if (!isTreeMsg(data)) return;
+    if (myRole.value === "streamer") {
+      if (data.t === "hello") {
+        const moves = tree.parent.has(peerId)
+          ? treeSetRelay(tree, peerId, data.relay)
+          : treePeerJoined(tree, peerId, data.relay);
+        applyAssignments(moves);
+      } else if (data.t === "orphan") {
+        console.log(`[Tree] Orphan report from ${peerId} — re-seating`);
+        applyAssignments(reseatOrphan(tree, peerId));
+      }
+    } else {
+      if (!isFromStreamer(peerId)) return;
+      if (data.t === "assign") {
+        myParent.value = data.parent;
+      } else if (data.t === "children") {
+        myTreeChildren.value = data.children;
+        reconcileForwarding();
+      }
+    }
+  }
+
+  // Update / swap the local stream (e.g. camera switch/recovery). One copy per
+  // served peer: as the root that means our DIRECT tree children — seeds pass
+  // the replacement on to theirs when it reaches them.
   function updateStream(stream: MediaStream | null) {
     localStream.value = stream;
     if (!stream) return;
     markMotionContent(stream);
-    for (const peerId of allPeers(routes)) {
-      let owner = ownerOf(routes, peerId);
-      if (!owner) {
-        owner = roomsWithPeer(routes, peerId)[0];
-        if (owner) claimOwner(routes, owner, peerId);
-      }
-      const room = owner ? rooms.value.get(owner as TrysteroStrategy) : undefined;
-      if (room) sendStreamTo(room, peerId);
-    }
+    const targets = myRole.value === "streamer" ? childrenOf(tree, ROOT) : [...allPeers(routes)];
+    for (const peerId of targets) sendMediaTo(peerId, stream);
   }
 
   // Leave all rooms
@@ -331,6 +506,12 @@ export function useTrystero() {
     peerStats.value.clear();
     clearRoutes(routes);
     statSenders = [];
+    treeSenders = [];
+    tree = createTree();
+    myParent.value = null;
+    myTreeChildren.value = [];
+    forwardingTo.clear();
+    remoteStreamForTree = null;
     selfId.value = "";
     isRecordingLocal.value = false;
   }
@@ -367,6 +548,12 @@ export function useTrystero() {
     peerList,
     connectedStrategies,
     counts,
+    // Relay tree
+    relayEnabled,
+    relayingToCount,
+    myParent,
+    setRelayEnabled,
+    reportStreamLost,
     // Methods
     init,
     createRoom,

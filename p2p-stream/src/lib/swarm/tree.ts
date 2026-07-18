@@ -161,6 +161,35 @@ export function reseatOrphan(
   return [attach(t, peer, target)];
 }
 
+// --- wire protocol (validated — room peers are untrusted) ---
+
+export type TreeMsg =
+  | { t: "hello"; relay: boolean }
+  | { t: "assign"; parent: string }
+  | { t: "children"; children: string[] }
+  | { t: "orphan" };
+
+export function isTreeMsg(data: unknown): data is TreeMsg {
+  if (typeof data !== "object" || data === null) return false;
+  const d = data as Record<string, unknown>;
+  switch (d.t) {
+    case "hello":
+      return typeof d.relay === "boolean";
+    case "assign":
+      return typeof d.parent === "string" && d.parent.length > 0 && d.parent.length <= 64;
+    case "children":
+      return (
+        Array.isArray(d.children) &&
+        d.children.length <= 64 &&
+        d.children.every((c) => typeof c === "string" && c.length > 0 && c.length <= 64)
+      );
+    case "orphan":
+      return true;
+    default:
+      return false;
+  }
+}
+
 /** Sanity: every placed peer has a live parent chain to ROOT and no cycles (depth 1). */
 export function isConsistent(t: TreeState): boolean {
   for (const [peer, parent] of t.parent) {

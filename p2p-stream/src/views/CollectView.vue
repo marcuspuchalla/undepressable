@@ -158,6 +158,22 @@
 
     <!-- Controls -->
     <div class="flex-none p-4 bg-gray-900 border-t border-gray-800 space-y-4">
+      <!-- Relay tree: help carry the stream to others (hybrid: on by default) -->
+      <div v-if="isConnected || remoteStream" class="flex items-center gap-2 text-xs">
+        <svg class="w-4 h-4 shrink-0" :class="trystero.relayingToCount.value > 0 ? 'text-moss' : 'text-slate-500'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
+        <span class="text-slate-400">
+          <template v-if="trystero.relayingToCount.value > 0">
+            Relaying to {{ trystero.relayingToCount.value }} viewer{{ trystero.relayingToCount.value === 1 ? '' : 's' }}
+          </template>
+          <template v-else-if="trystero.relayEnabled.value">Ready to relay for others</template>
+          <template v-else>Not relaying (saves data)</template>
+        </span>
+        <button
+          class="ml-auto text-glow hover:underline"
+          @click="trystero.setRelayEnabled(!trystero.relayEnabled.value)"
+        >{{ trystero.relayEnabled.value ? 'Turn off (uses upload data)' : 'Turn on' }}</button>
+      </div>
+
       <!-- Home archive forwarding -->
       <div class="flex items-center gap-2 text-xs">
         <svg class="w-4 h-4 shrink-0" :class="pairedHome ? 'text-moss' : 'text-slate-500'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
@@ -557,6 +573,9 @@ function onStreamLost(reason: string) {
   console.warn(`[CollectView] Stream lost (${reason})`)
   streamInterrupted.value = true
   autoRetries.value = 0
+  // Ask the relay tree's root to re-seat us (our seed may have silently
+  // died); the room-level watchdog stays as the outer safety net.
+  trystero.reportStreamLost()
   armStreamWatchdog()
   queueRecordingOp(async () => {
     // The recorder would silently capture nothing from ended tracks; bank the
