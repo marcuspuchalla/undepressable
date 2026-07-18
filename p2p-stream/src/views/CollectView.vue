@@ -102,6 +102,15 @@
         </div>
       </div>
 
+      <!-- Stream interrupted: keep the last frame visible, be honest about state -->
+      <div v-if="streamInterrupted && remoteStream" class="absolute inset-0 z-10 flex items-center justify-center bg-black/60">
+        <div class="text-center p-6">
+          <div class="w-8 h-8 mx-auto mb-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
+          <p class="text-yellow-300 font-medium">Stream interrupted</p>
+          <p class="text-xs text-gray-400 mt-1">Reconnecting automatically. Your recording so far is saved.</p>
+        </div>
+      </div>
+
       <!-- Recording Indicator -->
       <div v-if="isRecording" class="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 bg-red-600/80 rounded-full">
         <div class="w-3 h-3 bg-white rounded-full animate-pulse" />
@@ -230,7 +239,7 @@
           <button
             v-else-if="isRecording"
             class="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium py-3 rounded-lg transition-colors"
-            @click="stopRecording"
+            @click="stopRecordingManually"
           >
             Stop Recording
           </button>
@@ -306,6 +315,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useTrystero } from '../composables/useTrystero'
 import { useRecording } from '../composables/useRecording'
 import { useQRScanner } from '../composables/useQRScanner'
+import { useWakeLock } from '../composables/useWakeLock'
 import type { Recording } from '../types'
 import { getFullRoomId, isValidShortRoomId } from '../utils/roomId'
 import { getPairedHome, setPairedHome, clearPairedHome, archiveRoomId } from '../lib/archive'
@@ -348,6 +358,11 @@ const showQRScanner = ref(false)
 const selectedCameraId = ref('')
 const availableCameras = ref<MediaDeviceInfo[]>([])
 const noStreamHint = ref(false)
+const streamInterrupted = ref(false)
+// Auto-record every stream (including post-reconnect segments) until the user
+// explicitly presses Stop.
+const autoRecord = ref(true)
+const wakeLock = useWakeLock()
 let durationInterval: number | null = null
 let streamWatchdog: number | null = null
 
@@ -424,6 +439,8 @@ async function joinStream(shortCode: string) {
   isConnecting.value = true
   savedRecording.value = null
   playbackUrl.value = null
+  autoRecord.value = true
+  streamInterrupted.value = false
   
   try {
     // Initialize Trystero with both strategies (try both)
@@ -443,29 +460,31 @@ async function joinStream(shortCode: string) {
     // Reachability watchdog: if no stream arrives in time, silently re-establish
     // the connection a couple of times before surfacing a manual retry.
     noStreamHint.value = false
-    if (streamWatchdog) clearTimeout(streamWatchdog)
-    streamWatchdog = window.setTimeout(() => {
-      if (remoteStream.value) return
-      if (autoRetries.value < MAX_AUTO_RETRIES) {
-        autoRetries.value++
-        console.log(`[CollectView] No stream yet — auto-retry ${autoRetries.value}/${MAX_AUTO_RETRIES}`)
-        retryConnection(true)
-      } else {
-        noStreamHint.value = true
-      }
-    }, STREAM_TIMEOUT_MS)
+    armStreamWatchdog()
 
     // Set up stream received callback
-    trystero.setOnStreamReceived((stream: MediaStream) => {
+    trystero.setOnStreamReceived(async (stream: MediaStream) => {
       console.log('[CollectView] Received remote stream')
+      const isReplacement = remoteStream.value !== null && remoteStream.value !== stream
       remoteStream.value = stream
+      streamInterrupted.value = false
       noStreamHint.value = false
       autoRetries.value = 0
       trystero.error.value = null // clear any stale connection error now that video is here
       if (streamWatchdog) { clearTimeout(streamWatchdog); streamWatchdog = null }
+      watchStreamHealth(stream)
+      wakeLock.request()
 
-      // Auto-start recording when stream received
-      if (!isRecording.value && !savedRecording.value) {
+      if (isReplacement && isRecording.value) {
+        // The connection healed and delivered a NEW MediaStream. The recorder
+        // is still bound to the dead one and would silently record nothing —
+        // finalize that segment (it stays verifiable) and start the next.
+        console.log('[CollectView] Stream replaced mid-recording — rolling to a new segment')
+        await stopRecording()
+        await startRecording()
+      } else if (autoRecord.value && !isRecording.value) {
+        // Auto-start recording (first stream, or a reconnect after a segment
+        // was finalized) unless the user explicitly stopped.
         setTimeout(() => startRecording(), 1000)
       }
 
@@ -481,6 +500,46 @@ async function joinStream(shortCode: string) {
     trystero.error.value = err.message || 'Failed to connect'
   } finally {
     isConnecting.value = false
+  }
+}
+
+// Watchdog for "joined but no (live) stream": silently re-establish the
+// connection a couple of times, then surface an honest hint. Re-armed when a
+// playing stream dies so reconnects get a fresh retry budget.
+function armStreamWatchdog() {
+  if (streamWatchdog) clearTimeout(streamWatchdog)
+  streamWatchdog = window.setTimeout(() => {
+    if (remoteStream.value && !streamInterrupted.value) return
+    if (autoRetries.value < MAX_AUTO_RETRIES) {
+      autoRetries.value++
+      console.log(`[CollectView] No live stream — auto-retry ${autoRetries.value}/${MAX_AUTO_RETRIES}`)
+      retryConnection(true)
+    } else {
+      noStreamHint.value = true
+    }
+  }, STREAM_TIMEOUT_MS)
+}
+
+// Surface a dead/muted remote track instead of leaving a frozen frame, and
+// finalize the in-progress segment so what's already captured is safe.
+function watchStreamHealth(stream: MediaStream) {
+  const track = stream.getVideoTracks()[0]
+  if (!track) return
+  track.onended = () => onStreamLost('track ended')
+  track.onmute = () => { streamInterrupted.value = true }
+  track.onunmute = () => { streamInterrupted.value = false }
+}
+
+async function onStreamLost(reason: string) {
+  if (remoteStream.value === null) return // already disconnected deliberately
+  console.warn(`[CollectView] Stream lost (${reason})`)
+  streamInterrupted.value = true
+  autoRetries.value = 0
+  armStreamWatchdog()
+  if (isRecording.value) {
+    // The recorder would silently capture nothing from ended tracks; bank the
+    // finished segment now. A reconnect starts the next one automatically.
+    await stopRecording()
   }
 }
 
@@ -517,6 +576,8 @@ function disconnect() {
   remoteStream.value = null
   isConnected.value = false
   noStreamHint.value = false
+  streamInterrupted.value = false
+  wakeLock.release()
   if (streamWatchdog) { clearTimeout(streamWatchdog); streamWatchdog = null }
 }
 
@@ -534,6 +595,12 @@ async function startRecording() {
       recordingDuration.value += 1000
     }, 1000)
   }
+}
+
+// User pressed Stop: also opt out of auto-starting new segments on reconnect.
+async function stopRecordingManually() {
+  autoRecord.value = false
+  await stopRecording()
 }
 
 async function stopRecording() {

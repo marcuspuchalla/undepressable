@@ -188,6 +188,7 @@ import { useRouter } from 'vue-router'
 import { useTrystero } from '../composables/useTrystero'
 import { useRecording } from '../composables/useRecording'
 import { useLocalIP } from '../composables/useLocalIP'
+import { useWakeLock } from '../composables/useWakeLock'
 import { generateShortRoomId } from '../utils/roomId'
 import QRCode from 'qrcode'
 
@@ -213,7 +214,18 @@ const canShare = ref(typeof navigator !== 'undefined' && !!navigator.share)
 const isRecording = ref(false)
 const recordingDuration = ref(0)
 const copied = ref(false)
+const wakeLock = useWakeLock()
 let durationInterval: number | null = null
+let recoveringCamera = false
+
+const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
+  video: {
+    facingMode: 'environment',
+    width: { ideal: 1280 },
+    height: { ideal: 720 }
+  },
+  audio: true
+}
 
 const peerCount = computed(() => trystero.peerCount.value)
 const counts = computed(() => trystero.counts.value)
@@ -232,6 +244,8 @@ onMounted(async () => {
   console.log('[StreamView] Generated room:', roomCode.value)
   console.log('[StreamView] Share URL:', shareUrl.value)
   
+  document.addEventListener('visibilitychange', handleVisibility)
+
   // Initialize camera and stream
   await initStream()
 })
@@ -245,14 +259,8 @@ async function initStream() {
     }
 
     // Get camera stream
-    localStream.value = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: 'environment',
-        width: { ideal: 1280 },
-        height: { ideal: 720 }
-      },
-      audio: true
-    })
+    localStream.value = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS)
+    watchCameraHealth(localStream.value)
 
     if (videoPreview.value) {
       videoPreview.value.srcObject = localStream.value
@@ -267,6 +275,10 @@ async function initStream() {
     }
 
     isRoomJoined.value = true
+    trystero.error.value = null
+    // Screen lock suspends capture in mobile browsers — hold the screen awake
+    // for as long as we're live.
+    wakeLock.request()
 
     console.log('[StreamView] Stream initialized and room created')
     
@@ -280,6 +292,45 @@ async function initStream() {
   } catch (err: any) {
     console.error('[StreamView] Error initializing stream:', err)
     trystero.error.value = err.message || 'Failed to initialize stream'
+  }
+}
+
+// Mobile OSes end camera tracks on screen lock / backgrounding. When we come
+// back (or the track dies in place), grab a fresh camera, swap it into every
+// live connection, and roll the recording into a new verifiable segment.
+function watchCameraHealth(stream: MediaStream) {
+  const track = stream.getVideoTracks()[0]
+  if (track) track.onended = () => recoverCamera('camera track ended')
+}
+
+function handleVisibility() {
+  const track = localStream.value?.getVideoTracks()[0]
+  if (document.visibilityState === 'visible' && track && track.readyState === 'ended') {
+    recoverCamera('returned to foreground with dead camera')
+  }
+}
+
+async function recoverCamera(reason: string) {
+  if (recoveringCamera || !isRoomJoined.value) return
+  recoveringCamera = true
+  console.warn(`[StreamView] Recovering camera (${reason})`)
+  try {
+    const wasRecording = isRecording.value
+    if (wasRecording) await stopRecording() // bank the finished segment first
+    const fresh = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS)
+    localStream.value?.getTracks().forEach(t => t.stop())
+    localStream.value = fresh
+    watchCameraHealth(fresh)
+    if (videoPreview.value) videoPreview.value.srcObject = fresh
+    trystero.updateStream(fresh) // one copy per watcher, via each media-owning room
+    trystero.error.value = null
+    if (wasRecording) await startRecording()
+    console.log('[StreamView] Camera recovered, stream re-sent to peers')
+  } catch (err: any) {
+    console.error('[StreamView] Camera recovery failed:', err)
+    trystero.error.value = 'Camera lost — tap Stream again or check permissions'
+  } finally {
+    recoveringCamera = false
   }
 }
 
@@ -389,6 +440,7 @@ watch(showQRModal, async (show) => {
 
 // Cleanup
 onUnmounted(() => {
+  document.removeEventListener('visibilitychange', handleVisibility)
   if (durationInterval) clearInterval(durationInterval)
   if (isRecording.value) {
     recording.stopRecording()
