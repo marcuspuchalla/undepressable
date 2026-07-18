@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeCounts, pruneStale, isValidStat, type SwarmStat } from "./stats";
+import { computeCounts, pruneStale, isValidStat, canTrackStat, type SwarmStat } from "./stats";
 
 describe("computeCounts", () => {
   it("counts an empty swarm as all zeroes", () => {
@@ -73,5 +73,15 @@ describe("isValidStat", () => {
     expect(isValidStat({ role: "collector" })).toBe(false);
     expect(isValidStat({ role: "collector", recording: "yes" })).toBe(false);
     expect(isValidStat({})).toBe(false);
+  });
+});
+
+describe("canTrackStat", () => {
+  it("admits new peers until the cap, always allows updates", () => {
+    const map = new Map<string, unknown>([["a", 1], ["b", 1]]);
+    expect(canTrackStat(map, "c", 3)).toBe(true);
+    map.set("c", 1);
+    expect(canTrackStat(map, "d", 3)).toBe(false); // at capacity, new peer
+    expect(canTrackStat(map, "a", 3)).toBe(true); // known peer updates pass
   });
 });

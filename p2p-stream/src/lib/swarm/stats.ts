@@ -64,3 +64,14 @@ export function isValidStat(data: unknown): data is SwarmStatWire {
   const d = data as Record<string, unknown>;
   return (d.role === "streamer" || d.role === "collector") && typeof d.recording === "boolean";
 }
+
+/** Upper bound on tracked peers — a malicious room member can't grow the map unboundedly. */
+export const MAX_TRACKED_PEERS = 500;
+
+/**
+ * Whether a stat from `peerId` may be stored. Updates to already-known peers
+ * are always fine; NEW peers are rejected once the map is at capacity.
+ */
+export function canTrackStat(map: Map<string, unknown>, peerId: string, max: number = MAX_TRACKED_PEERS): boolean {
+  return map.has(peerId) || map.size < max;
+}

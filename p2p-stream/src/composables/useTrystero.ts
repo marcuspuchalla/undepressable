@@ -2,7 +2,7 @@ import { ref, computed, markRaw } from "vue";
 import type { PeerInfo, UserRole } from "../types";
 import { NOSTR_RELAYS } from "../types";
 import { getRtcConfig } from "../lib/net/iceConfig";
-import { computeCounts, pruneStale, isValidStat, type SwarmStat } from "../lib/swarm/stats";
+import { computeCounts, pruneStale, isValidStat, canTrackStat, type SwarmStat } from "../lib/swarm/stats";
 import { capVideoSendersWithRetry, markMotionContent } from "../lib/net/senderTuning";
 import {
   createRoutes,
@@ -197,6 +197,7 @@ export function useTrystero() {
     statSenders.push(sendStat);
     getStat((data: unknown, peerId: string) => {
       if (!isValidStat(data)) return;
+      if (!canTrackStat(peerStats.value, peerId)) return;
       peerStats.value.set(peerId, { role: data.role, recording: data.recording, lastSeen: Date.now() });
     });
 

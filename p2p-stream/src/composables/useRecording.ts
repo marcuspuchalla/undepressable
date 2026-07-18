@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { useOPFS } from './useOPFS'
+import { checkStorage, type StorageAssessment } from '../lib/storageGuard'
 import type { Recording, RecordingChunk, VideoQuality } from '../types'
 import { v4 as uuidv4 } from 'uuid'
 import {
@@ -67,6 +68,10 @@ export function useRecording() {
   
   const isRecording = ref(false)
   const error = ref<string | null>(null)
+  // Non-fatal storage state the UI should surface BEFORE footage is lost:
+  // quota running out, or chunk writes failing (recording continues in memory).
+  const storageWarning = ref<string | null>(null)
+  let failedChunkWrites = 0
   let mediaRecorder: MediaRecorder | null = null
   let currentRecording: Recording | null = null
   let chunkIndex = 0
@@ -80,6 +85,16 @@ export function useRecording() {
   let visibilityHandler: ((() => void) | null) = null
   let beforeUnloadHandler: ((() => void) | null) = null
   let pageHideHandler: ((() => void) | null) = null
+
+  function updateStorageWarning(a: StorageAssessment) {
+    if (a.level === 'critical') {
+      storageWarning.value = `Storage almost full — about ${a.minutesLeft ?? '?'} min of recording left. Free space or download now.`
+    } else if (a.level === 'low') {
+      storageWarning.value = `Storage getting low — roughly ${a.minutesLeft ?? '?'} min of recording left.`
+    } else if (a.level === 'ok' && failedChunkWrites < 3) {
+      storageWarning.value = null
+    }
+  }
 
   // Sync current recording state to sessionStorage for recovery
   function syncRecordingState() {
@@ -196,11 +211,15 @@ export function useRecording() {
   ): Promise<boolean> {
     try {
       error.value = null
+      storageWarning.value = null
+      failedChunkWrites = 0
       chunkIndex = 0
       inMemoryChunks = []
       chunkHashes = []
       pendingChunks = 0
       lastChunkSaveTime = 0
+
+      updateStorageWarning(await checkStorage())
 
       // Check for orphaned recordings first
       const orphaned = await checkForOrphanedRecordings()
@@ -270,13 +289,23 @@ export function useRecording() {
         try {
           // Write to OPFS for persistence
           const opfsPath = await opfs.writeChunk(currentCampaignId, currentRecording!.id, chunkIndex, event.data)
-          
+
           if (!opfsPath) {
             console.error('Failed to write chunk to OPFS')
+            failedChunkWrites++
+            if (failedChunkWrites >= 3) {
+              storageWarning.value =
+                'Storage writes are failing — persistent copy incomplete. Download the recording as soon as it stops.'
+            }
             pendingChunks = Math.max(0, pendingChunks - 1)
             return
           }
-          
+
+          // Re-assess headroom periodically (~every 30 s of footage).
+          if (chunkIndex % 30 === 0) {
+            checkStorage().then(updateStorageWarning)
+          }
+
           const buffer = await event.data.arrayBuffer()
           // Full SHA-256 hex feeds the Merkle proof; the chunk's own `checksum`
           // keeps its short prefix for quick display/back-compat.
@@ -484,6 +513,7 @@ export function useRecording() {
   return {
     isRecording,
     error,
+    storageWarning,
     startRecording,
     stopRecording,
     getRecordingBlob,

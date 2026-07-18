@@ -138,6 +138,11 @@
         >{{ STRATEGY_LABELS[s] }}</span>
       </div>
 
+      <!-- Storage warning: footage may stop persisting soon -->
+      <div v-if="recording.storageWarning.value" class="absolute inset-x-4 top-16 p-3 bg-yellow-900/90 rounded-lg text-center z-10">
+        <p class="text-yellow-200 text-sm">{{ recording.storageWarning.value }}</p>
+      </div>
+
       <!-- Connection Error (never over a stream that's actually playing) -->
       <div v-if="trystero.error && !remoteStream" class="absolute inset-x-4 bottom-20 p-4 bg-red-900/90 rounded-lg text-center">
         <p class="text-red-200 mb-2">{{ trystero.error }}</p>

@@ -99,6 +99,11 @@
           </div>
         </div>
 
+        <!-- Storage warning: footage may stop persisting soon -->
+        <div v-if="recording.storageWarning.value" class="absolute inset-x-4 top-28 p-3 bg-yellow-900/90 rounded-lg text-center">
+          <p class="text-yellow-200 text-sm">{{ recording.storageWarning.value }}</p>
+        </div>
+
         <!-- Error Message -->
         <div v-if="trystero.error" class="absolute inset-x-4 bottom-32 p-4 bg-red-900/90 rounded-lg text-center">
           <p class="text-red-200">{{ trystero.error }}</p>
