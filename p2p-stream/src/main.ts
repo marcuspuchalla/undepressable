@@ -11,6 +11,21 @@ import './assets/main.css'
 // can hand out working NAT traversal along with the room code.
 adoptTurnFromUrl()
 
+// The dev build ships no service worker, but one registered by an earlier
+// build keeps serving its precached copy forever — silently running stale code
+// against a fresh dev server, which has repeatedly sent testing down blind
+// alleys. Evict any survivor. Production registration is untouched.
+if ((import.meta as any).env?.DEV && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then(async (regs) => {
+    if (regs.length === 0) return
+    await Promise.all(regs.map((r) => r.unregister()))
+    const names = await caches.keys()
+    await Promise.all(names.map((n) => caches.delete(n)))
+    console.warn('[dev] Removed a stale service worker and its caches — reloading')
+    location.reload()
+  })
+}
+
 const app = createApp(App)
 
 app.use(createPinia())

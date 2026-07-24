@@ -5,6 +5,7 @@ import CollectView from '../views/CollectView.vue'
 import RecordingsView from '../views/RecordingsView.vue'
 import GuideView from '../views/GuideView.vue'
 import ArchiveView from '../views/ArchiveView.vue'
+import OfflineView from '../views/OfflineView.vue'
 import PairHomeView from '../views/PairHomeView.vue'
 
 const router = createRouter({
@@ -45,6 +46,11 @@ const router = createRouter({
       path: '/archive',
       name: 'archive',
       component: ArchiveView
+    },
+    {
+      path: '/offline',
+      name: 'offline',
+      component: OfflineView
     },
     {
       path: '/pair-home/:code',

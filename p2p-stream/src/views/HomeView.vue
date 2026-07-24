@@ -36,10 +36,14 @@
         </RouterLink>
       </div>
 
-      <div class="mt-3 text-center">
+      <div class="mt-3 flex flex-col sm:flex-row items-center justify-center gap-x-5 gap-y-2">
         <RouterLink to="/archive" class="inline-flex items-center gap-1.5 text-xs text-moss hover:underline">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" /></svg>
           Set up a home archive on a safe device →
+        </RouterLink>
+        <RouterLink to="/offline" class="inline-flex items-center gap-1.5 text-xs text-glow hover:underline">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728M5.636 18.364a9 9 0 010-12.728M12 12h.01M3 3l18 18" /></svg>
+          No internet? Pair face to face →
         </RouterLink>
       </div>
 
