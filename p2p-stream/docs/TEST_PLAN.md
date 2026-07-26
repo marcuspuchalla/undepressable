@@ -165,6 +165,54 @@ streamer still sends only one stream.
 
 ---
 
+## Scenario 4b — Offline pairing, no internet at all (`/offline`)
+
+**Guide:** the case normal room codes cannot serve — see
+[`OFFLINE_AND_PROXIMITY.md`](OFFLINE_AND_PROXIMITY.md).
+
+- **Devices:** two phones, one hotspot, **internet fully off**. E3.
+- **Preconditions:** the app is already installed on both (PWA or APK) — it
+  cannot be downloaded once the network is gone — and both have a camera.
+
+**Steps**
+
+1. Put both phones in airplane mode, then turn on Wi-Fi and have phone A share
+   a Personal Hotspot; join it from phone B. Confirm neither has internet
+   (a browser tab to any site should fail).
+2. Phone A: open the installed app → **No internet? Pair face to face** →
+   *I'm filming*. Allow the camera. An offer QR appears.
+3. Phone B: same page → *I'm receiving* → scan A's QR. A reply QR appears.
+4. Phone A: tap **They scanned it** → scan B's reply.
+5. Expect: B shows A's live picture and starts recording within a few seconds.
+6. Stop, then **Recordings → Verify integrity** on B.
+
+**Pass criteria**
+
+- The link establishes with no internet reachable from either device. ⬜ (E3)
+- Video plays on B and a segment is recorded. ⬜ (E3)
+- Integrity reports **Unaltered** — offline evidence verifies like online. ⬜ (E3)
+- ✅ Verified in-browser (E2) with `iceServers: []` and no relays: both peers
+  connected, real video decoded, both QR payloads inside one code.
+
+**Known limits to confirm rather than be surprised by:** one streamer→watcher
+link per exchange (no room, no relay tree); both devices must be on the same
+hotspot; a plain `http://` LAN origin will refuse the camera.
+
+## Scenario 4c — Frozen stream is noticed
+
+**Devices:** any streamer + watcher pair. E3 preferred, E2 acceptable.
+
+1. Establish a stream and confirm the watcher is recording.
+2. Kill the media without a clean teardown — e.g. put the streaming phone into
+   a faraday-ish dead spot, or disable its Wi-Fi/data abruptly.
+3. Expect within ~8s: the watcher shows **Stream interrupted — reconnecting**,
+   banks the segment it has, and retries; it must not sit on a frozen frame
+   believing it is recording.
+4. Restore the network and confirm it recovers into a new segment.
+
+- ✅ Detection verified against real WebRTC (E2) with a sender track stopped
+  silently — the receiver's track still reported `live`. ⬜ on devices (E3).
+
 ## Scenario 5 — Off-grid mesh (planned, native app)
 
 **Guide:** Use case 05. Bluetooth pairing + device-to-device Wi-Fi when there is
@@ -181,6 +229,7 @@ no network at all.
 
 | Check | How | Pass | Status |
 |-------|-----|------|--------|
+| Relay health | Debug panel → relay list, **before** any action that matters | Each transport has ≥1 relay open | ✅ tooling shipped; check per outing |
 | PWA install | iOS Safari → Add to Home Screen; Android Chrome → Install app | Opens full-screen, launches offline | ⬜ |
 | Offline start | Airplane-mode after install, open app | UI loads; local hotspot flow still works | 🟡 (SW precache verified in build) |
 | Integrity — clean | Record, Verify integrity | **Unaltered** | ✅ (E1/E2) |

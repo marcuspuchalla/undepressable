@@ -65,22 +65,35 @@ Serves from cache (offline!)
 App runs without network
 ```
 
-### 3. P2P Signaling Over Local Network
+### 3. P2P signalling with no internet
 
-Trystero (the P2P library) can discover peers using:
-- **mDNS/Bonjour** (local network discovery)
-- **BitTorrent DHT** (works over local network)
-- **Manual room codes** (no server needed)
+> **Correction (2026-07-26).** This section previously claimed peers discover
+> each other via "mDNS/Bonjour" and that "BitTorrent DHT works over local
+> network". Both were false. Browsers expose no mDNS, no UDP broadcast and no
+> local scanning to JavaScript, and Trystero's torrent strategy reaches the DHT
+> through remote `wss://` trackers. With no internet, **room codes cannot
+> connect anyone** — the relay that would introduce the two devices is
+> unreachable. See [`docs/OFFLINE_AND_PROXIMITY.md`](docs/OFFLINE_AND_PROXIMITY.md).
+
+What genuinely works with no internet is `/offline`: the two devices swap the
+WebRTC handshake by hand, as QR codes, and then talk directly over the local
+network.
 
 ```
-Phone A creates hotspot (no internet)
+Phone A shares a hotspot (no internet)
      ↓
-Phone B connects to hotspot
+Phone B joins that hotspot
      ↓
-Both phones discover each other via mDNS
+A opens /offline → "I'm filming"  → shows an offer QR
+B opens /offline → "I'm receiving" → scans it, shows an answer QR
+A scans the answer
      ↓
-WebRTC connection established directly
+WebRTC connection established directly — no server, no relay
 ```
+
+Caching the app shell (above) is still what makes this possible at all: install
+the PWA or APK **while you still have internet**, so the app is on the device
+and running from a secure origin when the network is gone.
 
 ---
 

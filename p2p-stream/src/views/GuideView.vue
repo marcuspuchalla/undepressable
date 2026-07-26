@@ -164,7 +164,7 @@ const cases = [
     n: '03',
     status: 'now',
     title: 'Your personal hotspot (survives the internet dropping)',
-    body: 'Friends near you join your phone’s personal hotspot. The video travels locally between phones, so even if your mobile internet is cut or jammed, the stream to the people around you keeps running. Pair over QR for a fully offline start.',
+    body: 'Friends near you join your phone’s personal hotspot. The video travels locally between phones, so once you are connected, the stream to the people around you keeps running even if your mobile internet is cut or jammed. Starting from scratch with no internet at all is different: room codes need a relay to introduce you, so use “Pair face to face” and swap two QR codes instead.',
     svg: svg(
       // internet uplink (may drop) — sits above the local-hotspot box
       note(115, 22, 'internet ✕', '#64748b') +
@@ -326,7 +326,8 @@ const walks: Record<string, Walk> = {
         who: 'Each watcher',
         steps: [
           'Join the host’s hotspot Wi-Fi first.',
-          'Go to Collect and scan the QR (this works with no internet) or type the code.',
+          'Go to Collect and scan the QR or type the code — this still needs a little internet to introduce the two devices.',
+          'If the internet is gone completely, use “Pair face to face” instead and swap two QR codes with the person filming.',
         ],
       },
     ],
