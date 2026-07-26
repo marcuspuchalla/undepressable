@@ -3,6 +3,7 @@ import type { PeerInfo, UserRole } from "../types";
 import { NOSTR_RELAYS } from "../types";
 import { getRtcConfig } from "../lib/net/iceConfig";
 import { computeCounts, pruneStale, isValidStat, canTrackStat, type SwarmStat } from "../lib/swarm/stats";
+import { createControlGate } from "../lib/swarm/controlAuth";
 import { capVideoSendersWithRetry, markMotionContent } from "../lib/net/senderTuning";
 import {
   createRoutes,
@@ -77,6 +78,10 @@ export function useTrystero() {
   // RTCPeerConnection to the same peer, so without this the streamer would
   // upload one copy of the video per transport per watcher (up to 3×).
   const routes = createRoutes();
+
+  // Who may reshape our place in the relay tree, and a short holding area for
+  // instructions that outrun the sender's identity.
+  const controlGate = createControlGate();
 
   // --- relay tree (docs/RELAY_TREE_DESIGN.md) ---
   // As streamer: authoritative topology — up to 2 direct children, relay-
@@ -223,6 +228,12 @@ export function useTrystero() {
       if (!isValidStat(data)) return;
       if (!canTrackStat(peerStats.value, peerId)) return;
       peerStats.value.set(peerId, { role: data.role, recording: data.recording, lastSeen: Date.now() });
+      // Learning who the streamer is unblocks any tree instruction that raced
+      // ahead of this stat. Identity is remembered, so a stat pruned on a bad
+      // link does not silently revoke the root's authority.
+      for (const held of controlGate.noteRole(peerId, data.role)) {
+        if (myRole.value !== "streamer" && isTreeMsg(held)) applyTreeInstruction(held);
+      }
     });
 
     // Relay-tree control channel (assignments, capability, orphan reports).
@@ -243,6 +254,11 @@ export function useTrystero() {
         });
       }
 
+      // Announce who we are BEFORE issuing any tree instruction: a watcher
+      // that doesn't yet know the root is the streamer would have to park the
+      // instruction instead of acting on it.
+      broadcastStat();
+
       // The relay tree decides who serves each newcomer. As the root we seat
       // the peer (assumed relay-willing until its hello says otherwise): a
       // direct child gets our stream — this is what makes LATE joiners
@@ -261,9 +277,6 @@ export function useTrystero() {
           sendMediaTo(peerId, remoteStreamForTree);
         }
       }
-
-      // Announce ourselves to the newcomer so counts converge immediately.
-      broadcastStat();
     });
 
     roomInstance.onPeerLeave((peerId: string) => {
@@ -276,6 +289,7 @@ export function useTrystero() {
         peerStats.value.delete(peerId);
         forwardingTo.delete(peerId);
         mediaSentTo.delete(peerId);
+        controlGate.forget(peerId);
         if (role === "streamer") {
           // Prune the tree; a dead seed's children get re-seated here.
           applyAssignments(treePeerLeft(tree, peerId));
@@ -486,12 +500,6 @@ export function useTrystero() {
     sendTreeMsg({ t: "orphan" });
   }
 
-  // Control messages must come from the streamer — peers are untrusted, and a
-  // forged 'children' list would turn collectors into DoS amplifiers.
-  function isFromStreamer(peerId: string): boolean {
-    return peerStats.value.get(peerId)?.role === "streamer";
-  }
-
   function handleTreeMsg(data: unknown, peerId: string) {
     if (!isTreeMsg(data)) return;
     if (myRole.value === "streamer") {
@@ -505,13 +513,24 @@ export function useTrystero() {
         applyAssignments(reseatOrphan(tree, peerId));
       }
     } else {
-      if (!isFromStreamer(peerId)) return;
-      if (data.t === "assign") {
-        myParent.value = data.parent;
-      } else if (data.t === "children") {
-        myTreeChildren.value = data.children;
-        reconcileForwarding();
+      // Only the streamer may reshape the tree — a forged 'children' list would
+      // turn watchers into DoS amplifiers. If we don't know who this is yet,
+      // hold the instruction rather than dropping it: the root announces
+      // assignments before its first stat arrives.
+      if (!controlGate.isStreamer(peerId)) {
+        controlGate.hold(peerId, data);
+        return;
       }
+      applyTreeInstruction(data);
+    }
+  }
+
+  function applyTreeInstruction(data: TreeMsg) {
+    if (data.t === "assign") {
+      myParent.value = data.parent;
+    } else if (data.t === "children") {
+      myTreeChildren.value = data.children;
+      reconcileForwarding();
     }
   }
 
@@ -534,6 +553,7 @@ export function useTrystero() {
     peers.value.clear();
     peerStats.value.clear();
     clearRoutes(routes);
+    controlGate.clear();
     statSenders = [];
     treeSenders = [];
     tree = createTree();
