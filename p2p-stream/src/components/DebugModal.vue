@@ -59,6 +59,26 @@
             <span v-else-if="!isSecureContext" class="ml-2 text-yellow-400">⚠️ HTTPS required for camera</span>
           </div>
 
+          <!-- Discovery relays. These rot in weeks, and the symptom is always
+               "peers can't find each other" — so make it checkable at a glance. -->
+          <div v-if="relayHealth" class="px-4 py-2 border-b border-gray-800 text-xs">
+            <div class="flex items-center gap-2 mb-1">
+              <span :class="relayHealth.healthy ? 'text-green-400' : 'text-yellow-400'">
+                {{ relaySummary }}
+              </span>
+            </div>
+            <ul class="space-y-0.5 max-h-28 overflow-y-auto">
+              <li v-for="r in relayHealth.relays" :key="r.transport + r.url" class="flex items-center gap-2">
+                <span
+                  class="w-1.5 h-1.5 rounded-full shrink-0"
+                  :class="r.state === 'open' ? 'bg-green-400' : r.state === 'connecting' ? 'bg-yellow-400' : 'bg-red-500'"
+                />
+                <span class="text-gray-500 w-14 shrink-0">{{ r.transport }}</span>
+                <span class="text-gray-400 truncate">{{ r.url }}</span>
+              </li>
+            </ul>
+          </div>
+
           <!-- Logs -->
           <div ref="logContainer" class="flex-1 overflow-y-auto p-4 space-y-1 font-mono text-sm">
             <div
@@ -84,8 +104,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { useLogger, type LogLevel } from '../composables/useLogger'
+import { useTrystero } from '../composables/useTrystero'
+import { describeRelayHealth, type RelayHealth } from '../lib/net/relayHealth'
 
 const logger = useLogger()
 const isOpen = ref(false)
@@ -95,13 +117,29 @@ const logContainer = ref<HTMLElement>()
 const isCameraSupported = ref(false)
 const isSecureContext = ref(false)
 
+// Relay liveness is read from the transports' existing sockets, so this is a
+// snapshot of whatever discovery infrastructure the app is currently using.
+const trystero = useTrystero()
+const relayHealth = ref<RelayHealth | null>(null)
+const relaySummary = computed(() => (relayHealth.value ? describeRelayHealth(relayHealth.value) : ''))
+let relayTimer: number | null = null
+
+function refreshRelayHealth() {
+  const health = trystero.getRelayHealth()
+  relayHealth.value = health.total > 0 ? health : null
+}
+
 function open() {
   isOpen.value = true
   checkCameraSupport()
+  refreshRelayHealth()
+  if (relayTimer) clearInterval(relayTimer)
+  relayTimer = window.setInterval(refreshRelayHealth, 2000)
 }
 
 function close() {
   isOpen.value = false
+  if (relayTimer) { clearInterval(relayTimer); relayTimer = null }
 }
 
 function checkCameraSupport() {

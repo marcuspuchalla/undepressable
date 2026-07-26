@@ -4,6 +4,7 @@ import { NOSTR_RELAYS } from "../types";
 import { getRtcConfig } from "../lib/net/iceConfig";
 import { computeCounts, pruneStale, isValidStat, canTrackStat, type SwarmStat } from "../lib/swarm/stats";
 import { createControlGate } from "../lib/swarm/controlAuth";
+import { summarizeRelays, type RelayHealth } from "../lib/net/relayHealth";
 import { capVideoSendersWithRetry, markMotionContent } from "../lib/net/senderTuning";
 import {
   createRoutes,
@@ -32,6 +33,10 @@ import {
 let joinRoomTorrent: any = null;
 let joinRoomNostr: any = null;
 let joinRoomMqtt: any = null;
+
+// Each strategy's live relay sockets, so relay rot is observable without
+// opening extra connections to probe with.
+const relaySocketGetters: Record<string, () => Record<string, { readyState: number } | null>> = {};
 
 export type TrysteroStrategy = "torrent" | "nostr" | "mqtt" | "both";
 
@@ -115,12 +120,15 @@ export function useTrystero() {
     if (strategy === "torrent" && !joinRoomTorrent) {
       const mod = await import("trystero/torrent");
       joinRoomTorrent = mod.joinRoom;
+      relaySocketGetters.torrent = mod.getRelaySockets as any;
     } else if (strategy === "nostr" && !joinRoomNostr) {
       const mod = await import("trystero/nostr");
       joinRoomNostr = mod.joinRoom;
+      relaySocketGetters.nostr = mod.getRelaySockets as any;
     } else if (strategy === "mqtt" && !joinRoomMqtt) {
       const mod = await import("trystero/mqtt");
       joinRoomMqtt = mod.joinRoom;
+      relaySocketGetters.mqtt = mod.getRelaySockets as any;
     }
   }
 
@@ -605,6 +613,23 @@ export function useTrystero() {
     return sawInbound ? { bytesReceived, framesDecoded } : null;
   }
 
+  /**
+   * Which discovery relays are up. Public relays here rot in weeks, and the
+   * symptom is always "peers mysteriously can't find each other" — so make it
+   * inspectable rather than something to rediscover by bisection.
+   */
+  function getRelayHealth(): RelayHealth {
+    const sockets: Record<string, Record<string, { readyState: number } | null>> = {};
+    for (const [strategy, getSockets] of Object.entries(relaySocketGetters)) {
+      try {
+        sockets[strategy] = getSockets() ?? {};
+      } catch {
+        sockets[strategy] = {};
+      }
+    }
+    return summarizeRelays(sockets);
+  }
+
   // Get connection status for each strategy
   function getStrategyStatus(): { strategy: string; connected: boolean; peers: number }[] {
     return Array.from(rooms.value.keys()).map((strategy) => ({
@@ -648,6 +673,7 @@ export function useTrystero() {
     setRecording,
     setOnStreamReceived,
     sampleInboundVideo,
+    getRelayHealth,
     getStrategyStatus,
   };
 }
