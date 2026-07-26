@@ -551,6 +551,40 @@ export function useTrystero() {
     leaveAllRooms();
   }
 
+  /**
+   * Totals for the video we are RECEIVING, across every transport.
+   *
+   * Track `ended`/`mute` events miss the common failure on a bad network: the
+   * path silently stops delivering while the track stays live. Watching these
+   * counters is the only way to notice the picture froze.
+   */
+  async function sampleInboundVideo(): Promise<{ bytesReceived: number; framesDecoded: number } | null> {
+    const connections: RTCPeerConnection[] = [];
+    for (const room of rooms.value.values()) {
+      for (const pc of Object.values(room.getPeers?.() ?? {})) connections.push(pc);
+    }
+    if (connections.length === 0) return null;
+
+    let bytesReceived = 0;
+    let framesDecoded = 0;
+    let sawInbound = false;
+
+    const reports = await Promise.all(
+      connections.map((pc) => pc.getStats().catch(() => null)),
+    );
+    for (const report of reports) {
+      if (!report) continue;
+      report.forEach((entry: any) => {
+        if (entry.type === "inbound-rtp" && entry.kind === "video") {
+          sawInbound = true;
+          bytesReceived += entry.bytesReceived ?? 0;
+          framesDecoded += entry.framesDecoded ?? 0;
+        }
+      });
+    }
+    return sawInbound ? { bytesReceived, framesDecoded } : null;
+  }
+
   // Get connection status for each strategy
   function getStrategyStatus(): { strategy: string; connected: boolean; peers: number }[] {
     return Array.from(rooms.value.keys()).map((strategy) => ({
@@ -593,6 +627,7 @@ export function useTrystero() {
     updateStream,
     setRecording,
     setOnStreamReceived,
+    sampleInboundVideo,
     getStrategyStatus,
   };
 }

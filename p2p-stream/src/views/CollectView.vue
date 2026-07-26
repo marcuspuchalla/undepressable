@@ -340,6 +340,7 @@ import { useWakeLock } from '../composables/useWakeLock'
 import type { Recording } from '../types'
 import { getFullRoomId, isValidShortRoomId } from '../utils/roomId'
 import { getPairedHome, setPairedHome, clearPairedHome, archiveRoomId } from '../lib/archive'
+import { createStallMonitor } from '../lib/net/streamHealth'
 import DebugModal from '../components/DebugModal.vue'
 
 const qrScanner = useQRScanner()
@@ -403,6 +404,10 @@ const STREAM_TIMEOUT_MS = 12000
 // user with a manual "Retry" — a fresh join often lands on faster relays.
 const MAX_AUTO_RETRIES = 2
 const autoRetries = ref(0)
+// How often we ask WebRTC whether bytes are still arriving.
+const STALL_POLL_MS = 2000
+const stallMonitor = createStallMonitor()
+let stallTimer: number | null = null
 
 const counts = computed(() => trystero.counts.value)
 
@@ -566,6 +571,32 @@ function watchStreamHealth(stream: MediaStream) {
   track.onended = () => onStreamLost('track ended')
   track.onmute = () => { streamInterrupted.value = true }
   track.onunmute = () => { streamInterrupted.value = false }
+  startStallMonitor()
+}
+
+// Track events only catch clean teardowns. On a congested or silently broken
+// path the track stays 'live' while nothing arrives — the watcher stares at a
+// frozen frame believing it is recording the scene. Watch the byte counters.
+function startStallMonitor() {
+  stopStallMonitor()
+  stallMonitor.reset()
+  stallTimer = window.setInterval(async () => {
+    if (!remoteStream.value) return
+    const sample = await trystero.sampleInboundVideo()
+    if (!sample) return
+    const health = stallMonitor.observe({ ...sample, at: Date.now() })
+
+    if (health === 'stalled') {
+      if (!streamInterrupted.value) onStreamLost('no media for 8s')
+    } else if (health === 'flowing' && streamInterrupted.value) {
+      // Bytes are moving again — clear the overlay the track events never will.
+      streamInterrupted.value = false
+    }
+  }, STALL_POLL_MS)
+}
+
+function stopStallMonitor() {
+  if (stallTimer) { clearInterval(stallTimer); stallTimer = null }
 }
 
 function onStreamLost(reason: string) {
@@ -614,6 +645,7 @@ function disconnect() {
   
   trystero.leaveRoom()
   stopForwarding()
+  stopStallMonitor()
   remoteStream.value = null
   isConnected.value = false
   noStreamHint.value = false
@@ -826,6 +858,7 @@ onUnmounted(() => {
     URL.revokeObjectURL(playbackUrl.value)
   }
   stopQRScanner()
+  stopStallMonitor()
   trystero.leaveRoom()
   archiveFwd.leaveRoom()
 })
