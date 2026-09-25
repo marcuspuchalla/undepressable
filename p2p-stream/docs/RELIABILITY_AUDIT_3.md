@@ -1,0 +1,355 @@
+# Reliability audit, round 3 — 2026-09-25: connecting across networks
+
+Follows [`RELIABILITY_AUDIT.md`](RELIABILITY_AUDIT.md) (round 1) and
+[`RELIABILITY_AUDIT_2.md`](RELIABILITY_AUDIT_2.md) (round 2).
+
+**Trigger — a field report.** A Mac on Wi-Fi, connected through a VPN with an
+exit in Iceland, starts a stream. A phone on a German mobile network scans the
+QR code. The connection is never established, and nothing says why.
+
+Method unchanged: every finding was read in code (file:line), reproduced in
+real Chromium, or both. New this round: a committed end-to-end harness
+(`scripts/e2e/scenarios.mjs`) that simulates the report at the ICE level — two
+Chromium instances, a firewall rule dropping direct UDP between them (what two
+strict NATs do), and a local TURN server as the only way through.
+
+Status: **FIXED (this round)** · **MITIGATED** · **OPEN** · **DECISION**.
+
+---
+
+## The reported scenario, explained
+
+Why the Mac and the phone could not connect, in order of how much it matters:
+
+1. **Two strict NATs meet.** A VPN exit and a mobile carrier's CGNAT both
+   commonly use *endpoint-dependent mapping* ("symmetric NAT"): the public
+   port changes for every destination, so the address a STUN server reports is
+   useless to the other peer. Symmetric ↔ symmetric has no direct path —
+   whatever the app does. IPv6 does not rescue it either: most VPNs block or
+   NAT IPv6. **Only a relay (TURN) connects this pair**, and the app ships
+   none by default (DECISION D1, still open).
+2. **Nothing said so.** Discovery (finding each other through Nostr/torrent
+   relays) very likely *worked*; ICE then failed silently. To the user that is
+   indistinguishable from a mistyped room code. (§1)
+3. **The QR code may not have been openable at all.** It encoded wherever the
+   app happened to run — `http://localhost`, a LAN IP, `tauri://localhost`. A
+   phone on mobile data can open none of those with its camera app. (§5)
+4. **Even with a relay, the connection was fragile.** Relayed connections
+   through a VPN are the slowest to set up, and Trystero destroys a pending
+   offer ~4.8 s after sending it (§2) — while waiting up to 5 s for ICE
+   gathering on every offer and answer (§3).
+
+What happens now, verified end to end (see *Verification*):
+
+- Both devices say, within ~20 s: **"Found the streamer, but your networks
+  block a direct connection … A relay (TURN) server is needed; setting one up
+  on either device is enough"**, with a *Set up a relay* button.
+- The relay is entered once (Network page, or straight from that button),
+  tested in-app, and **travels inside the share link / QR**, so the viewer
+  needs no setup. One side having it is enough.
+- If the streamer adds a relay while a viewer is already waiting, the room
+  re-opens with it and the waiting viewer connects on its own (measured 1.2 s).
+- Status shows **LOCAL / DIRECT / RELAY** for every live connection.
+
+What the user still has to supply: **a relay**. See *For the reported
+scenario* below.
+
+---
+
+## 1. Strict-NAT failures were silent — and looked like a wrong room code
+
+**Severity: Critical · Status: FIXED**
+
+- Trystero reports a peer only once its data channel opens
+  (`node_modules/trystero/src/room.js` `onPeer` → `onPeerJoin`), so an ICE
+  failure produced no event at all. The collector's watchdog then showed "The
+  streamer may not be live, or a strict network is blocking the connection"
+  after 12 s — the same text for every cause.
+- **Fix:** `src/lib/net/connectionMonitor.ts` instruments every
+  RTCPeerConnection Trystero opens, via Trystero's own `rtcPolyfill` config
+  hook (a subclass of the browser's RTCPeerConnection — no fork, no patch). A
+  connection whose remote description was applied is an *attempt*: the other
+  device demonstrably answered. Its local and remote candidate types, ICE
+  outcome, and the selected path (`getStats`) are recorded.
+  `src/lib/net/diagnosis.ts` turns that into one verdict: searching /
+  negotiating / connected (lan, direct, relay) / **blocked — needs relay** /
+  relay unreachable / relay rejected credentials / relay out of capacity /
+  failed even through relay / discovery servers unreachable / offline.
+  Shown live on the Stream and Collect screens (`ConnectionDoctor.vue`), with
+  the one action that would help.
+- A subtlety the E2E run caught: Trystero retries on every announce, so a
+  doomed pair *always* has a fresh attempt in flight. The first version waited
+  for the retries to stop and so never reached a verdict. Two dead ends with no
+  success in between is now the verdict.
+- The collector's watchdog no longer tears down a negotiation that is making
+  progress (it rejoined every 12 s — killing slow relay paths mid-flight), and
+  no longer rejoins when the verdict is a NAT block (rejoining cannot fix it;
+  discovery keeps running in the open room).
+
+## 2. Trystero destroyed relay paths before they could connect
+
+**Severity: Critical · Status: FIXED (unit-tested; observed in E2E)**
+
+- A nostr/mqtt offer that has not connected `announceInterval × 0.9` ≈ 4.8 s
+  after it was sent is destroyed (`trystero/src/strategy.js:338-341`,
+  `prunePendingOffer`). Signaling round-trip + the answerer's ICE gathering +
+  connectivity checks through a TURN relay + DTLS routinely exceed that across
+  a VPN — so the one path that *could* work was the one killed first, every
+  retry.
+- **Fix:** the instrumented connection defers Trystero's `close()` (and the
+  data channel's) while the negotiation has a remote description and is still
+  within a 15 s window. If ICE connects, the data channel opens and Trystero's
+  still-installed handlers adopt the peer normally; parallel attempts to the
+  same device are then closed. A second close request, a failure, or the end
+  of the window closes it for real. Policy: `src/lib/net/peerPolicy.ts`.
+- Observed: in the blocked E2E scenario the records show `closeDeferred: true`
+  on streamer-side attempts — the prune happens in practice. The *rescue*
+  itself is unit-tested (fake timers); the local harness has near-zero latency,
+  so a rescue under real VPN latency is **owed an on-device check** (TEST_PLAN).
+
+## 3. Every offer and answer waited up to 5 s for ICE gathering
+
+**Severity: High · Status: FIXED — measured**
+
+- Trystero strips trickle ICE and waits for gathering to *complete*, capped at
+  5 s (`trystero/src/peer.js:3,28-45`). Completion waits for the slowest STUN
+  server — so one blocked server, or an IPv6 route that does not exist (common
+  behind VPNs), made every answer wait the full 5 s.
+- **Fix:** the instrumented connection reports gathering complete as soon as
+  the candidates that matter are in: one STUN answer (then 400 ms of quiet),
+  or a relay candidate when a relay is configured (capped at 3 s), or 2.5 s
+  with host candidates only when STUN is unreachable. `localDescription`
+  already carries every candidate gathered so far (verified in Chromium).
+- **Measured** (two Chromium instances, STUN unreachable, 3 runs each):
+  time to first video **5.9 s → 3.4 s**. With a dead TURN host configured:
+  **4.6 s → 2.4 s**. `localStorage.undepressable_no_instrument = "1"` turns
+  all instrumentation off, for comparison and as a field safety valve.
+
+## 4. A broken relay could block even direct connections
+
+**Severity: High · Status: FIXED — regression-tested**
+
+- Found in this round's own intermediate design, and the same class as the
+  dead bundled TURN of round 1 §1: holding every offer for a relay candidate
+  that never comes (wrong password, dead host) delays answers past Trystero's
+  4.8 s prune — so *no* nostr connection forms, not even one that needed no
+  relay.
+- **Fix:** relay wait capped at 3 s; a connection stops waiting as soon as all
+  its TURN URLs report an error (401/701/508…); later connections in the
+  session skip the wait once the relay has errored without ever producing a
+  candidate.
+- Verified: open network + relay with a wrong password → video in 2.1 s, and
+  the streamer is warned "Your relay is not working, so viewers on strict
+  networks won't get in" while there is still time to fix it.
+
+## 5. Share links and QR codes pointed at unreachable addresses
+
+**Severity: High · Status: FIXED**
+
+- `useLocalIP.getShareUrl()` produced `http://<LAN-IP>:4400` from a localhost
+  dev server (a VPN makes it the *tunnel* IP), `tauri://localhost` in the
+  desktop app, `https://localhost` in the Android shell. A phone camera cannot
+  open any of them from mobile data. A plain-http LAN link is broken even on
+  the same Wi-Fi: browsers withhold the camera **and WebCrypto** (which
+  Trystero's signaling encryption needs) outside secure contexts.
+- **Fix:** `src/lib/net/shareLink.ts` — the link uses, in order: a public
+  address set on the device (Network page), `VITE_PUBLIC_URL`, the current
+  origin if public. The share sheet says plainly when the link will only open
+  on this device / this LAN / over insecure http, and points to the in-app
+  scanner (which reads the code from any of these links) and to the setting.
+
+## 6. The relay could only be configured from the console, and never travelled
+
+**Severity: High · Status: FIXED**
+
+- Runtime TURN existed (`?turn=` links, `localStorage`) but no UI; the
+  streamer's share link never carried it; a scanned QR's params were ignored
+  (the in-app scanner only extracted the code).
+- **Fix:** Network page + relay sheet (`NetworkView.vue`, `RelaySetup.vue`):
+  enter a TURN server *or a credentials URL* (an HTTPS endpoint returning
+  short-lived ICE servers — Metered, Cloudflare, Xirsys and Twilio-style
+  shapes parsed; cached with TTL; stale credentials used if the endpoint is
+  down), **test it in place** (relay-only gathering; reports UDP/TCP/TLS and
+  401/701/486/508 in words), include it in share links (default on), and an
+  opt-in **"always connect through the relay"** that hides your IP address
+  from the people you connect to. The share link carries `?turn=` / `?ice=`;
+  the in-app scanner adopts them exactly like opening the link.
+- Relay changes re-open the room (streamer) or rejoin (viewer), since ICE
+  servers apply only to connections made afterwards.
+
+## 7. A rejoin within ~100 ms of leaving got a dead room
+
+**Severity: High (found by the E2E harness) · Status: FIXED**
+
+- Trystero returns the *existing* room object for a room id until that room's
+  async `leave()` completes (`strategy.js:232-234`, deletion in
+  `onSelfLeave`). Re-opening the same code sooner — the streamer applying a new
+  relay — returned a room about to shut itself down. The streamer silently
+  stopped announcing.
+- **Fix:** in-flight leaves are tracked per `strategy:roomId`; a rejoin waits
+  for them (capped at 2 s). The collector's retry path already waited 500 ms,
+  which is why this never showed before.
+
+## 8. Connections were torn down on the first `disconnected`
+
+**Severity: Medium · Status: FIXED — owed a device check**
+
+- `peer.js:71-75` closes on `disconnected`, which on mobile is usually a 2–5 s
+  blip (cell handover, a tunnel) that ICE recovers from by itself. Tearing
+  down costs a full re-discovery and splits the recording into a new segment.
+- **Fix:** 6 s grace before Trystero hears about a `disconnected`; `failed`
+  passes straight through. The collector's byte-level stall monitor (round 2
+  §2) still runs underneath, so a real outage is still caught.
+
+## 9. Leaks on every retry: offer pools and relay sockets
+
+**Severity: Medium · Status: FIXED (torrent, nostr) · OPEN (mqtt)**
+
+- Trystero never closes its pre-built offer pool (20 connections per
+  transport) on leave and builds a fresh one on each rejoin; each pooled
+  connection holds sockets — and, with a relay configured, a TURN allocation —
+  indefinitely. The monitor now closes every connection that is not carrying a
+  live peer when the session ends.
+- Round 1 §11: each rejoin re-created relay websockets and never closed the
+  old ones, which reconnect forever. Old torrent/nostr sockets are now closed
+  (reconnect handler disarmed first) once no room uses them. MQTT sockets
+  belong to mqtt.js, which would reconnect them; still leaked, bounded by
+  retries.
+
+## 10. `iceCandidatePoolSize: 10` multiplied gathering tenfold
+
+**Severity: Medium · Status: FIXED**
+
+- Trystero already pre-builds and pre-gathers 20 offers per transport; the
+  candidate pool on top made each gather 10× — hundreds of STUN requests, and
+  with a relay configured hundreds of TURN allocations, the moment a room
+  opened. Now 0, plus `bundlePolicy: max-bundle`.
+
+## 11. Relay allocation churn is inherent to Trystero
+
+**Severity: Medium · Status: MITIGATED · OPEN upstream**
+
+- Found when the E2E TURN server (101 ports) ran out mid-test (`508 TURN
+  allocate error`). With a relay configured, *every* connection attempt
+  allocates a relay port: the offer pools, plus one parallel offer per Nostr
+  relay per announce. While two devices are blocked that is roughly two
+  allocations per second per side, freed as attempts close.
+- Self-hosted coturn (thousands of ports) is unaffected. A provider with a low
+  per-user concurrent-allocation cap will answer 486/508. Mitigations: the
+  Nostr list was trimmed back to 7 (each relay multiplies parallel attempts);
+  486/508 are named in the status ("the relay is out of capacity / at its
+  quota") instead of "unreachable"; SELF_HOSTING.md recommends a generous
+  `user-quota`. The real fix — trickle ICE and lazy offers — is upstream.
+
+## 12. Discovery infrastructure, re-verified
+
+**Status: FIXED for the lists; the rot itself is permanent**
+
+Probed 2026-09-25 from a cloud machine by *functional* test — publish a
+Trystero-format event / offer on one socket, receive it on another — not just
+"does the socket open":
+
+| Transport | Result |
+|---|---|
+| Nostr | relay **works**: damus, nostr.mom, snort, nostr-pub.wellorder.net, nostr.oxtr.dev, nostr.bitcoiner.social (also offchain.pub again, binaryrobot, sathoarder, yabu.me/v2, nostr.data.haus). **Rejects**: einundzwanzig (NIP-05 required), relay.nostraddress.com (auth), nostromo (whitelist), wirednet.jp (blocks ephemeral kinds), oldenburg (pubkey), purplerelay (disk full), nostr.land (paid), fountain.fm (kinds). **No answer from here**: nos.lol, relay.primal.net, and several Trystero defaults. |
+| Torrent | webtorrent.dev and openwebtorrent.com relay offers. **tracker.btorrent.xyz — one of Trystero's three defaults — is dead**, so a third of torrent discovery was wasted; the list is now pinned. files.fm is on a non-443 port the test machine could not reach. |
+| MQTT | Unverifiable here (non-443 ports blocked by the test network) — which is itself the point: any network that allows only 443 loses MQTT entirely. |
+
+- Pinned Nostr list: the six verified above + relay.primal.net (worked in
+  July's device runs). nos.lol dropped after timing out on every probe.
+- New: **custom discovery relays** on the Network page (a self-hosted relay on
+  443 is the censored-network answer; it used to require editing `types.ts`
+  and rebuilding). They go first, travel in share links (`?relays=`), and an
+  "only my relays" mode turns public discovery off entirely.
+
+## 13. Smaller things fixed on the way
+
+- **An empty red error box was always visible** on Stream and Collect (with a
+  "Retry" button on Collect): templates tested `trystero.error` — a Ref nested
+  in a plain object, which Vue does not unwrap, so always truthy.
+- **A viewer who joined from a link and then left had no way back in** — the
+  code input is hidden on the link route. Now: *Join again* / *Other code*.
+- A phone coming back online (`online` event) now rejoins immediately instead
+  of waiting out the watchdog.
+- The debug panel lists connection attempts (outcome, candidate types, path,
+  rescued) and relay errors, and includes them in *Copy logs*.
+
+---
+
+## Verification
+
+- **Unit (E1):** 251 tests (was 138). New: candidate parsing, NAT
+  classification, gathering and close policy, the instrumented connection
+  against a fake RTCPeerConnection with fake timers, diagnosis verdicts, ICE
+  credential parsing/caching/propagation, share links, discovery config.
+- **End to end (E2, `scripts/e2e/scenarios.mjs`):** two to four isolated
+  Chromium instances, fake camera, a local Nostr relay, and — for the NAT
+  scenarios — `iptables` dropping all direct UDP between the peers, with a
+  local TURN server as the only path. All seven pass:
+
+  | Scenario | Result |
+  |---|---|
+  | open network | video 1.2 s, `LOCAL` |
+  | direct UDP blocked, no relay | both sides: *found, but networks block a direct connection — set up a relay* |
+  | blocked, relay in the share link | video 1.3 s, `RELAY` |
+  | blocked, relay on the streamer only (not shared) | video 3.8 s, `RELAY` |
+  | blocked, relay with wrong password | both sides: *relay rejected its username/password* |
+  | blocked; streamer adds a relay from the status card | waiting viewer's video 1.2 s later, viewer did nothing |
+  | crowd: 1 streamer, 3 viewers (one seated under a seed) | all three receive video |
+
+  Also checked against the production build (`vite preview`).
+- **Not verified — owed on real devices** (TEST_PLAN E4): the actual VPN ↔
+  German-carrier pair; a rescue under real relay latency; the 6 s
+  `disconnected` grace across a real cell handover; iOS Safari/WKWebView and
+  Firefox with the instrumented RTCPeerConnection subclass (standard ES class
+  extension of a DOM constructor, expected to work, not run here); the NAT
+  classifier on real symmetric NATs (the test machine has no UDP egress, so it
+  correctly reads "UDP blocked").
+
+## For the reported scenario: what to do today
+
+1. **Get a relay.** Self-host coturn (`docs/SELF_HOSTING.md`, ~10 minutes,
+   use `turns:` on 443) or use a TURN provider's free tier.
+2. On the Mac, open **Network** (tap the *Online* pill in the header) → paste
+   the server and credentials, or the provider's credentials link → **Test** →
+   **Save**.
+3. Share as usual. The QR carries the relay; the phone needs no setup.
+4. If it still fails, the status card names the reason, and **Network → Check**
+   shows what kind of network each device is on.
+
+## Decisions (not made here)
+
+- **D1 — a default relay.** Everything above makes a relay one paste away and
+  automatic from then on; it does not *provide* one. For zero-config success
+  in exactly the reported situation (VPN ↔ mobile, the most common way
+  activists will actually be connected), the app needs a relay out of the box:
+  a funded project TURN (best UX; one more thing to block or subpoena —
+  mitigated by `turns:443`, several jurisdictions, short-lived credentials via
+  a credentials URL) versus ship-nothing (today). `VITE_TURN_*` and
+  `VITE_ICE_SERVERS_URL` are ready for either.
+- **D2 — invite keys.** Share links can now carry relay credentials, which
+  makes a leaked link slightly more valuable (it lends out relay bandwidth).
+  Prefer short-lived credentials (credentials URL) for public events. An invite
+  key would also protect those.
+
+## Known limits (do not overstate)
+
+- **Strict NAT ↔ strict NAT still needs a relay.** That is physics. What
+  changed is that the app now says so, and a relay is easy to add and
+  propagates itself.
+- **A share link's relay is visible to anyone who sees the link or QR**, and a
+  link from someone malicious can route your connections through *their*
+  relay (it sees who connects to whom, never the video — DTLS-SRTP is end to
+  end). The relay sheet says when a relay came from a link and offers removal.
+- **Discovery relays from a link are added and kept** (`?relays=`). A
+  malicious link can so add an observer of your room *topics* — which any
+  public relay operator already is (round 1 §7). They are listed, and
+  removable, on the Network page.
+- **NAT classification is a heuristic** (two STUN servers, port comparison).
+  With several local interfaces behind one NAT and mDNS-hidden bases it can
+  over-report "strict".
+- **A rescue only works if the answer arrived before Trystero's prune**; an
+  answer arriving later is dropped by Trystero itself. Faster gathering (§3)
+  makes that rare.
+- **MQTT sockets still leak per retry** (bounded), and MQTT is dead on
+  443-only networks.

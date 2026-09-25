@@ -46,6 +46,44 @@ const fwd = useTrystero(); await fwd.init(['both'])
 await fwd.createRoom('some-room-id', ['both'], stream)   // now broadcasting
 ```
 
+### Automated connection scenarios (E2, simulated strict NAT)
+
+`scripts/e2e/scenarios.mjs` runs the app in several isolated Chromium
+instances against a local Nostr relay. For the NAT scenarios it drops all
+direct UDP between the peers with `iptables` (what two strict NATs do to ICE)
+and starts a local TURN server as the only way through:
+
+```bash
+npm run dev                                   # in one terminal
+npm i --no-save playwright@1 node-turn ws     # harness deps, not app deps
+sudo node scripts/e2e/scenarios.mjs           # all; or name some: open blocked relay-link
+```
+
+Scenarios: `open`, `blocked`, `relay-link`, `relay-one-side`,
+`relay-rejected`, `relay-added-live`, `crowd`. Results and what each proves:
+[`RELIABILITY_AUDIT_3.md`](RELIABILITY_AUDIT_3.md). This proves the app's
+logic under a faithful ICE-level simulation; it is **not** a substitute for
+the real-network pass below (E4).
+
+### Cross-network pass owed on real devices (E4)
+
+The field report that triggered round 3, to be re-run by hand:
+
+1. Streamer on a laptop/phone behind a **VPN**; viewer on **mobile data**
+   (another country's carrier if possible). No relay configured.
+   **Pass:** both screens show *"… your networks block a direct connection"*
+   within ~30 s, with *Set up a relay*. (Before: endless "connecting".)
+2. Streamer adds a relay via that button (use `turns:…:443`). **Pass:** the
+   waiting viewer connects without touching anything; status shows `RELAY`.
+3. Fresh room, relay already configured on the streamer only; viewer scans the
+   QR with the **in-app scanner** and, separately, opens the link from the
+   phone's **camera app**. **Pass:** both connect, `RELAY`.
+4. **Network → Check** on each device. Record the verdicts (VPN and carrier
+   are expected to read "Strict NAT"; home Wi-Fi "Standard NAT").
+5. While connected via relay, walk the phone into a Wi-Fi ↔ mobile handover.
+   **Pass:** a short blip recovers without a new recording segment; a long one
+   recovers via rejoin.
+
 ---
 
 ## Scenario 1 — One to one

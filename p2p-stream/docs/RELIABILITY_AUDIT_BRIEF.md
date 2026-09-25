@@ -5,6 +5,19 @@ and convenient as possible on bad networks** — congested, high-latency, lossy,
 NAT-restricted, throttled, censored, or hostile. Hand this to an agent to run a
 reliability pass; it is self-contained.
 
+## Status (2026-09-25)
+
+**Round 3 is done** — cross-network connection establishment, triggered by a
+VPN ↔ German-mobile field failure. See
+[`RELIABILITY_AUDIT_3.md`](RELIABILITY_AUDIT_3.md): connection instrumentation
+via Trystero's `rtcPolyfill` (fast gathering, rescue of pruned negotiations,
+disconnect grace, leak cleanup), diagnostics that tell a NAT block from a
+wrong code, in-app relay setup that travels in share links, public share
+addresses, re-verified relay lists, and a committed E2E harness that
+simulates strict NAT. Open items there supersede the list below where they
+overlap; D1 (default relay) is now the only missing piece for zero-config
+success in the VPN ↔ mobile case.
+
 ## Status (2026-07-24)
 
 **Round 1 is done.** A full audit ran on 2026-07-18 — see
