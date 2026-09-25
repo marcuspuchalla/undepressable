@@ -102,18 +102,37 @@ export { getRtcConfig, STUN_SERVERS } from './lib/net/iceConfig'
 //
 // Trystero's built-in default relay list has rotted: several of its defaults
 // now reject our ephemeral signaling events ("blocked: not on white-list",
-// "invalid: ephemeral event expired"), which made peer discovery take minutes
-// or fail outright. We pin a curated set of large, open relays that accept
-// ephemeral events, so two peers find each other in seconds.
-// offchain.pub was dropped 2026-07-18: it now rejects our events with
-// "Policy violated and pubkey is not in our web of trust" (seen consistently
-// in live tests) — a dead signaling path that only added latency and noise.
-// relay.damus.io rate-limits our 5.3s announce cadence but still delivers
-// discovery, so it stays.
+// "invalid: ephemeral event expired", "auth-required", "NIP-05 verification
+// needed"), which made peer discovery take minutes or fail outright. We pin a
+// curated set of open relays that accept Trystero's ephemeral events.
+//
+// Re-verified 2026-09-25 by publishing a Trystero-format event on one socket
+// and receiving it on another (docs/RELIABILITY_AUDIT_3.md §5): the first six
+// relayed it end-to-end. relay.primal.net opened but did not relay from the
+// test machine; it worked in July's on-device runs, so it stays as an extra.
+//
+// Why not more: every relay that delivers a peer's announce makes Trystero
+// open one more parallel connection attempt to that peer. Seven relays is
+// already seven attempts per announce — each allocating a port on the TURN
+// relay when one is configured. Past a handful, redundancy costs more than it
+// buys; any one relay both peers share is enough for them to meet.
 export const NOSTR_RELAYS = [
   'wss://relay.damus.io',
-  'wss://nos.lol',
-  'wss://relay.primal.net',
   'wss://nostr.mom',
-  'wss://relay.snort.social'
+  'wss://relay.snort.social',
+  'wss://nostr-pub.wellorder.net',
+  'wss://nostr.oxtr.dev',
+  'wss://nostr.bitcoiner.social',
+  'wss://relay.primal.net'
+]
+
+// WebTorrent trackers for the torrent strategy. Trystero's defaults connect to
+// the first three of its list, one of which (tracker.btorrent.xyz) has been
+// dead since at least July — so a third of torrent discovery was wasted.
+// The first two relayed offers end-to-end on 2026-09-25; files.fm listens on a
+// non-443 port the test machine could not reach, so it is unverified.
+export const TORRENT_TRACKERS = [
+  'wss://tracker.webtorrent.dev',
+  'wss://tracker.openwebtorrent.com',
+  'wss://tracker.files.fm:7073/announce'
 ]
