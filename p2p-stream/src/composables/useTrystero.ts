@@ -1,7 +1,9 @@
-import { ref, computed, markRaw } from "vue";
+import { ref, shallowRef, computed, markRaw } from "vue";
 import type { PeerInfo, UserRole } from "../types";
-import { NOSTR_RELAYS } from "../types";
-import { getRtcConfig } from "../lib/net/iceConfig";
+import { NOSTR_RELAYS, TORRENT_TRACKERS } from "../types";
+import { resolveRtcConfig } from "../lib/net/iceConfig";
+import { createConnectionMonitor, type ConnectionMonitor, type ConnectionReport } from "../lib/net/connectionMonitor";
+import { planDiscovery, getCustomRelays, isCustomRelaysOnly } from "../lib/net/discoveryConfig";
 import { computeCounts, pruneStale, isValidStat, canTrackStat, type SwarmStat } from "../lib/swarm/stats";
 import { createControlGate } from "../lib/swarm/controlAuth";
 import { summarizeRelays, type RelayHealth } from "../lib/net/relayHealth";
@@ -38,6 +40,57 @@ let joinRoomMqtt: any = null;
 // opening extra connections to probe with.
 const relaySocketGetters: Record<string, () => Record<string, { readyState: number } | null>> = {};
 
+// The most recent connection report from any instance, for the debug panel
+// (which is not the component that owns the connection).
+export const latestConnectionReport = shallowRef<ConnectionReport | null>(null);
+if (typeof window !== "undefined") {
+  (window as any).__undepressableConnections = () => latestConnectionReport.value;
+}
+
+// Rooms open per transport, across every useTrystero instance (the collector
+// runs a second one for home-archive forwarding). Trystero shares one set of
+// relay sockets per transport, so they may only be closed when this hits 0.
+const openRoomsPerStrategy: Record<string, number> = {};
+
+// Safety valve: `localStorage.undepressable_no_instrument = "1"` hands Trystero
+// the browser's own RTCPeerConnection (no fast gathering, no rescue, no
+// diagnostics) — for isolating a problem on some browser in the field.
+function instrumentationEnabled(): boolean {
+  if (typeof RTCPeerConnection === "undefined") return false;
+  try {
+    return localStorage.getItem("undepressable_no_instrument") !== "1";
+  } catch {
+    return true;
+  }
+}
+
+// Trystero hands back the *existing* room object for a room id until that
+// room's async leave() has finished (~100 ms). Re-joining sooner — e.g. the
+// streamer re-opening its room to pick up a new relay — got a room that was
+// about to shut itself down, and the streamer silently stopped announcing.
+// In-flight leaves are tracked here so a rejoin can wait them out.
+const leavingRooms = new Map<string, Promise<void>>();
+const LEAVE_WAIT_MS = 2000;
+
+type ClosableSocket = { readyState: number; onclose: unknown; close: () => void };
+
+// Trystero re-creates its relay sockets on every join after a leave but never
+// closes the old ones — and each keeps auto-reconnecting forever. Every retry
+// used to leak another set. Close the old set once nothing uses it.
+function releaseRelaySockets(strategy: string, sockets: Record<string, ClosableSocket | null>) {
+  // MQTT sockets belong to mqtt.js, which would just reconnect them.
+  if (strategy === "mqtt") return;
+  for (const socket of Object.values(sockets)) {
+    if (!socket) continue;
+    try {
+      socket.onclose = null; // disarm Trystero's reconnect loop first
+      if (socket.readyState <= 1) socket.close();
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
 export type TrysteroStrategy = "torrent" | "nostr" | "mqtt" | "both";
 
 // Trystero's action send/receive tuple. `send(data, targetPeers?)`; `receive`
@@ -71,6 +124,24 @@ export function useTrystero() {
   const selfId = ref<string>("");
   const activeStrategies = ref<TrysteroStrategy[]>([]);
   const isReady = ref(false);
+
+  // --- connection observability (lib/net/connectionMonitor.ts) ---
+  // One monitor per session: it instruments every RTCPeerConnection Trystero
+  // opens for us, and is ended (closing leftovers) when we leave.
+  let monitor: ConnectionMonitor | null = null;
+  let session = 0;
+  const roomIds = new Map<string, string>();
+  const joinedAt = ref<number | null>(null);
+  const connectionReport = shallowRef<ConnectionReport | null>(null);
+  let reportTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleReport() {
+    if (reportTimer) return;
+    reportTimer = setTimeout(() => {
+      reportTimer = null;
+      connectionReport.value = monitor ? monitor.report() : null;
+      if (connectionReport.value) latestConnectionReport.value = connectionReport.value;
+    }, 250);
+  }
 
   // --- swarm stats (watching / recording counts) ---
   const myRole = ref<UserRole>("collector");
@@ -163,28 +234,56 @@ export function useTrystero() {
       : (strategies.filter((s) => s !== "both") as ("torrent" | "nostr" | "mqtt")[]);
   }
 
-  function openRooms(campaignId: string, strategies: TrysteroStrategy[], role: UserRole, stream?: MediaStream) {
+  async function openRooms(campaignId: string, strategies: TrysteroStrategy[], role: UserRole, stream?: MediaStream) {
     leaveAllRooms();
+    const mySession = ++session;
     myRole.value = role;
     if (stream) {
       markMotionContent(stream);
       localStream.value = stream;
     }
 
-    for (const strategy of resolveStrategies(strategies)) {
+    // Resolved per join so relay settings changed a moment ago apply, and a
+    // credentials URL gets fresh short-lived credentials.
+    const rtcConfig = await resolveRtcConfig();
+    if (mySession !== session) return; // left (or re-joined) while we waited
+
+    monitor = createConnectionMonitor({ onChange: scheduleReport });
+    joinedAt.value = Date.now();
+    connectionReport.value = monitor.report();
+    const rtcPolyfill = instrumentationEnabled() ? monitor.peerClass() : undefined;
+
+    // A self-hosted relay (Network page, or adopted from a share link) goes
+    // first; in "only my relays" mode the public transports stay off.
+    const plan = planDiscovery(NOSTR_RELAYS, getCustomRelays(), isCustomRelaysOnly());
+    let resolved = resolveStrategies(strategies);
+    if (!plan.usePublicTransports) resolved = resolved.filter((s) => s === "nostr");
+    if (resolved.length === 0) resolved = ["nostr"];
+    if (resolved.includes("nostr")) await loadStrategy("nostr");
+    if (mySession !== session) return;
+
+    for (const strategy of resolved) {
+      const leaving = leavingRooms.get(`${strategy}:${campaignId}`);
+      if (leaving) {
+        await Promise.race([leaving, new Promise((r) => setTimeout(r, LEAVE_WAIT_MS))]);
+        if (mySession !== session) return;
+      }
       const join =
         strategy === "nostr" ? joinRoomNostr : strategy === "mqtt" ? joinRoomMqtt : joinRoomTorrent;
-      // Passing rtcConfig lets us add TURN relays for cross-network reach;
-      // resolved per-join so a runtime-configured TURN applies immediately.
-      // For the nostr strategy, pin a curated relay list — Trystero's defaults
-      // include relays that reject our signaling and stall peer discovery.
-      const rtcConfig = getRtcConfig();
-      const config =
-        strategy === "nostr"
-          ? { appId: "p2p-es-v1", rtcConfig, relayUrls: NOSTR_RELAYS }
-          : { appId: "p2p-es-v1", rtcConfig };
+      // Pin relay lists for nostr and torrent — Trystero's defaults include
+      // relays that reject our signaling or no longer exist (types.ts).
+      const relayUrls =
+        strategy === "nostr" ? plan.nostrRelays : strategy === "torrent" ? TORRENT_TRACKERS : undefined;
+      const config = {
+        appId: "p2p-es-v1",
+        rtcConfig,
+        ...(rtcPolyfill ? { rtcPolyfill } : {}),
+        ...(relayUrls ? { relayUrls } : {}),
+      };
       const room: TrysteroRoom = join(config, campaignId);
       rooms.value.set(strategy, markRaw(room));
+      roomIds.set(strategy, campaignId);
+      openRoomsPerStrategy[strategy] = (openRoomsPerStrategy[strategy] ?? 0) + 1;
       if (!selfId.value) selfId.value = room.selfId;
       setupRoomHandlers(room, strategy, role);
       console.log(`[Trystero] ${role === "streamer" ? "Created" : "Joined"} ${strategy} room:`, campaignId);
@@ -202,7 +301,7 @@ export function useTrystero() {
     error.value = null;
     isConnecting.value = true;
     try {
-      openRooms(campaignId, strategies, "streamer", stream);
+      await openRooms(campaignId, strategies, "streamer", stream);
       isConnecting.value = false;
       return true;
     } catch (err: any) {
@@ -217,7 +316,7 @@ export function useTrystero() {
     error.value = null;
     isConnecting.value = true;
     try {
-      openRooms(campaignId, strategies, "collector");
+      await openRooms(campaignId, strategies, "collector");
       isConnecting.value = false;
       return true;
     } catch (err: any) {
@@ -555,9 +654,45 @@ export function useTrystero() {
 
   // Leave all rooms
   function leaveAllRooms() {
+    session++;
     stopHeartbeat();
-    rooms.value.forEach((room) => room.leave());
+    rooms.value.forEach((room, strategy) => {
+      const left = Math.max(0, (openRoomsPerStrategy[strategy] ?? 1) - 1);
+      openRoomsPerStrategy[strategy] = left;
+      // Capture this session's sockets now: the next join replaces them.
+      let sockets: Record<string, ClosableSocket | null> = {};
+      try {
+        if (left === 0) sockets = (relaySocketGetters[strategy]?.() ?? {}) as Record<string, ClosableSocket | null>;
+      } catch {
+        /* no sockets to release */
+      }
+      const leaveKey = `${strategy}:${roomIds.get(strategy) ?? ""}`;
+      const leaving = Promise.resolve(room.leave())
+        .catch(() => {})
+        .finally(() => {
+          if (leavingRooms.get(leaveKey) === leaving) leavingRooms.delete(leaveKey);
+          if (left === 0 && (openRoomsPerStrategy[strategy] ?? 0) === 0) releaseRelaySockets(strategy, sockets);
+          else if (left === 0) {
+            // Someone re-joined meanwhile; release only sockets they did not inherit.
+            const current = new Set(Object.values(relaySocketGetters[strategy]?.() ?? {}));
+            releaseRelaySockets(
+              strategy,
+              Object.fromEntries(Object.entries(sockets).filter(([, sock]) => !current.has(sock as any))),
+            );
+          }
+        });
+      leavingRooms.set(leaveKey, leaving);
+    });
     rooms.value.clear();
+    roomIds.clear();
+    monitor?.end();
+    monitor = null;
+    joinedAt.value = null;
+    connectionReport.value = null;
+    if (reportTimer) {
+      clearTimeout(reportTimer);
+      reportTimer = null;
+    }
     peers.value.clear();
     peerStats.value.clear();
     clearRoutes(routes);
@@ -651,6 +786,8 @@ export function useTrystero() {
     isReady,
     peerStats,
     myRole,
+    joinedAt,
+    connectionReport,
     // Computed
     peerCount,
     isConnected,
