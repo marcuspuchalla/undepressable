@@ -4,9 +4,10 @@ The app is zero-config by default: discovery rides public BitTorrent/Nostr/MQTT
 infrastructure and media flows peer-to-peer. Two situations justify running
 your own infrastructure:
 
-1. **Strict NAT on both ends** (common phone↔phone across carriers): a TURN
-   relay is required — there is no bundled one (the free public TURN the app
-   once shipped is dead; see `RELIABILITY_AUDIT.md` §1).
+1. **Strict NAT on both ends** (common phone↔phone across carriers, or a VPN
+   ↔ mobile data): a TURN relay is required — there is no bundled one (the
+   free public TURN the app once shipped is dead; see `RELIABILITY_AUDIT.md`
+   §1). The app can try volunteer-run public relays as a stopgap (below).
 2. **Censored networks** that block the public discovery relays.
 
 Nothing here is required for same-network / hotspot use.
@@ -65,6 +66,18 @@ address, username and password — or a provider's **credentials link** — then
 
 The status card on the Stream/Collect screens has a *Set up a relay* button
 whenever a connection fails because the networks block a direct path.
+
+**No relay at all? Public ones, as a stopgap.** The relay sheet opens with
+*Try free public ones*: the app tests a short list of volunteer-run TURN
+servers from this network and, only after you tap *Use the N that answered*,
+adds those. They stay on this device (never in share links) and can be
+removed with *Stop using*. Expect them to be slow, full or gone — there is no
+dependable public TURN without sign-up — and remember a relay operator sees
+which addresses talk to each other (never the video, which is end-to-end
+encrypted). A free account at a TURN provider (ExpressTURN, Metered,
+Cloudflare) or the coturn setup above is the real fix. The same card offers
+*More STUN servers* for networks that block the usual ones; STUN never gets
+two strict NATs connected, only a relay does.
 
 **Credentials link.** Many TURN providers issue short-lived credentials from an
 HTTPS endpoint (for example `https://<app>.metered.live/api/v1/turn/credentials?apiKey=…`).

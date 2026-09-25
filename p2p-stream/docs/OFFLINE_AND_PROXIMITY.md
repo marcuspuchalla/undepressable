@@ -142,11 +142,47 @@ the trade — a native Wi-Fi Direct / Aware path would remove that step.
 
 ### If we build the native path
 
-Roughly: a Capacitor plugin per platform, wrapping Nearby Connections and
-MultipeerConnectivity, exposing "discover / connect / send handshake". The
-media path would move off WebRTC to the platform's own transport, which is a
-substantial piece of work — the recording and integrity layers stay unchanged.
-Tracked as use case 05 (planned) in the in-app guide and §2 of FEASIBILITY.
+See [`NATIVE_MESH.md`](NATIVE_MESH.md): BLE carries the existing compact
+handshake instead of a camera, and on Android a Wi-Fi Direct group gives the
+unchanged WebRTC path a network to run on. Google's Nearby Connections is
+avoided (Play Services, not F-Droid). The recording, integrity and hand-over
+layers stay unchanged.
+
+---
+
+## 2b. Beyond two devices, and getting footage out
+
+Two things added in round 4, both without internet:
+
+**Chains — "Share onward".** A viewer can pass the picture on: it invites
+further devices with the same code exchange and forwards what it receives. A
+stream then spreads A → B → C — for someone out of the filming phone's Wi-Fi
+range, or when its hotspot is full — and the person filming only uploads to
+the devices next to them. If B re-pairs with A, C stays paired and gets the
+picture back. Verified: `scenarios.mjs offline-chain` (C, paired only with B,
+plays A's live camera; A serves one viewer).
+
+**Handing recordings over.** On a face-to-face link, *Hand over my
+recordings* sends every signed recording on this device to the other one
+(the segment being recorded is closed and signed first, recording carries
+on). It runs over a second data channel on the same link, so the hotspot is
+all it needs. The receiver stores nothing until the signature verifies and
+every chunk hashes to the signed value — damaged chunks are asked for again,
+interrupted transfers resume. Use: someone leaving the scene takes a verified
+copy with them. Verified: `scenarios.mjs offline-handover`.
+
+**Evidence files.** Recordings → share icon packs the video with its proof:
+one `.zip`, or the video plus a `.evidence.txt` where the share sheet refuses
+zips. That goes through AirDrop, Quick Share, Bluetooth file transfer or a USB
+stick; Recordings → *Import* on any device with the app re-checks every
+second and names the one that was altered. Verified: `scenarios.mjs
+evidence-file` (a copy with one flipped byte is refused: "Second 3 of the
+video does not match what was signed").
+
+**Store and forward to the home archive.** What a phone filmed while it could
+not reach home is sent later: Recordings → *Send to home now* while the home
+device has its Home archive screen open. Same checks, resumable. Verified:
+`scenarios.mjs home-sync`.
 
 ---
 
@@ -202,7 +238,12 @@ service can film with the screen off.
 - One exchange per viewer; the filming phone can add as many as its uplink
   carries, and sees who is recording.
 
+**Afterwards**
+- Hand over recordings to someone leaving, or send evidence files through the
+  share sheet; once online, *Send to home now* delivers the rest.
+
 **What still cannot be done**
 - Reach someone on a different network with no internet on either side.
 - Film with the screen off in a browser.
-- Use Bluetooth for anything, today.
+- Find nearby devices by radio, or carry video over Bluetooth. (Bluetooth
+  does carry pairing codes and evidence files — through the OS share sheet.)

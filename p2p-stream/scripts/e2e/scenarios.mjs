@@ -10,8 +10,9 @@
 //   node scripts/e2e/scenarios.mjs [scenario ...]
 //
 // Scenarios: open, blocked, relay-link, relay-one-side, relay-rejected,
-// public-relay, relay-added-live, crowd, crowd-large, internet-drops, offline-two-viewers,
-// offline-isolated, archive.
+// public-relay, relay-added-live, crowd, crowd-large, internet-drops,
+// offline-two-viewers, offline-isolated, archive, evidence-file, home-sync,
+// offline-handover, offline-chain, offline-chain-repair.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
@@ -469,6 +470,53 @@ Object.assign(scenarios, {
     const bCard = await B.locator('.card', { has: B.locator('h2', { hasText: 'Watching through you' }) }).innerText().catch(() => '')
     const ok = b !== null && c !== null && moving && /^1 watching/.test(aViewers) && /connected/.test(bCard)
     return [ok, `B video ${b}s, C video ${c}s via B, moving ${moving}; A: "${aViewers}"; B: "${bCard.replace(/\s+/g, ' ').slice(0, 80)}"`]
+  },
+})
+Object.assign(scenarios, {
+  // The relay in a chain loses the filming phone and pairs with another one;
+  // the device watching through it must get the new picture, untouched.
+  async 'offline-chain-repair'() {
+    const A = await newPage({})
+    await A.goto(`${APP}/offline`)
+    await A.getByText("I'm filming").click()
+    await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const B = await offlineViewer(A)
+    await videoWithin(B, 20000)
+    await B.locator('[data-testid=share-onward]').click()
+    await B.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const C = await newPage({})
+    await C.goto(`${APP}/offline`)
+    await C.getByText("I'm receiving").click()
+    await pasteCode(C, await codeOf(B))
+    await C.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    await pasteCode(B, await codeOf(C))
+    const first = await videoWithin(C, 25000)
+    // A disappears (battery, arrest, out of range).
+    await A.context().browser().close()
+    const pairAgain = B.getByRole('button', { name: 'Pair again' })
+    const lostSeen = await pairAgain.waitFor({ timeout: 40000 }).then(() => true).catch(() => false)
+    await pairAgain.click().catch(() => {})
+    // A second filming phone; B pairs with it, C does nothing.
+    const A2 = await newPage({})
+    await A2.goto(`${APP}/offline`)
+    await A2.getByText("I'm filming").click()
+    await A2.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    await pasteCode(B, await codeOf(A2))
+    const replyBox = B.locator('[data-testid=pair-code]')
+    await B.waitForFunction(() => document.querySelectorAll('[data-testid=pair-code]').length >= 1, null, { timeout: 15000 })
+    // B shows its reply to A2 (the only code on screen once its invite for C was used).
+    await pasteCode(A2, (await replyBox.last().textContent()).trim())
+    await videoWithin(B, 25000)
+    const moving = await C.evaluate(async () => {
+      const v = document.querySelector('video')
+      if (v.paused) await v.play().catch(() => {})
+      const f0 = v.getVideoPlaybackQuality().totalVideoFrames
+      await new Promise((r) => setTimeout(r, 3000))
+      return v.getVideoPlaybackQuality().totalVideoFrames - f0
+    })
+    const cLinks = await C.locator('text=Pair again').count()
+    const ok = first !== null && lostSeen && moving > 5 && cLinks === 0
+    return [ok, `C first video ${first}s; B saw the loss: ${lostSeen}; after B re-paired with a new filming phone, C decoded ${moving} frames in 3 s without re-pairing`]
   },
 })
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']

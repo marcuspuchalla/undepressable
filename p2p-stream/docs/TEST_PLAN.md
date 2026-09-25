@@ -60,9 +60,14 @@ sudo node scripts/e2e/scenarios.mjs           # all; or name some: open blocked 
 ```
 
 Scenarios: `open`, `blocked`, `relay-link`, `relay-one-side`,
-`relay-rejected`, `relay-added-live`, `crowd`, `internet-drops` (use case 03:
-discovery dies mid-stream, video must keep flowing), `offline-two-viewers`,
-`offline-isolated`, `archive` (use case 04: streamer → phone → home archive). Results and what each proves:
+`relay-rejected`, `public-relay`, `relay-added-live`, `crowd`, `crowd-large`
+(six viewers, counts agree everywhere, relay tree), `internet-drops` (use case
+03: discovery dies mid-stream, video must keep flowing), `offline-two-viewers`,
+`offline-isolated`, `archive` (use case 04: streamer → phone → home archive),
+`evidence-file`, `home-sync`, `offline-handover`, `offline-chain`,
+`offline-chain-repair`. Also
+`scripts/e2e/pwa-offline.mjs` (needs `npm run build`) and
+`scripts/e2e/extension.mjs` (needs `npm run build:extension`). Results and what each proves:
 [`RELIABILITY_AUDIT_3.md`](RELIABILITY_AUDIT_3.md). This proves the app's
 logic under a faithful ICE-level simulation; it is **not** a substitute for
 the real-network pass below (E4).
@@ -203,6 +208,22 @@ streamer still sends only one stream.
 - Computer (E5): best — stays on, online, out of reach. ⬜ full pass owed.
 - Spare phone/tablet: works, but keep the app foregrounded, on power, screen-sleep disabled. ⬜.
 
+**Afterwards: store and forward** (`scenarios.mjs home-sync`)
+
+7. B records something with no connection to H (e.g. H closed). Later, H open on `…/archive`; B → **Recordings** shows *"N recordings are not at home yet"* → **Send N to home now**.
+8. Pass: B's card reads *"Everything is at home, checked against its signature"*, each recording shows **✓ at home**; H lists them under **Sent by paired phones · verified**, and **Verify integrity** on H says **Unaltered**. ✅ (E2: two recordings, delivered in ~0.6 s over a local relay)
+9. Interrupt it (close H mid-transfer, reopen, send again). Pass: it completes, sending only what was missing. ✅ unit-tested (resume, damaged chunk re-asked, forged signature refused); ⬜ on devices.
+
+## Scenario 4d — Evidence files (no network needed)
+
+**Guide:** Use case 04, "Afterwards". A recording leaves the device as a file.
+
+1. Recordings → share icon → **Share…** (AirDrop / Quick Share / Bluetooth) or **Save as file**.
+2. On another device: Recordings → **Import…** → choose the `.zip` (or the `.webm` and `.evidence.txt` together).
+3. Pass: *"✓ Verified and imported"*; the recording plays and verifies there. Importing again: *"already has this recording"*. ✅ (E2 `evidence-file`)
+4. Tamper: change one byte of the video and import. Pass: *"✗ Not imported … Second N of the video does not match what was signed"*, nothing stored. ✅ (E2)
+5. Real share sheets: AirDrop iPhone → Mac, Quick Share Android → Android, Bluetooth file transfer; the `.zip` opens in the OS's own unzip. ⬜ on devices (headless Chromium has no share sheet; the `.zip` passes `unzip -t` in unit tests).
+
 ---
 
 ## Scenario 4b — Offline pairing, no internet at all (`/offline`)
@@ -271,15 +292,20 @@ be on the same local network for the *video*.
 - ✅ Detection verified against real WebRTC (E2) with a sender track stopped
   silently — the receiver's track still reported `live`. ⬜ on devices (E3).
 
-## Scenario 5 — Off-grid mesh (planned, native app)
+## Scenario 5 — Off-grid mesh (partly now)
 
-**Guide:** Use case 05. Bluetooth pairing + device-to-device Wi-Fi when there is
-no network at all.
+**Guide:** Use case 05.
 
-- **Status:** 🔒 Not implemented on the web app. Requires the native Android
-  (Nearby Connections / Wi-Fi Aware) or iOS (MultipeerConnectivity) build.
-  Bluetooth alone is too slow for video. Tracked for the native milestone; no
-  web test applies. See FEASIBILITY.md.
+**Works now, over one hotspot**
+
+1. A films in `/offline`; B pairs as a viewer; B taps **Share onward**; C pairs with **B** (not A).
+   Pass: C plays A's live picture; A shows *1 watching*; B lists C under *Watching through you*. ✅ (E2 `offline-chain`)
+2. On a connected link, B taps **Hand over my recordings**; then A does. Pass: each side reads *"… handed over ✓ · … received ✓ verified"*; the copy on the other device verifies **Unaltered**. ✅ (E2 `offline-handover`)
+3. A disappears; B taps **Pair again** and pairs with another filming phone. Pass: C stays paired, does nothing, and plays the new picture. ✅ (E2 `offline-chain-repair`: 43 frames decoded in 3 s after the re-pair)
+4. Three real phones on one iPhone hotspot (guests isolated from each other: make B the hotspot). ⬜ on devices.
+
+**Planned (native)**: Bluetooth discovery and Wi-Fi Direct video without a
+hotspot — 🔒 not implemented; design in [`NATIVE_MESH.md`](NATIVE_MESH.md).
 
 ---
 
@@ -288,8 +314,10 @@ no network at all.
 | Check | How | Pass | Status |
 |-------|-----|------|--------|
 | Relay health | Debug panel → relay list, **before** any action that matters | Each transport has ≥1 relay open | ✅ tooling shipped; check per outing |
-| PWA install | iOS Safari → Add to Home Screen; Android Chrome → Install app | Opens full-screen, launches offline | ⬜ |
-| Offline start | Airplane-mode after install, open app | UI loads; local hotspot flow still works | 🟡 (SW precache verified in build) |
+| PWA install | iOS Safari → Add to Home Screen; Android Chrome → Install app (or Home → *Install app*) | Opens full-screen, launches offline | ⬜ |
+| Offline start | Airplane-mode after install, open app | UI loads; local hotspot flow still works | ✅ E2 (`pwa-offline.mjs`: server killed, all routes + lazy code load, two devices pair and stream); ⬜ on devices |
+| Browser extension | `npm run build:extension`, load unpacked | All routes; streams online and face to face | ✅ Chromium (`extension.mjs`); ⬜ Firefox |
+| Public relays | Network → *Test public relays* on a strict network | Only answering servers offered; opt-in | ✅ E2 (`public-relay`, local stand-ins); ⬜ real public servers from a VPN |
 | Integrity — clean | Record, Verify integrity | **Unaltered** | ✅ (E1/E2) |
 | Integrity — tamper | Flip one chunk byte, Verify | **Merkle root mismatch** | ✅ (E1/E2) |
 | Cross-network | Two phones on different networks (E4) | Connects via bundled TURN; clear message if blocked | ⬜ |
