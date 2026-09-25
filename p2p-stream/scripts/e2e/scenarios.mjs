@@ -10,7 +10,7 @@
 //   node scripts/e2e/scenarios.mjs [scenario ...]
 //
 // Scenarios: open, blocked, relay-link, relay-one-side, relay-rejected,
-// relay-added-live, crowd, internet-drops, offline-two-viewers,
+// public-relay, relay-added-live, crowd, internet-drops, offline-two-viewers,
 // offline-isolated, archive.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
@@ -140,6 +140,26 @@ const scenarios = {
     const b = await statusOf(B)
     return [/rejected its username\/password/.test(b), `viewer: ${b}`]
   },
+  // A strict pair with no relay of their own: the streamer opts into "free
+  // public relays" (pointed at the local TURN server via a dev-only override),
+  // the app tests them, keeps the one that answers, and the viewer gets in.
+  async 'public-relay'() {
+    const candidates = JSON.stringify([
+      { id: 'local', label: 'local test relay', server: { urls: [`turn:${HOST_IP}:3478`], username: 'test', credential: 'test' } },
+      { id: 'dead', label: 'dead relay', server: { urls: [`turn:${HOST_IP}:3479`], username: 'x', credential: 'y' } },
+    ])
+    const { page: A, code } = await startStream({ undepressable_dev_public_relay_candidates: candidates })
+    const B = await newPage({})
+    await B.goto(`${APP}/collect/${code}`)
+    await A.waitForSelector('text=your networks block a direct connection', { timeout: 60000 })
+    await A.getByRole('button', { name: 'Set up a relay' }).click()
+    await A.locator('[data-testid=test-public-relays]').click()
+    await A.locator('[data-testid=use-public-relays]').waitFor({ timeout: 20000 })
+    const results = (await A.locator('[data-testid=test-public-relays] ~ ul').innerText()).replace(/\s+/g, ' ')
+    await A.locator('[data-testid=use-public-relays]').click()
+    const s = await videoWithin(B, 40000)
+    return [s !== null && /✓ local test relay/.test(results) && /✗ dead relay/.test(results), `tests: ${results}; viewer video ${s}s after opting in`]
+  },
   async 'relay-added-live'() {
     const { page: A, code } = await startStream({})
     const B = await newPage({})
@@ -251,7 +271,7 @@ Object.assign(scenarios, {
   },
 })
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']
-const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'offline-isolated'])
+const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'offline-isolated'])
 
 relayProcess = startHelper('nostr-relay.mjs', '7777')
 startHelper('turn-server.mjs', HOST_IP)

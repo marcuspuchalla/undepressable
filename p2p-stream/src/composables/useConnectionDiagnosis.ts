@@ -1,7 +1,43 @@
 import { ref, shallowRef, computed, onMounted, onUnmounted } from "vue";
 import type { useTrystero } from "./useTrystero";
 import { diagnose, type Diagnosis } from "../lib/net/diagnosis";
-import { hasRelay } from "../lib/net/iceConfig";
+import { hasRelay, STUN_SERVERS } from "../lib/net/iceConfig";
+import { probeNat, type NatKind } from "../lib/net/natProbe";
+import { getExtraStun } from "../lib/net/publicRelays";
+
+// One quick STUN check per ~10 minutes per tab is enough: the network rarely
+// changes under a session, and each check opens a connection of its own.
+const NAT_CACHE_KEY = "undepressable_nat_kind";
+const NAT_CACHE_MS = 10 * 60_000;
+
+let natProbeInFlight: Promise<NatKind | null> | null = null;
+
+function currentNatKind(): Promise<NatKind | null> {
+  natProbeInFlight ??= measureNatKind().finally(() => (natProbeInFlight = null));
+  return natProbeInFlight;
+}
+
+async function measureNatKind(): Promise<NatKind | null> {
+  try {
+    const cached = JSON.parse(sessionStorage.getItem(NAT_CACHE_KEY) ?? "null");
+    if (cached && Date.now() - cached.at < NAT_CACHE_MS) return cached.kind as NatKind;
+  } catch {
+    /* no cache */
+  }
+  try {
+    const extra = getExtraStun();
+    const servers = extra.length ? [...STUN_SERVERS, { urls: extra }] : STUN_SERVERS;
+    const { kind } = await probeNat(servers, 4000);
+    try {
+      sessionStorage.setItem(NAT_CACHE_KEY, JSON.stringify({ kind, at: Date.now() }));
+    } catch {
+      /* storage blocked */
+    }
+    return kind;
+  } catch {
+    return null;
+  }
+}
 
 type Trystero = ReturnType<typeof useTrystero>;
 
@@ -18,6 +54,7 @@ export function useConnectionDiagnosis(
   const online = ref(typeof navigator === "undefined" ? true : navigator.onLine);
   const relayConfigured = ref(hasRelay());
   const relayHealth = shallowRef<{ open: number; total: number } | null>(null);
+  const natKind = ref<NatKind | null>(null);
   let timer: number | null = null;
   let ticks = 0;
 
@@ -33,6 +70,7 @@ export function useConnectionDiagnosis(
   const updateOnline = () => (online.value = navigator.onLine);
 
   onMounted(() => {
+    currentNatKind().then((k) => (natKind.value = k));
     window.addEventListener("online", updateOnline);
     window.addEventListener("offline", updateOnline);
     timer = window.setInterval(() => {
@@ -57,6 +95,7 @@ export function useConnectionDiagnosis(
       relayConfigured: relayConfigured.value,
       relayHealth: relayHealth.value,
       online: online.value,
+      natKind: natKind.value,
     }),
   );
 
@@ -65,5 +104,5 @@ export function useConnectionDiagnosis(
     relayConfigured.value = hasRelay();
   }
 
-  return { diagnosis, online, relayConfigured, refreshRelay };
+  return { diagnosis, online, relayConfigured, natKind, refreshRelay };
 }

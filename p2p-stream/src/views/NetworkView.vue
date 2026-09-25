@@ -45,7 +45,7 @@
       <!-- Relay -->
       <div class="card space-y-3">
         <h2 class="font-semibold text-slate-100">Relay (TURN) server</h2>
-        <RelaySetup inline @saved="onRelaySaved" />
+        <RelaySetup inline :show-stun="nat?.kind === 'blocked'" @saved="onRelaySaved" />
       </div>
 
       <!-- Share links -->

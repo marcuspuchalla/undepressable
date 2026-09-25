@@ -80,6 +80,9 @@ function collectCandidates(
   timeoutMs: number,
   onCandidate?: (ev: RTCPeerConnectionIceEvent) => void,
   onError?: (ev: RTCPeerConnectionIceErrorEvent) => void,
+  // Finish early once this holds (after `settleMs` more, to catch siblings) —
+  // gathering "complete" can take the full timeout on an unrelated dead path.
+  stopWhen?: { done: (found: ParsedCandidate[]) => boolean; settleMs: number },
 ): Promise<ParsedCandidate[]> {
   const PC: typeof RTCPeerConnection | undefined = (globalThis as any).RTCPeerConnection;
   if (!PC) return Promise.reject(new Error("WebRTC is not available"));
@@ -87,6 +90,7 @@ function collectCandidates(
   const found: ParsedCandidate[] = [];
   return new Promise<ParsedCandidate[]>((resolve) => {
     let settled = false;
+    let stopping = false;
     const finish = () => {
       if (settled) return;
       settled = true;
@@ -105,6 +109,10 @@ function collectCandidates(
       const c = parseCandidate(e.candidate.candidate);
       if (c) found.push(c);
       onCandidate?.(e);
+      if (stopWhen && !stopping && stopWhen.done(found)) {
+        stopping = true;
+        setTimeout(finish, stopWhen.settleMs);
+      }
     });
     if (onError) pc.addEventListener("icecandidateerror", (ev) => onError(ev as RTCPeerConnectionIceErrorEvent));
     pc.addEventListener("icegatheringstatechange", () => {
@@ -176,8 +184,23 @@ export async function testRelay(relayServers: RTCIceServer[], timeoutMs = 8000):
         errors.push({ url, code: ev.errorCode, text: ev.errorText ?? "" });
       }
     },
+    // One relay address proves it works; wait briefly for other transports.
+    { done: (found) => found.some((c) => c.type === "relay"), settleMs: 1500 },
   );
   const ok = cands.some((c) => c.type === "relay");
   if (ok && protocols.size === 0) protocols.add("udp");
   return { ok, protocols: Array.from(protocols).sort(), errors, durationMs: Date.now() - started };
+}
+
+/** Does this one STUN server answer from here? (It reports our public address if so.) */
+export async function testStunServer(url: string, timeoutMs = 4000): Promise<{ ok: boolean; detail: string }> {
+  const started = Date.now();
+  const cands = await collectCandidates({ iceServers: [{ urls: url }], iceCandidatePoolSize: 0 }, timeoutMs, undefined, undefined, {
+    done: (found) => found.some((c) => c.type === "srflx"),
+    settleMs: 0,
+  });
+  const srflx = cands.find((c) => c.type === "srflx");
+  return srflx
+    ? { ok: true, detail: `answered in ${((Date.now() - started) / 1000).toFixed(1)} s` }
+    : { ok: false, detail: "no answer" };
 }

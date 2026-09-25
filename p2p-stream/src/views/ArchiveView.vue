@@ -99,7 +99,7 @@
         locally and signed — nothing passes through a server.
       </p>
     </div>
-    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" @saved="onRelaySaved" @share-changed="linkTick++" />
+    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" :show-stun="diag.natKind.value === 'blocked'" @saved="onRelaySaved" @share-changed="linkTick++" />
   </div>
 </template>
 

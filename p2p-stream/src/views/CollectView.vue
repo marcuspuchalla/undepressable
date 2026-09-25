@@ -351,7 +351,7 @@
 
     <!-- Debug Modal -->
     <DebugModal ref="debugModal" />
-    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" @saved="onRelaySaved" />
+    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" :show-stun="diag.natKind.value === 'blocked'" @saved="onRelaySaved" />
   </div>
 </template>
 

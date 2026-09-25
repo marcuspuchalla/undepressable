@@ -28,6 +28,8 @@
 // survives networks which block UDP and non-HTTPS ports (DPI, hotel/corporate
 // firewalls, hostile infrastructure).
 
+import { getPublicRelays, getExtraStun } from "./publicRelays";
+
 const TURN_STORAGE_KEY = "undepressable_turn";
 
 export interface TurnConfig {
@@ -303,6 +305,8 @@ export interface RelaySetup {
   origin: RelayOrigin | null;
   turn: TurnConfig | null;
   iceUrl: string | null;
+  /** Free public relays the user opted into (tested on their network; never shared in links). */
+  publicServers: RTCIceServer[];
 }
 
 export function getRelaySetup(
@@ -318,16 +322,17 @@ export function getRelaySetup(
     } catch {
       origin = "settings";
     }
-    return { source: "runtime", origin, turn, iceUrl };
+    return { source: "runtime", origin, turn, iceUrl, publicServers: getPublicRelays(storage) };
   }
   const envIce = env.VITE_ICE_SERVERS_URL && isValidIceUrl(env.VITE_ICE_SERVERS_URL) ? env.VITE_ICE_SERVERS_URL : null;
   const eTurn = envTurn(env);
-  if (eTurn || envIce) return { source: "build", origin: null, turn: eTurn, iceUrl: envIce };
-  return { source: "none", origin: null, turn: null, iceUrl: null };
+  const publicServers = getPublicRelays(storage);
+  if (eTurn || envIce) return { source: "build", origin: null, turn: eTurn, iceUrl: envIce, publicServers };
+  return { source: "none", origin: null, turn: null, iceUrl: null, publicServers };
 }
 
 export function hasRelay(setup: RelaySetup = getRelaySetup()): boolean {
-  return setup.source !== "none";
+  return setup.source !== "none" || setup.publicServers.length > 0;
 }
 
 /** Save relay settings entered on this device (replaces whatever was there). */
@@ -447,6 +452,16 @@ function dedupeServers(servers: RTCIceServer[]): RTCIceServer[] {
   });
 }
 
+/** STUN (defaults + any extra the user opted into), own TURN, then public relays. */
+function baseServers(setup: RelaySetup, storage: StorageLike | null): RTCIceServer[] {
+  const servers: RTCIceServer[] = [...STUN_SERVERS];
+  const extra = getExtraStun(storage);
+  if (extra.length > 0) servers.push({ urls: extra });
+  if (setup.turn) servers.push({ urls: setup.turn.urls, username: setup.turn.username, credential: setup.turn.credential });
+  servers.push(...setup.publicServers);
+  return servers;
+}
+
 function baseRtcConfig(iceServers: RTCIceServer[], forceRelay: boolean): RTCConfiguration {
   const hasTurn = iceServers.some((s) => (Array.isArray(s.urls) ? s.urls : [s.urls]).some((u) => /^turns?:/i.test(u)));
   return {
@@ -472,8 +487,7 @@ export function getRtcConfig(): RTCConfiguration {
   const env = viteEnv();
   const storage = safeStorage();
   const setup = getRelaySetup(env, storage);
-  const servers = [...STUN_SERVERS];
-  if (setup.turn) servers.push({ urls: setup.turn.urls, username: setup.turn.username, credential: setup.turn.credential });
+  const servers = baseServers(setup, storage);
   if (setup.iceUrl) servers.push(...(readCache(storage, setup.iceUrl)?.servers ?? []));
   return baseRtcConfig(dedupeServers(servers), isForceRelay(storage));
 }
@@ -483,8 +497,7 @@ export async function resolveRtcConfig(opts: FetchIceOptions = {}): Promise<RTCC
   const env = viteEnv();
   const storage = opts.storage === undefined ? safeStorage() : opts.storage;
   const setup = getRelaySetup(env, storage);
-  const servers = [...STUN_SERVERS];
-  if (setup.turn) servers.push({ urls: setup.turn.urls, username: setup.turn.username, credential: setup.turn.credential });
+  const servers = baseServers(setup, storage);
   if (setup.iceUrl) servers.push(...((await fetchIceServers(setup.iceUrl, { ...opts, storage })) ?? []));
   return baseRtcConfig(dedupeServers(servers), isForceRelay(storage));
 }

@@ -273,3 +273,28 @@ describe("diagnose — home archive", () => {
     expect(diagnose(archive({ hasStream: true, peerCount: 1 })).title).toMatch(/Receiving your phone/);
   });
 });
+
+describe("diagnose — strict network detected before anything fails", () => {
+  it("tells a waiting streamer right away, with the relay action", () => {
+    const d = diagnose(input({ role: "streamer", natKind: "hard" }));
+    expect(d.code).toBe("strict-network");
+    expect(d.action).toBe("setup-relay");
+    expect(d.title).toMatch(/VPN or mobile/);
+  });
+
+  it("names UDP blocking specifically", () => {
+    expect(diagnose(input({ role: "streamer", natKind: "blocked" })).title).toMatch(/blocks direct connections/);
+  });
+
+  it("waits a little before worrying a viewer who may still connect directly", () => {
+    expect(diagnose(input({ natKind: "hard", joinedAt: NOW - 3000 })).code).toBe("searching");
+    expect(diagnose(input({ natKind: "hard", joinedAt: NOW - 15_000 })).code).toBe("strict-network");
+  });
+
+  it("stays quiet once a relay is configured, and never overrides a live connection", () => {
+    const relayWorks = report([], { wantRelay: true, gathered: { host: 4, srflx: 2, prflx: 0, relay: 2 } });
+    expect(diagnose(input({ role: "streamer", natKind: "hard", relayConfigured: true, report: relayWorks })).code).toBe("idle");
+    expect(diagnose(input({ natKind: "hard", hasStream: true, peerCount: 1 })).code).toBe("connected");
+    expect(diagnose(input({ role: "streamer", natKind: "easy" })).code).toBe("idle");
+  });
+});
