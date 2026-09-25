@@ -61,6 +61,14 @@
           {{ offline.isOffline.value ? 'Offline — ready' : 'Online — works offline too' }}
         </span>
         <button
+          v-if="offline.canInstall.value"
+          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-moss/15 text-moss hover:bg-moss/25 transition-colors"
+          title="Keeps working with no internet — and even if this website goes away"
+          @click="offline.install()"
+        >
+          Install app
+        </button>
+        <button
           class="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
           @click="shareModal?.open()"
         >
@@ -70,6 +78,11 @@
           Share this app
         </button>
       </div>
+
+      <p v-if="offline.canWorkOffline.value && offline.persistence.value === 'best-effort'" class="mt-3 text-[11px] text-slate-500 max-w-sm mx-auto">
+        This browser may clear the app and its recordings when space runs low. Installing the app (or recording once)
+        asks it to keep them.
+      </p>
 
       <!-- Self-undercutting footnote — the irony the whole project lives with. -->
       <p id="erasable-footnote" class="mt-8 pt-4 border-t border-line/60 text-[11px] leading-relaxed text-slate-500 italic max-w-sm mx-auto text-left">

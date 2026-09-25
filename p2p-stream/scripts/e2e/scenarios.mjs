@@ -10,7 +10,7 @@
 //   node scripts/e2e/scenarios.mjs [scenario ...]
 //
 // Scenarios: open, blocked, relay-link, relay-one-side, relay-rejected,
-// public-relay, relay-added-live, crowd, internet-drops, offline-two-viewers,
+// public-relay, relay-added-live, crowd, crowd-large, internet-drops, offline-two-viewers,
 // offline-isolated, archive.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
@@ -173,6 +173,38 @@ const scenarios = {
     await A.getByRole('button', { name: 'Save', exact: true }).click()
     const s = await videoWithin(B, 40000) // the viewer does nothing
     return [s !== null, `viewer video ${s}s after the streamer saved a relay`]
+  },
+  // Use case 02 at a size where the relay tree matters: the streamer uploads
+  // only to its direct children, seed viewers forward to the rest, and every
+  // device agrees on how many are watching and recording.
+  async 'crowd-large'() {
+    const N = 6
+    const tree = []
+    const { page: A, code } = await startStream({})
+    A.on('console', (m) => {
+      if (/\[Tree\] (Root streams directly|.* seated under seed)/.test(m.text())) tree.push(m.text())
+    })
+    const viewers = []
+    for (let i = 0; i < N; i++) {
+      const p = await newPage({})
+      await p.goto(`${APP}/collect/${code}`)
+      viewers.push(p)
+      await p.waitForTimeout(800)
+    }
+    const times = await Promise.all(viewers.map((p) => videoWithin(p, 60000)))
+    // Counters are a heartbeat away from agreeing; give them a few beats.
+    const countsOf = (p) => p.$$eval('.tabular-nums', (els) => els.slice(0, 2).map((e) => Number(e.textContent.trim())))
+    const want = JSON.stringify([N, N + 1])
+    let all = []
+    for (let i = 0; i < 10; i++) {
+      all = await Promise.all([A, ...viewers].map(countsOf))
+      if (all.every((c) => JSON.stringify(c) === want)) break
+      await A.waitForTimeout(2000)
+    }
+    const direct = new Set(tree.filter((t) => /Root streams directly/.test(t)).map((t) => t.split(' ').pop())).size
+    const seeded = tree.filter((t) => /seated under seed/.test(t)).length
+    const ok = times.every((t) => t !== null) && all.every((c) => JSON.stringify(c) === want) && direct <= 2 && seeded >= N - 2
+    return [ok, `videos ${times.map((t) => (t === null ? 'NONE' : t.toFixed(1))).join(', ')}s; counts [watching, recording] on each device ${all.map((c) => c.join('/')).join(' ')}; streamer uploads to ${direct}, ${seeded} served by seeds`]
   },
   async crowd() {
     const { page: A, code } = await startStream({})

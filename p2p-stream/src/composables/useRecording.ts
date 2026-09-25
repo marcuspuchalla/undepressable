@@ -1,4 +1,5 @@
 import { ref } from 'vue'
+import { ensurePersistentStorage } from '../lib/persistence'
 import { useOPFS } from './useOPFS'
 import { checkStorage, type StorageAssessment } from '../lib/storageGuard'
 import type { Recording, RecordingChunk, VideoQuality } from '../types'
@@ -224,6 +225,8 @@ export function useRecording() {
       lastChunkSaveTime = 0
 
       updateStorageWarning(await checkStorage())
+      // Evidence must not be one of the things the browser cleans up.
+      void ensurePersistentStorage()
 
       // Check for orphaned recordings first
       const orphaned = await checkForOrphanedRecordings()
