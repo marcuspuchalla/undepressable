@@ -9,6 +9,9 @@
 //   npm i --no-save playwright@1 node-turn ws
 //   node scripts/e2e/scenarios.mjs [scenario ...]
 //
+// Scenarios: open, blocked, relay-link, relay-one-side, relay-rejected,
+// relay-added-live, crowd, internet-drops, offline-two-viewers,
+// offline-isolated, archive.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
@@ -34,10 +37,12 @@ const helpers = []
 function startHelper(file, ...args) {
   const child = spawn(process.execPath, [join(here, file), ...args], { stdio: 'ignore' })
   helpers.push(child)
+  return child
 }
-function block(on) {
+let relayProcess = null
+function block(on, rule = BLOCK_RULE) {
   try {
-    execFileSync('iptables', [on ? '-I' : '-D', 'OUTPUT', ...BLOCK_RULE], { stdio: 'ignore' })
+    execFileSync('iptables', [on ? '-I' : '-D', 'OUTPUT', ...rule], { stdio: 'ignore' })
     return true
   } catch {
     return false
@@ -161,9 +166,94 @@ const scenarios = {
     return [times.every((t) => t !== null), `videos ${times.join(', ')}s; streamer: ${await statusOf(A)}`]
   },
 }
-const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live'])
 
-startHelper('nostr-relay.mjs', '7777')
+// --- offline pairing (no relays, no internet involved) -----------------------
+const codeOf = async (p) => (await p.locator('[data-testid=pair-code]').first().textContent()).trim()
+async function pasteCode(p, text) {
+  await p.locator('[data-testid=pair-paste]').first().fill(text)
+  await p.getByRole('button', { name: 'Use', exact: true }).first().click()
+}
+async function offlineViewer(streamer) {
+  const v = await newPage({})
+  await v.goto(`${APP}/offline`)
+  await v.getByText("I'm receiving").click()
+  await pasteCode(v, await codeOf(streamer)) // the codes travel as text: no cameras needed
+  await v.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+  await pasteCode(streamer, await codeOf(v))
+  return v
+}
+const viewersCard = async (p) =>
+  (await p.locator('.card', { has: p.locator('h2', { hasText: 'Viewers' }) }).innerText()).replace(/\s+/g, ' ')
+
+Object.assign(scenarios, {
+  // Use case 03: connected over a hotspot, then the internet goes away. Media
+  // is peer-to-peer, so the picture must keep flowing with discovery gone.
+  async 'internet-drops'() {
+    const { code } = await startStream({})
+    const B = await newPage({})
+    await B.goto(`${APP}/collect/${code}`)
+    const s = await videoWithin(B, 40000)
+    relayProcess.kill() // discovery (the "internet" here) disappears
+    await B.waitForTimeout(15000)
+    const advancing = await B.evaluate(async () => {
+      const v = document.querySelector('video')
+      const a = v.currentTime
+      await new Promise((r) => setTimeout(r, 2000))
+      return v.currentTime > a
+    })
+    const interrupted = await B.locator('text=Stream interrupted').count()
+    relayProcess = startHelper('nostr-relay.mjs', '7777')
+    await new Promise((r) => setTimeout(r, 500))
+    return [s !== null && advancing && interrupted === 0, `video ${s}s; 15 s after discovery died: ${advancing ? 'still playing' : 'FROZEN'}, interrupted overlay: ${interrupted}`]
+  },
+  async 'offline-two-viewers'() {
+    const A = await newPage({})
+    await A.goto(`${APP}/offline`)
+    await A.getByText("I'm filming").click()
+    await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const codeLength = (await codeOf(A)).length
+    const B = await offlineViewer(A)
+    const b = await videoWithin(B, 20000)
+    await A.getByRole('button', { name: 'Add another viewer' }).click()
+    await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const C = await offlineViewer(A)
+    const c = await videoWithin(C, 20000)
+    await A.waitForSelector('text=recording a copy', { timeout: 10000 }).catch(() => {})
+    const card = await viewersCard(A)
+    const ok = b !== null && c !== null && (card.match(/connected/g) ?? []).length === 2 && codeLength < 200
+    return [ok, `code ${codeLength} chars; videos ${b}s, ${c}s; ${card}`]
+  },
+  async 'offline-isolated'() {
+    const A = await newPage({})
+    await A.goto(`${APP}/offline`)
+    await A.getByText("I'm filming").click()
+    await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    await offlineViewer(A)
+    await A.waitForSelector("text=couldn't reach them", { timeout: 40000 }).catch(() => {})
+    const card = await viewersCard(A)
+    return [/couldn't reach them/.test(card) && /hotspot/.test(card), card.slice(0, 160)]
+  },
+  async archive() {
+    const home = await newPage({})
+    await home.goto(`${APP}/archive`)
+    await home.waitForFunction(() => /\/pair-home\//.test(document.body.innerText), null, { timeout: 15000 })
+    const pairLink = await home.evaluate(() => document.body.innerText.match(/\S*\/pair-home\/\S+/)[0])
+    const { code } = await startStream({})
+    const phone = await newPage({})
+    const u = new URL(pairLink)
+    await phone.goto(`${APP}${u.pathname}${u.search}`) // pair once
+    await phone.goto(`${APP}/collect/${code}`) // then watch at the scene
+    const watched = await videoWithin(phone, 40000)
+    const archived = await videoWithin(home, 40000)
+    await home.waitForSelector('text=Recording a forwarded stream', { timeout: 15000 }).catch(() => {})
+    const status = (await home.locator('.card').nth(1).innerText()).replace(/\s+/g, ' ')
+    return [watched !== null && archived !== null && /Recording a forwarded stream/.test(status), `phone video ${watched}s, home video ${archived}s; home: ${status.slice(0, 120)}`]
+  },
+})
+const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']
+const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'offline-isolated'])
+
+relayProcess = startHelper('nostr-relay.mjs', '7777')
 startHelper('turn-server.mjs', HOST_IP)
 await new Promise((r) => setTimeout(r, 1000))
 
@@ -172,7 +262,8 @@ const wanted = process.argv.slice(2).length ? process.argv.slice(2) : Object.key
 try {
   for (const name of wanted) {
     const needsBlock = NEEDS_BLOCK.has(name)
-    if (needsBlock && !block(true)) {
+    const rule = name === 'offline-isolated' ? BLOCK_ALL_RULE : BLOCK_RULE
+    if (needsBlock && !block(true, rule)) {
       console.log(`SKIP ${name}: needs root for iptables`)
       continue
     }
@@ -185,7 +276,7 @@ try {
       console.log(`FAIL ${name}: ${err.message}`)
     } finally {
       await closeAll()
-      if (needsBlock) block(false)
+      if (needsBlock) block(false, rule)
     }
   }
 } finally {

@@ -276,16 +276,110 @@ Trystero-format event / offer on one socket, receive it on another — not just
 
 ---
 
+## Part 2 — offline, face-to-face and home-archive scenarios
+
+The same round covered the in-app guide's other scenarios. Findings, ranked
+the same way:
+
+### 14. Offline pairing codes were at the edge of what a phone can scan
+
+**Severity: High · Status: FIXED — measured**
+
+- The code carried a whole audio+video SDP: **1717 characters, QR version 30
+  (137×137 modules)** — under 2 px per module on a phone screen.
+- **Fix:** the first connection is a bare data channel, fully described by
+  ICE credentials, DTLS fingerprint, role, mid and host addresses; that packs
+  into a binary form (`compactSignal.ts`, "UND2") and the SDP is rebuilt from
+  a template on the other side. Video is negotiated over the data channel.
+  **Now 103 characters** (~QR version 6), with room for medium error
+  correction. The old "UND1" format is still read.
+
+### 15. Offline pairing served one viewer, and a second pairing killed the first
+
+**Severity: High · Status: FIXED — verified**
+
+- `useOfflinePair` held a single RTCPeerConnection; "Start over" was the only
+  way to pair again. Now each invite is its own link; the filming device adds
+  viewers while earlier ones keep watching, and lists each one's state and
+  whether it is recording a copy (heartbeat over the data channel).
+
+### 16. Offline failures showed a blank screen; the filming phone kept no copy
+
+**Severity: High · Status: FIXED — verified**
+
+- After the reply was scanned, the UI switched to "live" regardless of
+  whether anything connected; if ICE failed, nothing was shown at all. Now:
+  *couldn't reach them* within ~15–20 s with the causes that actually happen
+  (device on mobile data, hotspot client isolation, VPN, iOS Local Network
+  permission); the viewer sees the same tips after 30 s of waiting.
+- The filming device now records its own signed copy (as online), and swaps a
+  fresh camera into every link if the OS kills the old one.
+- The viewer's recording is finalized when the link is lost or the picture
+  freezes (byte-level stall detection, as online) and restarts when it flows.
+
+### 17. Pairing needed a camera on both devices
+
+**Severity: Medium · Status: FIXED**
+
+- Codes can now be copied, sent (AirDrop / Nearby Share / messenger — all work
+  between side-by-side devices without internet) and pasted. The filming
+  device scans replies with the camera it is already filming with; phones
+  often cannot open a second camera, and the scan must not stop the broadcast.
+- While a code is produced from a scan, the camera stays on: Safari only
+  reveals real local addresses (not `.local` names a hotspot may not resolve)
+  during an active capture.
+
+### 18. iOS app lacked the Local Network usage description
+
+**Severity: Medium · Status: FIXED (needs an iOS build to confirm)**
+
+- iOS 14+ gates local-network traffic behind a permission; the Capacitor
+  app's `Info.plist` did not declare `NSLocalNetworkUsageDescription` (the
+  Tauri one did). Added.
+
+### 19. Home archive: its pairing link could not be opened, and it recorded twice
+
+**Severity: High · Status: FIXED — verified end to end for the first time**
+
+- The pairing QR used `location.origin` — `tauri://localhost` when the archive
+  is the desktop app, the very setup the guide recommends. It now uses the
+  public address, carries the archive's relay and discovery relays, and warns
+  when it will only open inside the app. The Collect scanner now accepts
+  pairing QRs (it rejected them as "Invalid QR code").
+- **Two recorders at once:** Trystero reports a stream once per track, and the
+  archive started a recording for each. One of the two was never finalized or
+  signed. Now deduplicated and serialized; a phone that reconnects rolls the
+  recording into a new segment. The preview video also stayed paused (its
+  stream was attached while hidden).
+- The collector opened the archive room twice for the same reason.
+- **Zombie connections after a leave:** a negotiation in flight when a room is
+  left can complete afterwards and attach to the old room. The other device
+  then believes it is connected and ignores the real connection — a deadlock
+  that left the archive "connected" with no video. Handlers of a left room
+  are now inert, and such a connection is closed so the other side frees
+  itself. This affects any quick leave/rejoin, including the collector's
+  automatic retry.
+- The archive and the phone's forwarding row show the same diagnosis as the
+  Stream/Collect screens ("can't reach home — needs a relay" + *fix*). A home
+  router and a phone on mobile data are often a strict-NAT pair too.
+
+### 20. Use case 03 (internet drops mid-stream) — verified
+
+- Connected over a local path, then discovery killed: the picture was still
+  playing 15 s later, with no "interrupted" overlay (`internet-drops`).
+  When discovery servers are unreachable, the status card now offers *Pair
+  face to face* directly.
+
 ## Verification
 
-- **Unit (E1):** 251 tests (was 138). New: candidate parsing, NAT
+- **Unit (E1):** 273 tests (was 138). New: candidate parsing, NAT
   classification, gathering and close policy, the instrumented connection
   against a fake RTCPeerConnection with fake timers, diagnosis verdicts, ICE
   credential parsing/caching/propagation, share links, discovery config.
 - **End to end (E2, `scripts/e2e/scenarios.mjs`):** two to four isolated
   Chromium instances, fake camera, a local Nostr relay, and — for the NAT
   scenarios — `iptables` dropping all direct UDP between the peers, with a
-  local TURN server as the only path. All seven pass:
+  local TURN server as the only path. All eleven pass:
 
   | Scenario | Result |
   |---|---|
@@ -296,6 +390,10 @@ Trystero-format event / offer on one socket, receive it on another — not just
   | blocked, relay with wrong password | both sides: *relay rejected its username/password* |
   | blocked; streamer adds a relay from the status card | waiting viewer's video 1.2 s later, viewer did nothing |
   | crowd: 1 streamer, 3 viewers (one seated under a seed) | all three receive video |
+  | internet drops mid-stream (use case 03) | still playing 15 s after discovery died |
+  | offline: two viewers, codes pasted as text | 103-char codes; both play ~1 s after their reply; "recording a copy" shown |
+  | offline: devices cannot reach each other | "couldn't reach them" + tips in ~15 s |
+  | home archive: streamer → phone → home (use case 04) | phone and home both play; home records exactly once |
 
   Also checked against the production build (`vite preview`).
 - **Not verified — owed on real devices** (TEST_PLAN E4): the actual VPN ↔

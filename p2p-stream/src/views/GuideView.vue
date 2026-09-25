@@ -164,7 +164,7 @@ const cases = [
     n: '03',
     status: 'now',
     title: 'Your personal hotspot (survives the internet dropping)',
-    body: 'Friends near you join your phone’s personal hotspot. The video travels locally between phones, so once you are connected, the stream to the people around you keeps running even if your mobile internet is cut or jammed. Starting from scratch with no internet at all is different: room codes need a relay to introduce you, so use “Pair face to face” and swap two QR codes instead.',
+    body: 'Friends near you join your phone’s personal hotspot. The video travels locally between phones, so once you are connected, the stream to the people around you keeps running even if your mobile internet is cut or jammed. Starting from scratch with no internet at all is different: room codes need the internet to introduce you, so use “Pair face to face” — swap two short codes (by QR, or as text over AirDrop / Nearby Share) with each person, as many as you like.',
     svg: svg(
       // internet uplink (may drop) — sits above the local-hotspot box
       note(115, 22, 'internet ✕', '#64748b') +
@@ -283,6 +283,7 @@ const walks: Record<string, Walk> = {
           'Scan your QR, paste your link, or type the room code.',
           'Their device starts watching and automatically records a signed copy.',
           'The copy stays under Recordings, even if the connection drops.',
+          'If it doesn’t connect, the status card says why. A VPN on one side and mobile data on the other usually need a relay: tap “Set up a relay” (one side is enough, and it travels inside your link).',
         ],
       },
     ],
@@ -308,7 +309,7 @@ const walks: Record<string, Walk> = {
   },
   '03': {
     caveat: {
-      ios: 'iPhone hotspot: Settings → Personal Hotspot → “Allow Others to Join”. Note: recent iOS versions sometimes stop hotspot phones from talking directly to each other. If a watcher can’t connect, keep a normal Wi-Fi or mobile path as a backup.',
+      ios: 'iPhone hotspot: Settings → Personal Hotspot → “Allow Others to Join”. Note: an iPhone hotspot can keep the phones that join it apart from each other — the hotspot phone itself can always reach them. So make the filming phone (or the viewer’s) the hotspot, rather than a third phone.',
       android: 'Android hotspot: Settings → Network & internet → Hotspot & tethering → Wi-Fi hotspot. Android usually lets connected phones reach each other directly.',
       desktop: 'A laptop can share a local network too, but at a scene a phone’s Personal Hotspot is the usual setup — pick iPhone or Android above for the exact steps.',
     },
@@ -327,7 +328,7 @@ const walks: Record<string, Walk> = {
         steps: [
           'Join the host’s hotspot Wi-Fi first.',
           'Go to Collect and scan the QR or type the code — this still needs a little internet to introduce the two devices.',
-          'If the internet is gone completely, use “Pair face to face” instead and swap two QR codes with the person filming.',
+          'If the internet is gone completely, use “Pair face to face” instead: scan the filming phone’s code (or paste it if they sent it as text), then let them read your reply. The filming phone can add several viewers this way, and sees who is recording a copy.',
         ],
       },
     ],
@@ -357,7 +358,7 @@ const walks: Record<string, Walk> = {
         who: 'At the scene',
         steps: [
           'Use Collect as usual — scan the streamer’s code and watch.',
-          'Your phone quietly forwards what it’s watching to your home device, which records and saves it.',
+          'Your phone quietly forwards what it’s watching to your home device, which records and saves it. The Collect screen shows “forwarding ✓” — or says why it can’t reach home.',
           'If your phone is taken, the footage is already safe at home.',
         ],
       },

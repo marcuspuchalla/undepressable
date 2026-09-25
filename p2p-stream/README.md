@@ -26,8 +26,11 @@ to delete in one place.
 - **Tamper-evident recordings.** Each recording's chunks are SHA-256 hashed into
   a Merkle tree; the root is signed with an anonymous Ed25519 key. Anyone can
   later verify the footage is unaltered.
-- **Works offline / installable.** A PWA that runs from cache with no network;
-  two phones on one hotspot can connect with no internet at all.
+- **Works offline / installable.** A PWA that runs from cache with no network.
+  With no internet at all, devices on one hotspot pair face to face by
+  swapping two short codes (QR, or text via AirDrop / Nearby Share); one
+  filming phone can serve several viewers, and every device keeps a signed
+  copy.
 - **Cross-network.** A TURN relay (shared via a `?turn=` link, or self-hosted)
   lets peers connect across strict/carrier NAT, not just the same network. See
   [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md).
@@ -70,7 +73,7 @@ npm run dev -- --host      # open the printed LAN URL on your phone
 
 ```bash
 npm run build          # production PWA build
-npm run test:unit      # 251 unit tests (integrity, counts, routing, ICE/NAT, diagnosis)
+npm run test:unit      # 273 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes)
 npm run tauri:build    # optional native desktop app
 ```
 

@@ -43,20 +43,48 @@ deliberate platform restriction, not a gap in the library.
 ### What `/offline` does instead
 
 If the network cannot introduce two devices, the humans do it. The filming
-device shows its WebRTC offer as a QR code; the receiving device scans it and
-shows its answer back. After that, media flows directly across the local
+device shows a short **invite code**; the receiving device reads it and shows
+a **reply code** back. After that, everything flows directly across the local
 network.
 
 - No server, no relay, no internet at any point.
+- **Small codes (~100 characters).** The first connection carries only a data
+  channel, which is fully described by the ICE credentials, the DTLS
+  fingerprint and the local addresses — packed into a version-6-ish QR code
+  that scans instantly (the first version carried a whole media SDP: ~1.7 KB,
+  a 137×137-module code). Video is then negotiated over that data channel.
+  `src/lib/net/compactSignal.ts`; the old format is still read.
+- **Codes also travel as text.** *Copy* / *Send…* on one device, paste on the
+  other. AirDrop, Nearby Share, Bluetooth file transfer and most messengers
+  work between two devices side by side with no internet — so a laptop with
+  no usable camera can pair too. This is the closest the web app gets to
+  "Bluetooth pairing" (§2): the phone's own share sheet carries the handshake.
+- **Several viewers.** The filming device adds viewers one exchange at a time;
+  earlier viewers keep watching. It lists each viewer as connecting /
+  connected / couldn't reach / disconnected, and **whether each is recording
+  a copy** (a heartbeat over the data channel).
+- **Both sides keep a signed copy.** The filming device records its own
+  footage too (as online); each viewer records what it receives. A link that
+  drops or freezes finalizes the viewer's segment, so it is signed and
+  verifiable; the next picture starts a new one.
+- **When it cannot connect, it says so** within ~15–20 s, with the causes that
+  actually happen: a device still on mobile data, a hotspot that isolates the
+  phones that join it (make one of the two devices the hotspot), a VPN
+  blocking local traffic, or the iPhone app's Local Network permission (now
+  declared in the iOS app, which iOS 14+ requires).
 - ICE uses **host candidates only** (`iceServers: []`) — STUN/TURN are
-  unreachable offline and would only stall gathering.
+  unreachable offline and would only stall gathering. While a code is being
+  produced from a scan, the camera stays on: Safari reveals real local
+  addresses (instead of `.local` names a hotspot may not resolve) only during
+  an active capture.
 - Recordings are hashed, Merkle-rooted and signed exactly as online.
-- **Requires:** both devices on one hotspot/Wi-Fi, and a camera on each.
-- **Limit:** one streamer→watcher link per exchange. No room, no relay tree;
-  more watchers means repeating the swap per device.
 
-Verified with `iceServers: []` and no relays: both peers connected and real
-video decoded. Offer QR ~1.9 KB, answer ~1.7 KB — each fits one code.
+Verified in two to three Chromium instances (`scripts/e2e/scenarios.mjs
+offline-two-viewers offline-isolated`): codes of 103 characters; both
+viewers playing ~1 s after their reply is read; the filming device showing
+"recording a copy" for each; a second viewer added while the first keeps
+watching; a reply read 40 s late still connects; with all traffic between the
+devices blocked, the filming device reports "couldn't reach them" with tips.
 
 ---
 
@@ -105,10 +133,12 @@ That is precisely what Android **Nearby Connections** (`P2P_CLUSTER` /
 discovery, Wi-Fi for throughput. Neither is reachable from a browser or from a
 plain Capacitor WebView — each needs a native plugin.
 
-**Today, the QR exchange in `/offline` fills exactly this role**, with no
+**Today, the code exchange in `/offline` fills exactly this role**, with no
 plugin and no platform gatekeeping: it is the pairing channel, done with two
-screens and two cameras instead of a radio. It requires the devices to be on a
-shared hotspot, which is the trade — BLE pairing would remove that step.
+screens and two cameras — or with the phone's own share sheet (AirDrop,
+Nearby Share), which itself pairs over Bluetooth and peer-to-peer Wi-Fi. It
+still requires the devices to be on a shared hotspot for the *video*, which is
+the trade — a native Wi-Fi Direct / Aware path would remove that step.
 
 ### If we build the native path
 
@@ -166,9 +196,11 @@ service can film with the screen off.
 - Normal room code / QR. Watchers each keep their own signed copy.
 
 **At the scene, network cut or jammed**
-- One phone shares a hotspot; the others join it.
-- Use `/offline` and swap the two QR codes.
-- Expect one link per exchange.
+- One of the phones taking part shares a hotspot; the others join it.
+- Use `/offline`: the filming phone shows a code, each viewer reads it and
+  shows a reply. Scan, or send the codes as text (AirDrop / Nearby Share).
+- One exchange per viewer; the filming phone can add as many as its uplink
+  carries, and sees who is recording.
 
 **What still cannot be done**
 - Reach someone on a different network with no internet on either side.
