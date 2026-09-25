@@ -49,6 +49,8 @@ export interface LinkTransfer {
 export interface OfflineLinkView {
   id: number;
   label: string;
+  /** stream: we send video on this link; watch: we receive it. A relaying viewer has both. */
+  role: "stream" | "watch";
   phase: LinkPhase;
   /** The other side reports it is recording a copy. */
   peerRecording: boolean;
@@ -116,6 +118,7 @@ export function useOfflinePair() {
     links.value = Array.from(all.values(), (l) => ({
       id: l.id,
       label: l.label,
+      role: l.role,
       phase: phaseOf(l, now),
       peerRecording: l.peerRecording,
       connectedAt: l.connectedAt,
@@ -280,7 +283,11 @@ export function useOfflinePair() {
 
   // --- streamer -------------------------------------------------------------
 
-  /** Build an invite code for the next viewer. An unanswered invite is replaced. */
+  /**
+   * Build an invite code for the next viewer. An unanswered invite is
+   * replaced. `stream` is the camera — or, for a viewer sharing onward, the
+   * picture it receives: that is how an off-grid chain A → B → C forms.
+   */
   async function createInvite(stream: MediaStream): Promise<string> {
     error.value = null;
     localStream = stream;
@@ -330,7 +337,9 @@ export function useOfflinePair() {
     error.value = null;
     const signal = await decodeSignal(code);
     if (signal.t !== "offer") throw new Error("That's a reply code — scan the code shown on the filming device.");
-    for (const l of Array.from(all.values())) closeLink(l.id, false);
+    // Replaces the link we watch through; links we relay the picture onward
+    // on stay up and get the new picture when it arrives.
+    for (const l of Array.from(all.values())) if (l.role === "watch") closeLink(l.id, false);
     remoteStream.value = null;
     const l = createLink("watch", "Streamer");
     await l.pc.setRemoteDescription({ type: "offer", sdp: signal.s });

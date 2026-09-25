@@ -439,6 +439,38 @@ Object.assign(scenarios, {
     return [ok, `video ${playing}s; filming device: "${aStatus}"; viewer: "${bStatus}"; viewer's copy of A's recording: ${verdict}`]
   },
 })
+Object.assign(scenarios, {
+  // Off-grid chain: C is out of the filming phone's reach (or the hotspot is
+  // full), so C pairs with viewer B, who passes A's picture on.
+  async 'offline-chain'() {
+    const A = await newPage({})
+    await A.goto(`${APP}/offline`)
+    await A.getByText("I'm filming").click()
+    await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const B = await offlineViewer(A)
+    const b = await videoWithin(B, 20000)
+    await B.locator('[data-testid=share-onward]').click()
+    await B.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const C = await newPage({})
+    await C.goto(`${APP}/offline`)
+    await C.getByText("I'm receiving").click()
+    await pasteCode(C, await codeOf(B))
+    await C.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    await pasteCode(B, await codeOf(C))
+    const c = await videoWithin(C, 25000)
+    // C's picture keeps moving: it is A's live camera, relayed.
+    const moving = await C.evaluate(async () => {
+      const v = document.querySelector('video')
+      const f0 = v.getVideoPlaybackQuality?.().totalVideoFrames ?? 0
+      await new Promise((r) => setTimeout(r, 2000))
+      return (v.getVideoPlaybackQuality?.().totalVideoFrames ?? 0) > f0
+    })
+    const aViewers = await A.locator('text=/\\d+ watching/').first().innerText()
+    const bCard = await B.locator('.card', { has: B.locator('h2', { hasText: 'Watching through you' }) }).innerText().catch(() => '')
+    const ok = b !== null && c !== null && moving && /^1 watching/.test(aViewers) && /connected/.test(bCard)
+    return [ok, `B video ${b}s, C video ${c}s via B, moving ${moving}; A: "${aViewers}"; B: "${bCard.replace(/\s+/g, ' ').slice(0, 80)}"`]
+  },
+})
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']
 const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'offline-isolated'])
 
