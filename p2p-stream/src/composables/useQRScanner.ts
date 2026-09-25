@@ -18,6 +18,7 @@ export function useQRScanner() {
   const isScanning = ref(false)
   const error = ref<string | null>(null)
   let videoStream: MediaStream | null = null
+  let ownsStream = true
   let animationFrame: number | null = null
 
   // Check if camera is supported
@@ -40,7 +41,11 @@ export function useQRScanner() {
     videoEl: HTMLVideoElement,
     canvasEl: HTMLCanvasElement,
     onDetect: (data: string) => void,
-    preferredCamera: 'environment' | 'user' = 'environment'
+    preferredCamera: 'environment' | 'user' = 'environment',
+    // Scan frames of a stream that is already open — the one being broadcast.
+    // Phones often cannot open a second camera while one is streaming, and
+    // stopping the scan must not stop the broadcast.
+    existingStream?: MediaStream
   ): Promise<boolean> {
     try {
       // Clear any previous error
@@ -60,28 +65,33 @@ export function useQRScanner() {
       }
 
       isScanning.value = true
+      ownsStream = !existingStream
 
-      // Try to get camera with preferred facing mode
-      let constraints: MediaStreamConstraints = {
-        video: {
-          facingMode: { ideal: preferredCamera },
-          width: { ideal: 1280 },
-          height: { ideal: 720 }
-        },
-        audio: false
-      }
-
-      try {
-        videoStream = await navigator.mediaDevices.getUserMedia(constraints)
-      } catch (err: any) {
-        console.warn('[QRScanner] Failed with preferred camera, trying any camera:', err.message)
-        
-        // Fallback: try any camera
-        constraints = {
-          video: true,
+      if (existingStream) {
+        videoStream = existingStream
+      } else {
+        // Try to get camera with preferred facing mode
+        let constraints: MediaStreamConstraints = {
+          video: {
+            facingMode: { ideal: preferredCamera },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          },
           audio: false
         }
-        videoStream = await navigator.mediaDevices.getUserMedia(constraints)
+
+        try {
+          videoStream = await navigator.mediaDevices.getUserMedia(constraints)
+        } catch (err: any) {
+          console.warn('[QRScanner] Failed with preferred camera, trying any camera:', err.message)
+        
+          // Fallback: try any camera
+          constraints = {
+            video: true,
+            audio: false
+          }
+          videoStream = await navigator.mediaDevices.getUserMedia(constraints)
+        }
       }
 
       if (!videoStream) {
@@ -206,12 +216,12 @@ export function useQRScanner() {
       animationFrame = null
     }
     
-    if (videoStream) {
+    if (videoStream && ownsStream) {
       videoStream.getTracks().forEach(track => {
         track.stop()
       })
-      videoStream = null
     }
+    videoStream = null
   }
 
   // Get available cameras
