@@ -175,12 +175,16 @@ describe("diagnose — collector states", () => {
     expect(long.action).toBe("check-code");
   });
 
-  it("flags dead discovery servers", () => {
-    expect(diagnose(input({ relayHealth: { open: 0, total: 8 } })).code).toBe("no-signaling");
+  it("flags dead discovery servers and points to face-to-face pairing", () => {
+    const d = diagnose(input({ relayHealth: { open: 0, total: 8 } }));
+    expect(d.code).toBe("no-signaling");
+    expect(d.action).toBe("pair-offline");
   });
 
   it("offline beats everything", () => {
-    expect(diagnose(input({ online: false, hasStream: true })).code).toBe("offline");
+    const d = diagnose(input({ online: false, hasStream: true }));
+    expect(d.code).toBe("offline");
+    expect(d.action).toBe("pair-offline");
   });
 
   it("warns about a silent relay even before anyone tried to connect", () => {
@@ -246,5 +250,26 @@ describe("diagnose — streamer states", () => {
     );
     expect(d.code).toBe("blocked-no-relay");
     expect(d.level).toBe("warn");
+  });
+});
+
+describe("diagnose — home archive", () => {
+  const archive = (over: Partial<DiagnosisInput> = {}) => input({ role: "archive", ...over });
+
+  it("waits patiently — no 'still looking' escalation for a device meant to wait for hours", () => {
+    const d = diagnose(archive({ joinedAt: NOW - 3_600_000 }));
+    expect(d.code).toBe("searching");
+    expect(d.level).toBe("info");
+    expect(d.title).toMatch(/paired phone/);
+  });
+
+  it("names the phone when the networks block it", () => {
+    const d = diagnose(archive({ report: report([attempt({ outcome: "timeout", endedAt: NOW })]) }));
+    expect(d.code).toBe("blocked-no-relay");
+    expect(d.title).toMatch(/Your phone found this archive/);
+  });
+
+  it("reports a forwarded stream", () => {
+    expect(diagnose(archive({ hasStream: true, peerCount: 1 })).title).toMatch(/Receiving your phone/);
   });
 });

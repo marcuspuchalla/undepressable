@@ -194,7 +194,12 @@
           <span class="text-slate-400">
             Home archive
             <span class="font-mono text-slate-300">{{ pairedHome }}</span>:
-            <span :class="forwarding ? 'text-moss' : 'text-slate-500'">{{ forwarding ? 'forwarding ✓' : (remoteStream ? 'connecting…' : 'ready') }}</span>
+            <span :class="archiveStatus.tone">{{ archiveStatus.text }}</span>
+            <button
+              v-if="archiveStatus.action"
+              class="ml-1 text-glow underline"
+              @click="onDoctorAction(archiveStatus.action)"
+            >fix</button>
           </span>
           <button class="ml-auto text-slate-500 hover:text-slate-300 underline" @click="unpairHome">unpair</button>
         </template>
@@ -360,7 +365,8 @@ import type { Recording } from '../types'
 import { getFullRoomId, isValidShortRoomId } from '../utils/roomId'
 import { getPairedHome, setPairedHome, clearPairedHome, archiveRoomId } from '../lib/archive'
 import { createStallMonitor } from '../lib/net/streamHealth'
-import { extractRoomCode } from '../lib/net/shareLink'
+import { extractRoomCode, extractHomeKey } from '../lib/net/shareLink'
+import { isOfflineSignal } from '../lib/net/offlinePair'
 import { adoptRelayFromUrl } from '../lib/net/iceConfig'
 import { adoptDiscoveryFromUrl } from '../lib/net/discoveryConfig'
 import type { DiagnosisAction } from '../lib/net/diagnosis'
@@ -459,6 +465,8 @@ function onDoctorAction(action: DiagnosisAction) {
     showRelay.value = true
   } else if (action === 'check-code') {
     enterAnotherCode()
+  } else if (action === 'pair-offline') {
+    router.push('/offline')
   } else if (action === 'retry') {
     retryConnection()
   }
@@ -499,8 +507,35 @@ const showPair = ref(false)
 const pairInput = ref('')
 watch(() => archiveFwd.peerCount.value, (n) => (forwarding.value = n > 0))
 
+// Why forwarding to home is or isn't happening. A home router and a phone on
+// mobile data are often a strict-NAT pair as well — the fix is the same relay.
+const archiveDiag = useConnectionDiagnosis(archiveFwd, { role: 'streamer' })
+const archiveStatus = computed<{ text: string; tone: string; action?: DiagnosisAction }>(() => {
+  const d = archiveDiag.diagnosis.value
+  if (forwarding.value) return { text: d.path === 'relay' ? 'forwarding ✓ via relay' : 'forwarding ✓', tone: 'text-moss' }
+  if (!remoteStream.value) return { text: 'ready', tone: 'text-slate-500' }
+  switch (d.code) {
+    case 'blocked-no-relay':
+      return { text: "can't reach home — needs a relay", tone: 'text-yellow-300', action: 'setup-relay' }
+    case 'relay-unreachable':
+    case 'relay-rejected':
+    case 'failed-with-relay':
+      return { text: "can't reach home — relay problem", tone: 'text-yellow-300', action: 'test-relay' }
+    case 'no-signaling':
+    case 'offline':
+      return { text: "can't reach the discovery servers", tone: 'text-yellow-300' }
+    default:
+      return { text: 'connecting to home…', tone: 'text-slate-500' }
+  }
+})
+
+// Trystero reports a stream once per track (audio, then video); re-opening
+// the archive room for the second report tore down the first connection.
+let forwardedStream: MediaStream | null = null
 async function startForwarding(stream: MediaStream) {
   if (!pairedHome.value) return
+  if (forwardedStream === stream) return
+  forwardedStream = stream
   try {
     await archiveFwd.init(['both'])
     await archiveFwd.createRoom(archiveRoomId(pairedHome.value), ['both'], stream)
@@ -510,6 +545,7 @@ async function startForwarding(stream: MediaStream) {
   }
 }
 function stopForwarding() {
+  forwardedStream = null
   archiveFwd.leaveRoom()
   forwarding.value = false
 }
@@ -897,6 +933,20 @@ async function startQRScanner() {
       } catch {
         /* not a URL: a bare room code */
       }
+      // A home-archive pairing QR: pair with it here instead of rejecting it.
+      const homeKey = extractHomeKey(data)
+      if (homeKey) {
+        stopQRScanner()
+        pairInput.value = homeKey
+        pairHome()
+        return
+      }
+      if (isOfflineSignal(data)) {
+        stopQRScanner()
+        alert('That is a face-to-face pairing code. Open “Pair face to face” (Home → No internet?) to use it.')
+        return
+      }
+
       const roomCode = extractRoomCode(data) ?? ''
 
       if (isValidShortRoomId(roomCode)) {

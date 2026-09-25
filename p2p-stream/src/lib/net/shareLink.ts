@@ -153,6 +153,18 @@ export function buildCollectUrl(base: string, code: string, params: Record<strin
   return `${base.replace(/\/+$/, "")}/collect/${code}${qs ? `?${qs}` : ""}`;
 }
 
+/** `${base}/pair-home/KEY?turn=…` — pairs a phone with a home archive. */
+export function buildPairHomeUrl(base: string, key: string, params: Record<string, string> = {}): string {
+  const qs = new URLSearchParams(params).toString();
+  return `${base.replace(/\/+$/, "")}/pair-home/${key}${qs ? `?${qs}` : ""}`;
+}
+
+/** The home-archive key in a pairing link, if that is what was scanned. */
+export function extractHomeKey(text: string): string | null {
+  const m = /\/pair-home\/([A-Z0-9]{8})(?:[/?#]|$)/i.exec((text ?? "").trim());
+  return m ? m[1].toUpperCase() : null;
+}
+
 /** Pull a 6-character room code out of anything a QR code might hold. */
 export function extractRoomCode(text: string): string | null {
   const trimmed = (text ?? "").trim();

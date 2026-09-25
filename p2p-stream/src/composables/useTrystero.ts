@@ -326,12 +326,22 @@ export function useTrystero() {
     }
   }
 
+  // A room we have left can still fire: a negotiation in flight when we left
+  // may complete afterwards and attach to the old room. That zombie makes the
+  // other device believe it is connected to us, so it ignores the real
+  // connection from our new room — a deadlock (found via the home-archive
+  // E2E run). Closing the zombie frees the other side to accept the real one.
+  function isStale(roomInstance: TrysteroRoom, strategy: string): boolean {
+    return rooms.value.get(strategy as TrysteroStrategy) !== roomInstance;
+  }
+
   // Set up room event handlers
   function setupRoomHandlers(roomInstance: TrysteroRoom, strategy: string, role: UserRole) {
     // Per-room stat channel for live watching/recording counts.
     const [sendStat, getStat] = roomInstance.makeAction("stat");
     statSenders.push(sendStat);
     getStat((data: unknown, peerId: string) => {
+      if (isStale(roomInstance, strategy)) return;
       if (!isValidStat(data)) return;
       if (!canTrackStat(peerStats.value, peerId)) return;
       peerStats.value.set(peerId, { role: data.role, recording: data.recording, lastSeen: Date.now() });
@@ -346,9 +356,20 @@ export function useTrystero() {
     // Relay-tree control channel (assignments, capability, orphan reports).
     const [sendTree, getTree] = roomInstance.makeAction("tree");
     treeSenders.push({ send: sendTree, room: roomInstance });
-    getTree(handleTreeMsg);
+    getTree((data: unknown, peerId: string) => {
+      if (!isStale(roomInstance, strategy)) handleTreeMsg(data, peerId);
+    });
 
     roomInstance.onPeerJoin((peerId: string) => {
+      if (isStale(roomInstance, strategy)) {
+        console.log(`[Trystero] Closing late connection to ${peerId} on a room we already left`);
+        try {
+          roomInstance.getPeers?.()[peerId]?.close();
+        } catch {
+          /* already gone */
+        }
+        return;
+      }
       console.log(`[Trystero] Peer joined via ${strategy}: ${peerId}`);
       addMember(routes, strategy, peerId);
       if (!peers.value.has(peerId)) {
@@ -387,6 +408,7 @@ export function useTrystero() {
     });
 
     roomInstance.onPeerLeave((peerId: string) => {
+      if (isStale(roomInstance, strategy)) return;
       console.log(`[Trystero] Peer left ${strategy}: ${peerId}`);
       const { gone, reassignTo } = removeMember(routes, strategy, peerId);
       if (gone) {
@@ -414,6 +436,7 @@ export function useTrystero() {
     });
 
     roomInstance.onPeerStream((receivedStream: MediaStream, peerId: string) => {
+      if (isStale(roomInstance, strategy)) return;
       console.log(`[Trystero] Received stream from ${peerId}`);
       if (role === "collector") {
         // If we're a seed, pass the (possibly replaced) stream straight on to

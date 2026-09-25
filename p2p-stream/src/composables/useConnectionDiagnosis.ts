@@ -12,7 +12,7 @@ type Trystero = ReturnType<typeof useTrystero>;
  */
 export function useConnectionDiagnosis(
   trystero: Trystero,
-  opts: { role: "streamer" | "collector"; hasStream?: () => boolean },
+  opts: { role: "streamer" | "collector" | "archive"; hasStream?: () => boolean },
 ) {
   const now = ref(Date.now());
   const online = ref(typeof navigator === "undefined" ? true : navigator.onLine);

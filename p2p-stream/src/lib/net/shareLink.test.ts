@@ -7,6 +7,8 @@ import {
   extractRoomCode,
   getConfiguredPublicUrl,
   setConfiguredPublicUrl,
+  buildPairHomeUrl,
+  extractHomeKey,
 } from "./shareLink";
 
 describe("classifyOrigin", () => {
@@ -119,5 +121,19 @@ describe("configured public URL storage", () => {
     expect(setConfiguredPublicUrl("javascript://x", storage)).toBe(false);
     expect(setConfiguredPublicUrl("", storage)).toBe(true);
     expect(getConfiguredPublicUrl(storage)).toBeNull();
+  });
+});
+
+describe("home-archive pairing links", () => {
+  it("builds a pairing link carrying the relay, and reads the key back", () => {
+    const url = buildPairHomeUrl("https://app.example", "ABCD2345", { turn: "turns:r:443|u|p" });
+    expect(url).toBe("https://app.example/pair-home/ABCD2345?turn=turns%3Ar%3A443%7Cu%7Cp");
+    expect(extractHomeKey(url)).toBe("ABCD2345");
+    expect(extractHomeKey("tauri://localhost/pair-home/abcd2345")).toBe("ABCD2345");
+  });
+
+  it("does not mistake a room link for a pairing link", () => {
+    expect(extractHomeKey("https://app.example/collect/A1B2C3")).toBeNull();
+    expect(extractHomeKey("")).toBeNull();
   });
 });

@@ -26,7 +26,7 @@ export type DiagnosisCode =
   | "relay-rejected"
   | "failed-with-relay";
 
-export type DiagnosisAction = "setup-relay" | "test-relay" | "check-code" | "retry";
+export type DiagnosisAction = "setup-relay" | "test-relay" | "check-code" | "retry" | "pair-offline";
 
 export interface Diagnosis {
   code: DiagnosisCode;
@@ -41,7 +41,8 @@ export interface Diagnosis {
 }
 
 export interface DiagnosisInput {
-  role: "streamer" | "collector";
+  /** archive: a home archive waiting for its paired phone to forward a stream. */
+  role: "streamer" | "collector" | "archive";
   now: number;
   /** When this device opened its rooms (null: not joined). */
   joinedAt: number | null;
@@ -138,7 +139,8 @@ function describePaths(paths: PathKind[]): string {
 
 export function diagnose(input: DiagnosisInput): Diagnosis {
   const { role, now, report } = input;
-  const other = role === "collector" ? "the streamer" : "a viewer";
+  const other = role === "collector" ? "the streamer" : role === "archive" ? "your phone" : "a viewer";
+  const receiving = role !== "streamer";
   const elapsed = input.joinedAt === null ? 0 : now - input.joinedAt;
   const s = summarizeAttempts(report?.attempts ?? [], now);
   const relayErrors = report?.relayErrors ?? [];
@@ -165,13 +167,19 @@ export function diagnose(input: DiagnosisInput): Diagnosis {
       level: "error",
       title: "This device is offline",
       detail: "Reconnect to Wi-Fi or mobile data. With no internet at all, use “Pair face to face” instead.",
+      action: "pair-offline",
       blockedPeers: s.blocked,
     };
   }
 
   const blockedDiagnosis = (): Diagnosis | null => {
     if (s.blocked === 0) return null;
-    const who = role === "collector" ? "Found the streamer" : `${s.blocked === 1 ? "A viewer" : `${s.blocked} viewers`} found you`;
+    const who =
+      role === "collector"
+        ? "Found the streamer"
+        : role === "archive"
+          ? "Your phone found this archive"
+          : `${s.blocked === 1 ? "A viewer" : `${s.blocked} viewers`} found you`;
     if (input.relayConfigured && (relaySilent || rejected || exhausted)) {
       return {
         code: "relay-unreachable",
@@ -208,12 +216,12 @@ export function diagnose(input: DiagnosisInput): Diagnosis {
     };
   };
 
-  if (role === "collector") {
+  if (receiving) {
     if (input.hasStream) {
       return {
         code: "connected",
         level: "ok",
-        title: pathTitle(s.latestPath),
+        title: role === "archive" ? "Receiving your phone's stream" : pathTitle(s.latestPath),
         detail: s.latestPath === "relay" ? "Video is relayed, still end-to-end encrypted." : "Video flows peer-to-peer.",
         path: s.latestPath,
         blockedPeers: 0,
@@ -223,8 +231,11 @@ export function diagnose(input: DiagnosisInput): Diagnosis {
       return {
         code: "waiting-for-video",
         level: "info",
-        title: "Connected — waiting for video",
-        detail: "The streamer is sending the picture; this usually takes a second or two.",
+        title: role === "archive" ? "Paired phone connected" : "Connected — waiting for video",
+        detail:
+          role === "archive"
+            ? "Recording starts automatically when your phone forwards a stream."
+            : "The streamer is sending the picture; this usually takes a second or two.",
         path: s.latestPath,
         blockedPeers: 0,
       };
@@ -269,7 +280,7 @@ export function diagnose(input: DiagnosisInput): Diagnosis {
     return {
       code: "negotiating",
       level: "info",
-      title: role === "collector" ? "Found the streamer — connecting…" : "A viewer is connecting…",
+      title: role === "streamer" ? "A viewer is connecting…" : `Found ${other} — connecting…`,
       detail: "Trying direct paths first, then the relay if one is configured.",
       blockedPeers: 0,
     };
@@ -281,8 +292,8 @@ export function diagnose(input: DiagnosisInput): Diagnosis {
       level: "error",
       title: "Can't reach any discovery server",
       detail:
-        "This network seems to block the servers devices use to find each other. Try another network (or switch the VPN off/on). With no internet, use “Pair face to face”.",
-      action: "retry",
+        "This network seems to block the servers devices use to find each other. Try another network (or switch the VPN off/on) — or, if you are next to each other, pair face to face.",
+      action: "pair-offline",
       blockedPeers: 0,
     };
   }
@@ -304,6 +315,17 @@ export function diagnose(input: DiagnosisInput): Diagnosis {
       level: "info",
       title: "Waiting for viewers",
       detail: "Share the code or QR. Viewers appear here as they connect.",
+      blockedPeers: 0,
+    };
+  }
+
+  if (role === "archive") {
+    // An archive waits for hours by design; there is nothing to escalate.
+    return {
+      code: "searching",
+      level: "info",
+      title: "Waiting for your paired phone",
+      detail: "Leave this open and online. When your phone watches a stream, it forwards it here.",
       blockedPeers: 0,
     };
   }

@@ -35,6 +35,12 @@
             <p class="text-[11px] text-slate-500 mt-2 break-all">{{ pairUrl }}</p>
           </div>
         </div>
+        <p v-if="pairBase.reachability !== 'public'" class="mt-3 text-xs text-yellow-200 bg-yellow-900/40 border border-yellow-500/30 rounded-lg px-3 py-2 leading-relaxed">
+          This link only opens on {{ pairBase.reachability === 'lan' ? 'your local network' : 'this device' }}. Scan it
+          from inside the app on the phone (Collect → Scan) — or
+          <RouterLink to="/network" class="underline">set the app's public address</RouterLink> so its camera can open it.
+        </p>
+        <p v-if="relayInLink" class="mt-2 text-xs text-moss">✓ This archive's relay is included, so the phone can reach it from strict networks.</p>
       </div>
 
       <!-- Status -->
@@ -58,6 +64,14 @@
             </p>
           </div>
         </div>
+
+        <!-- Why the paired phone can or cannot reach this archive -->
+        <ConnectionDoctor
+          v-if="diagnosis.level !== 'info' || peerCount > 0"
+          :diagnosis="diagnosis"
+          class="mt-3"
+          @action="onDoctorAction"
+        />
 
         <video v-show="remoteStream" ref="videoEl" autoplay playsinline muted class="w-full rounded-xl bg-black mt-3 max-h-64" />
       </div>
@@ -85,22 +99,49 @@
         locally and signed — nothing passes through a server.
       </p>
     </div>
+    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" @saved="onRelaySaved" @share-changed="linkTick++" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import QRCode from 'qrcode'
 import { useTrystero } from '../composables/useTrystero'
 import { useRecording } from '../composables/useRecording'
 import { getHomeKey, archiveRoomId } from '../lib/archive'
 import type { Recording } from '../types'
+import { useConnectionDiagnosis } from '../composables/useConnectionDiagnosis'
+import { resolveShareBase, buildPairHomeUrl, getConfiguredPublicUrl } from '../lib/net/shareLink'
+import { relayShareParams } from '../lib/net/iceConfig'
+import { discoveryShareParams } from '../lib/net/discoveryConfig'
+import type { DiagnosisAction } from '../lib/net/diagnosis'
+import ConnectionDoctor from '../components/ConnectionDoctor.vue'
+import RelaySetup from '../components/RelaySetup.vue'
+import { RouterLink } from 'vue-router'
 
 const trystero = useTrystero()
 const recording = useRecording()
 
 const homeKey = ref('')
-const pairUrl = ref('')
+
+// The pairing link must open on the phone — this archive is often the desktop
+// app (tauri://localhost) — and carries this device's relay, since a home
+// router and a phone on mobile data are frequently a strict-NAT pair too.
+const linkTick = ref(0)
+const pairBase = computed(() => {
+  void linkTick.value
+  return resolveShareBase({
+    origin: location.origin,
+    configured: getConfiguredPublicUrl(),
+    envPublicUrl: (import.meta as any).env?.VITE_PUBLIC_URL ?? null,
+  })
+})
+const linkParams = computed(() => {
+  void linkTick.value
+  return { ...relayShareParams(), ...discoveryShareParams() }
+})
+const relayInLink = computed(() => 'turn' in linkParams.value || 'ice' in linkParams.value)
+const pairUrl = computed(() => (homeKey.value ? buildPairHomeUrl(pairBase.value.base, homeKey.value, linkParams.value) : ''))
 const qrCanvas = ref<HTMLCanvasElement>()
 const videoEl = ref<HTMLVideoElement>()
 const remoteStream = ref<MediaStream | null>(null)
@@ -113,32 +154,81 @@ let durationInterval: number | null = null
 const peerCount = ref(0)
 watch(() => trystero.peerCount.value, (n) => (peerCount.value = n))
 
-onMounted(async () => {
-  homeKey.value = getHomeKey()
-  pairUrl.value = `${location.origin}/pair-home/${homeKey.value}`
+const diag = useConnectionDiagnosis(trystero, { role: 'archive', hasStream: () => !!remoteStream.value })
+const diagnosis = diag.diagnosis
+const showRelay = ref(false)
+const relayAutoTest = ref(false)
+
+function onDoctorAction(action: DiagnosisAction) {
+  if (action === 'setup-relay' || action === 'test-relay') {
+    relayAutoTest.value = action === 'test-relay'
+    showRelay.value = true
+  }
+}
+
+// New relay settings apply to new connections only: re-open the archive room.
+async function onRelaySaved() {
+  diag.refreshRelay()
+  linkTick.value++
+  await trystero.joinRoom(archiveRoomId(homeKey.value), ['both'])
+}
+
+async function drawPairQr() {
   await nextTick()
-  if (qrCanvas.value) {
+  if (qrCanvas.value && pairUrl.value) {
     QRCode.toCanvas(qrCanvas.value, pairUrl.value, { width: 160, margin: 1 }).catch(() => {})
   }
+}
+watch(pairUrl, drawPairQr)
+
+onMounted(async () => {
+  homeKey.value = getHomeKey()
+  await drawPairQr()
 
   await trystero.init(['both'])
   await trystero.joinRoom(archiveRoomId(homeKey.value), ['both'])
 
-  trystero.setOnStreamReceived((stream) => {
+  trystero.setOnStreamReceived(async (stream) => {
+    // Reported once per track (audio, then video). Acting on both started two
+    // recorders at once, and one of them was never finalized or signed.
+    if (remoteStream.value === stream) return
+    const replacing = remoteStream.value !== null
     remoteStream.value = stream
-    if (videoEl.value) videoEl.value.srcObject = stream
     // Finalize the recording if the forwarding phone's track ends.
-    stream.getVideoTracks()[0]?.addEventListener('ended', () => stop())
-    if (!isRecording.value) start(stream)
+    stream.getVideoTracks()[0]?.addEventListener('ended', () => queueRecording(stop))
+    // A phone that reconnected brings a new stream: bank the old segment
+    // (still verifiable) and record the new one.
+    queueRecording(async () => {
+      if (replacing) await stop()
+      await start(stream)
+    })
+    await nextTick()
+    const v = videoEl.value
+    if (v) {
+      v.srcObject = stream
+      // Set while the element was still hidden, autoplay never kicks in.
+      v.play().catch(() => {})
+    }
   })
 })
 
+// Start/stop come from independent events (stream arrival, track end, peer
+// leaving); run them one at a time so recorders never overlap.
+let recOps: Promise<unknown> = Promise.resolve()
+function queueRecording(fn: () => Promise<void>) {
+  recOps = recOps.then(fn, fn)
+  return recOps
+}
+
 // Stop and save when the paired phone disconnects.
 watch(peerCount, (n) => {
-  if (n === 0 && isRecording.value) stop()
+  if (n > 0) return
+  queueRecording(stop)
+  remoteStream.value = null
 })
 
 async function start(stream: MediaStream) {
+  if (isRecording.value) return
   const ok = await recording.startRecording(stream, 'medium', `archive-${homeKey.value}`)
   if (!ok) return
   isRecording.value = true
@@ -154,7 +244,6 @@ async function stop() {
   }
   const saved: Recording | null = await recording.stopRecording()
   isRecording.value = false
-  remoteStream.value = null
   if (saved) {
     archived.value.unshift({
       id: saved.id,
