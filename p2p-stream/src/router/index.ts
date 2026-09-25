@@ -7,6 +7,7 @@ import GuideView from '../views/GuideView.vue'
 import ArchiveView from '../views/ArchiveView.vue'
 import OfflineView from '../views/OfflineView.vue'
 import PairHomeView from '../views/PairHomeView.vue'
+import NetworkView from '../views/NetworkView.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -51,6 +52,11 @@ const router = createRouter({
       path: '/offline',
       name: 'offline',
       component: OfflineView
+    },
+    {
+      path: '/network',
+      name: 'network',
+      component: NetworkView
     },
     {
       path: '/pair-home/:code',

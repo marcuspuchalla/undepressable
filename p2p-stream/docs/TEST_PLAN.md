@@ -46,6 +46,46 @@ const fwd = useTrystero(); await fwd.init(['both'])
 await fwd.createRoom('some-room-id', ['both'], stream)   // now broadcasting
 ```
 
+### Automated connection scenarios (E2, simulated strict NAT)
+
+`scripts/e2e/scenarios.mjs` runs the app in several isolated Chromium
+instances against a local Nostr relay. For the NAT scenarios it drops all
+direct UDP between the peers with `iptables` (what two strict NATs do to ICE)
+and starts a local TURN server as the only way through:
+
+```bash
+npm run dev                                   # in one terminal
+npm i --no-save playwright@1 node-turn ws     # harness deps, not app deps
+sudo node scripts/e2e/scenarios.mjs           # all; or name some: open blocked relay-link
+```
+
+Scenarios: `open`, `blocked`, `relay-link`, `relay-one-side`,
+`relay-rejected`, `relay-added-live`, `crowd`, `internet-drops` (use case 03:
+discovery dies mid-stream, video must keep flowing), `offline-two-viewers`,
+`offline-isolated`, `archive` (use case 04: streamer → phone → home archive). Results and what each proves:
+[`RELIABILITY_AUDIT_3.md`](RELIABILITY_AUDIT_3.md). This proves the app's
+logic under a faithful ICE-level simulation; it is **not** a substitute for
+the real-network pass below (E4).
+
+### Cross-network pass owed on real devices (E4)
+
+The field report that triggered round 3, to be re-run by hand:
+
+1. Streamer on a laptop/phone behind a **VPN**; viewer on **mobile data**
+   (another country's carrier if possible). No relay configured.
+   **Pass:** both screens show *"… your networks block a direct connection"*
+   within ~30 s, with *Set up a relay*. (Before: endless "connecting".)
+2. Streamer adds a relay via that button (use `turns:…:443`). **Pass:** the
+   waiting viewer connects without touching anything; status shows `RELAY`.
+3. Fresh room, relay already configured on the streamer only; viewer scans the
+   QR with the **in-app scanner** and, separately, opens the link from the
+   phone's **camera app**. **Pass:** both connect, `RELAY`.
+4. **Network → Check** on each device. Record the verdicts (VPN and carrier
+   are expected to read "Strict NAT"; home Wi-Fi "Standard NAT").
+5. While connected via relay, walk the phone into a Wi-Fi ↔ mobile handover.
+   **Pass:** a short blip recovers without a new recording segment; a long one
+   recovers via rejoin.
+
 ---
 
 ## Scenario 1 — One to one
@@ -180,23 +220,41 @@ streamer still sends only one stream.
    a Personal Hotspot; join it from phone B. Confirm neither has internet
    (a browser tab to any site should fail).
 2. Phone A: open the installed app → **No internet? Pair face to face** →
-   *I'm filming*. Allow the camera. An offer QR appears.
-3. Phone B: same page → *I'm receiving* → scan A's QR. A reply QR appears.
-4. Phone A: tap **They scanned it** → scan B's reply.
-5. Expect: B shows A's live picture and starts recording within a few seconds.
-6. Stop, then **Recordings → Verify integrity** on B.
+   *I'm filming*. Allow the camera. A short invite code appears (QR + text),
+   and A starts recording its own copy.
+3. Phone B: same page → *I'm receiving* → **Scan their code** on A. A reply
+   code appears.
+4. Phone A: **Scan their reply** (uses the camera that is already filming).
+5. Expect: B shows A's live picture and records; A lists *Viewer 1 ·
+   connected · ● recording a copy*.
+6. Phone A: **Add another viewer**; pair phone C the same way, but this time
+   send both codes **as text** (Copy → AirDrop / Nearby Share → paste).
+   B must keep playing throughout.
+7. Walk B out of range for ~30 s. Expect: A shows *Viewer 1 disconnected*; B
+   shows *Connection lost* and its segment is saved. *Pair again* works.
+8. Stop, then **Recordings → Verify integrity** on A, B and C.
+9. Negative: with a phone that is *not* on the hotspot (only mobile data),
+   pair again. Expect A to report *couldn't reach them* with the tips within
+   ~20 s, and B to show the same tips after 30 s.
 
 **Pass criteria**
 
-- The link establishes with no internet reachable from either device. ⬜ (E3)
-- Video plays on B and a segment is recorded. ⬜ (E3)
-- Integrity reports **Unaltered** — offline evidence verifies like online. ⬜ (E3)
-- ✅ Verified in-browser (E2) with `iceServers: []` and no relays: both peers
-  connected, real video decoded, both QR payloads inside one code.
+- The links establish with no internet reachable from any device. ⬜ (E3)
+- Codes scan at arm's length on the first try (they are ~100 characters). ⬜ (E3)
+- Text codes via AirDrop / Nearby Share work between side-by-side devices
+  with no internet. ⬜ (E3)
+- Two viewers at once; the streamer sees each one's recording status. ⬜ (E3)
+- Integrity reports **Unaltered** on all devices. ⬜ (E3)
+- iPhone app: the Local Network permission prompt appears once and pairing
+  works after allowing it. ⬜ (E3, iOS build)
+- ✅ Verified in-browser (E2, `scripts/e2e/scenarios.mjs offline-two-viewers
+  offline-isolated`): 103-character codes, two viewers playing ~1 s after
+  their reply, recording status shown, isolation reported with tips.
 
-**Known limits to confirm rather than be surprised by:** one streamer→watcher
-link per exchange (no room, no relay tree); both devices must be on the same
-hotspot; a plain `http://` LAN origin will refuse the camera.
+**Known limits to confirm rather than be surprised by:** one exchange per
+viewer (no relay tree offline — every viewer is served by the filming phone's
+uplink, which on a local hotspot is rarely the bottleneck); all devices must
+be on the same local network for the *video*.
 
 ## Scenario 4c — Frozen stream is noticed
 

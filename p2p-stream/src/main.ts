@@ -3,13 +3,16 @@ import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import router from './router'
 import App from './App.vue'
-import { adoptTurnFromUrl } from './lib/net/iceConfig'
+import { adoptRelayFromUrl } from './lib/net/iceConfig'
+import { adoptDiscoveryFromUrl } from './lib/net/discoveryConfig'
 
 import './assets/main.css'
 
-// A share link can carry a TURN relay (?turn=urls|user|pass) so an organizer
-// can hand out working NAT traversal along with the room code.
-adoptTurnFromUrl()
+// A share link can carry a relay (?turn=urls|user|pass or ?ice=credentials-url)
+// and custom discovery relays (?relays=wss://…), so an organizer can hand out
+// working NAT traversal and a private meeting point along with the room code.
+adoptRelayFromUrl()
+adoptDiscoveryFromUrl()
 
 // The dev build ships no service worker, but one registered by an earlier
 // build keeps serving its precached copy forever — silently running stale code

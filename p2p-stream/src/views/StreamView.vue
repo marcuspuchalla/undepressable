@@ -99,14 +99,23 @@
           </div>
         </div>
 
-        <!-- Storage warning: footage may stop persisting soon -->
-        <div v-if="recording.storageWarning.value" class="absolute inset-x-4 top-28 p-3 bg-yellow-900/90 rounded-lg text-center">
-          <p class="text-yellow-200 text-sm">{{ recording.storageWarning.value }}</p>
+        <div class="absolute inset-x-4 top-28 space-y-2 max-w-md pointer-events-auto">
+          <!-- Live connection status: who found us, how they're connected, what's blocking -->
+          <ConnectionDoctor
+            v-if="isRoomJoined"
+            :diagnosis="diagnosis"
+            compact
+            @action="onDoctorAction"
+          />
+          <!-- Storage warning: footage may stop persisting soon -->
+          <div v-if="recording.storageWarning.value" class="p-3 bg-yellow-900/90 rounded-lg text-center">
+            <p class="text-yellow-200 text-sm">{{ recording.storageWarning.value }}</p>
+          </div>
         </div>
 
         <!-- Error Message -->
-        <div v-if="trystero.error" class="absolute inset-x-4 bottom-32 p-4 bg-red-900/90 rounded-lg text-center">
-          <p class="text-red-200">{{ trystero.error }}</p>
+        <div v-if="trystero.error.value" class="absolute inset-x-4 bottom-32 p-4 bg-red-900/90 rounded-lg text-center">
+          <p class="text-red-200">{{ trystero.error.value }}</p>
         </div>
       </div>
     </div>
@@ -133,7 +142,7 @@
         <div class="flex-1 flex flex-col items-center justify-center p-6 space-y-6">
           <!-- QR Code -->
           <div class="bg-white p-6 rounded-xl">
-            <canvas ref="qrCanvas" class="w-48 h-48" />
+            <canvas ref="qrCanvas" class="w-60 h-60" />
           </div>
 
           <!-- Room Code -->
@@ -146,6 +155,23 @@
               {{ roomCode }}
             </div>
             <p v-if="copied" class="text-sm text-green-400 mt-2">Copied!</p>
+          </div>
+
+          <!-- Reachability of the link itself -->
+          <div v-if="shareBase.reachability !== 'public'" class="w-full max-w-md text-xs text-yellow-200 bg-yellow-900/40 border border-yellow-500/30 rounded-lg px-3 py-2 leading-relaxed">
+            <template v-if="shareBase.reachability === 'lan' && !shareBase.secure">This link only opens on your local network, and over plain http — where browsers switch off the camera and encryption this app needs.</template>
+            <template v-else-if="shareBase.reachability === 'lan'">This link only opens on devices on your local network.</template>
+            <template v-else>This link only opens on this device.</template>
+            Phones elsewhere (e.g. on mobile data) should scan it from inside the app: Collect → Scan.
+            <RouterLink to="/network" class="underline" @click="showQRModal = false">Set the app's public address</RouterLink>
+            so any camera can open it.
+          </div>
+          <div v-if="relayInLink" class="w-full max-w-md text-xs text-moss">
+            ✓ Your relay is included, so viewers behind strict networks can connect without setup.
+          </div>
+          <div v-else-if="!diag.relayConfigured.value" class="w-full max-w-md text-xs text-slate-400">
+            No relay configured — viewers on strict networks (VPN, mobile data) may not get through.
+            <button class="text-glow underline" @click="openRelay(false)">Set one up</button>
           </div>
 
           <!-- Share URL -->
@@ -184,6 +210,8 @@
         </div>
       </div>
     </Teleport>
+
+    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" @saved="onRelaySaved" @share-changed="settingsTick++" />
   </div>
 </template>
 
@@ -194,7 +222,15 @@ import { useTrystero } from '../composables/useTrystero'
 import { useRecording } from '../composables/useRecording'
 import { useLocalIP } from '../composables/useLocalIP'
 import { useWakeLock } from '../composables/useWakeLock'
+import { useConnectionDiagnosis } from '../composables/useConnectionDiagnosis'
 import { generateShortRoomId } from '../utils/roomId'
+import { resolveShareBase, buildCollectUrl, getConfiguredPublicUrl } from '../lib/net/shareLink'
+import { relayShareParams } from '../lib/net/iceConfig'
+import { discoveryShareParams } from '../lib/net/discoveryConfig'
+import type { DiagnosisAction } from '../lib/net/diagnosis'
+import ConnectionDoctor from '../components/ConnectionDoctor.vue'
+import RelaySetup from '../components/RelaySetup.vue'
+import { RouterLink } from 'vue-router'
 import QRCode from 'qrcode'
 
 const router = useRouter()
@@ -212,7 +248,6 @@ const STRATEGY_LABELS: Record<string, string> = {
   mqtt: '📡 MQTT',
 }
 const roomCode = ref('')
-const shareUrl = ref('')
 const isRoomJoined = ref(false)
 const showQRModal = ref(false)
 const canShare = ref(typeof navigator !== 'undefined' && !!navigator.share)
@@ -235,17 +270,65 @@ const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
 const peerCount = computed(() => trystero.peerCount.value)
 const counts = computed(() => trystero.counts.value)
 
+// --- connection status + relay setup ---
+const diag = useConnectionDiagnosis(trystero, { role: 'streamer' })
+const diagnosis = diag.diagnosis
+const showRelay = ref(false)
+const relayAutoTest = ref(false)
+const settingsTick = ref(0)
+
+function openRelay(autoTest: boolean) {
+  relayAutoTest.value = autoTest
+  showRelay.value = true
+}
+
+function onDoctorAction(action: DiagnosisAction) {
+  if (action === 'setup-relay') openRelay(false)
+  else if (action === 'test-relay') openRelay(true)
+  else if (action === 'retry') restartRoom()
+  else if (action === 'pair-offline') router.push('/offline')
+}
+
+// Relay settings only apply to connections made after them: re-open the
+// room (same code) so every new viewer negotiates with the relay available.
+async function onRelaySaved() {
+  diag.refreshRelay()
+  settingsTick.value++
+  if (isRoomJoined.value) await restartRoom()
+}
+
+async function restartRoom() {
+  if (!localStream.value || !roomCode.value) return
+  console.log('[StreamView] Re-opening room with updated network settings')
+  await trystero.createRoom(`p2pstream-v1-${roomCode.value}`, ['both'], localStream.value)
+  trystero.setRecording(isRecording.value)
+}
+
+// The link must open on *other* devices: prefer the app's public address,
+// and carry the relay + discovery relays so viewers need no setup.
+const shareBase = computed(() => {
+  void settingsTick.value
+  return resolveShareBase({
+    origin: window.location.origin,
+    configured: getConfiguredPublicUrl(),
+    envPublicUrl: (import.meta as any).env?.VITE_PUBLIC_URL ?? null,
+    lanIp: localIP.localIP.value || null,
+  })
+})
+const linkParams = computed(() => {
+  void settingsTick.value
+  return { ...relayShareParams(), ...discoveryShareParams() }
+})
+const relayInLink = computed(() => 'turn' in linkParams.value || 'ice' in linkParams.value)
+const shareUrl = computed(() => (roomCode.value ? buildCollectUrl(shareBase.value.base, roomCode.value, linkParams.value) : ''))
+
 onMounted(async () => {
   // Generate room code
   roomCode.value = generateShortRoomId()
   
-  // Detect local IP
+  // Detect the LAN address (only used when running from a localhost dev server)
   localIP.detectIP()
-  
-  // Build share URL using localIP composable
-  const baseUrl = localIP.getShareUrl()
-  shareUrl.value = `${baseUrl}/collect/${roomCode.value}`
-  
+
   console.log('[StreamView] Generated room:', roomCode.value)
   console.log('[StreamView] Share URL:', shareUrl.value)
   
@@ -433,13 +516,13 @@ async function shareViaNative() {
 // Wait for the modal's v-if to render the canvas FIRST — at the moment
 // showQRModal flips true the canvas doesn't exist yet, so nextTick must come
 // before we read qrCanvas (otherwise the QR silently never draws — blank box).
-watch(showQRModal, async (show) => {
+watch([showQRModal, shareUrl], async ([show]) => {
   if (!show) return
   await nextTick()
   if (!qrCanvas.value || !shareUrl.value) return
   try {
     await QRCode.toCanvas(qrCanvas.value, shareUrl.value, {
-      width: 192,
+      width: 240,
       margin: 2,
       color: {
         dark: '#000000',

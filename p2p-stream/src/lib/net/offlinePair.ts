@@ -17,12 +17,18 @@
 //     bytes.
 //   * There is no trickle ICE over a QR code, so gathering must finish before
 //     the code is drawn (see useOfflinePair).
+//   * The first connection now carries only a data channel, which packs into
+//     the ~100-byte "UND2" format (compactSignal.ts); video is negotiated over
+//     that channel afterwards. "UND1" (a whole SDP, deflated) remains the
+//     fallback for anything the compact format cannot express.
+
+import { COMPACT_PREFIX, extractCompact, packCompact, unpackCompact, buildSdp, toBase64Url, fromBase64Url } from "./compactSignal";
 
 export type OfflineSignalKind = "offer" | "answer";
 
 export interface OfflineSignal {
   /** Envelope version, so a future format can be rejected clearly. */
-  v: 1;
+  v: 1 | 2;
   t: OfflineSignalKind;
   /** The session description. */
   s: string;
@@ -34,7 +40,9 @@ const PLAIN = "P";
 
 /** Cheap check used by the scanner to ignore unrelated QR codes. */
 export function isOfflineSignal(text: string): boolean {
-  return typeof text === "string" && text.startsWith(PREFIX);
+  if (typeof text !== "string") return false;
+  const t = text.trim();
+  return t.startsWith(PREFIX) || t.startsWith(COMPACT_PREFIX);
 }
 
 /**
@@ -98,6 +106,8 @@ async function inflate(input: Uint8Array): Promise<Uint8Array | null> {
  * to plain base64 and mark it, rather than failing the pairing outright.
  */
 export async function encodeSignal(signal: OfflineSignal): Promise<string> {
+  const compact = extractCompact(signal.s, signal.t);
+  if (compact) return COMPACT_PREFIX + toBase64Url(packCompact(compact));
   const payload = JSON.stringify({ ...signal, s: stripNonHostCandidates(signal.s) });
   const raw = new TextEncoder().encode(payload);
   const packed = await deflate(raw);
@@ -107,8 +117,19 @@ export async function encodeSignal(signal: OfflineSignal): Promise<string> {
 }
 
 /** Reverse of `encodeSignal`. Throws with a human-readable reason. */
-export async function decodeSignal(text: string): Promise<OfflineSignal> {
-  if (!isOfflineSignal(text)) throw new Error("Not a pairing code");
+export async function decodeSignal(input: string): Promise<OfflineSignal> {
+  if (!isOfflineSignal(input)) throw new Error("Not a pairing code");
+  // Pasted codes pick up line breaks and spaces from chat apps.
+  const text = input.replace(/\s+/g, "");
+  if (text.startsWith(COMPACT_PREFIX)) {
+    let desc;
+    try {
+      desc = unpackCompact(fromBase64Url(text.slice(COMPACT_PREFIX.length)));
+    } catch (err) {
+      throw err instanceof Error && /version|damaged/.test(err.message) ? err : new Error("Pairing code is damaged");
+    }
+    return { v: 2, t: desc.type, s: buildSdp(desc) };
+  }
   const mode = text[PREFIX.length];
   const body = text.slice(PREFIX.length + 1);
 

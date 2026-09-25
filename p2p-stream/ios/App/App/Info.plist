@@ -8,6 +8,8 @@
 	<string>Undepressable uses the camera so you can live-stream what you are witnessing to trusted people.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Undepressable uses the microphone to include audio in the live stream you share.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Undepressable connects directly to nearby devices on the same Wi-Fi or hotspot, so footage can be shared even with no internet.</string>
 	<key>CFBundleDisplayName</key>
         <string>Undepressable</string>
 	<key>CFBundleExecutable</key>

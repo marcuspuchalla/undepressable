@@ -79,6 +79,30 @@
             </ul>
           </div>
 
+          <!-- Connection attempts: separates "never found the peer" (discovery)
+               from "found it but could not connect" (NAT / relay). -->
+          <div v-if="connections" class="px-4 py-2 border-b border-gray-800 text-xs">
+            <div class="text-gray-300 mb-1">
+              Connections: {{ connections.attempts.length }} attempt{{ connections.attempts.length === 1 ? '' : 's' }} ·
+              gathered {{ gatheredSummary }}
+            </div>
+            <ul class="space-y-0.5 max-h-28 overflow-y-auto font-mono">
+              <li v-for="a in connections.attempts.slice(0, 12)" :key="a.id" class="flex items-center gap-2">
+                <span
+                  class="w-1.5 h-1.5 rounded-full shrink-0"
+                  :class="a.outcome === 'connected' || a.outcome === 'closed' ? 'bg-green-400' : a.outcome === 'pending' ? 'bg-yellow-400' : 'bg-red-500'"
+                />
+                <span class="text-gray-400 w-16 shrink-0">{{ a.outcome }}</span>
+                <span class="text-gray-500 truncate">
+                  {{ a.localTypes.join('+') || '–' }} ⇄ {{ a.remoteTypes.join('+') || '–' }}{{ a.path ? ` · ${a.path.kind}` : '' }}{{ a.rescued ? ' · rescued' : '' }}
+                </span>
+              </li>
+            </ul>
+            <p v-for="e in connections.relayErrors" :key="e.url + e.code" class="text-yellow-400 mt-1">
+              relay {{ e.url }} → {{ e.code }} {{ e.text }}
+            </p>
+          </div>
+
           <!-- Logs -->
           <div ref="logContainer" class="flex-1 overflow-y-auto p-4 space-y-1 font-mono text-sm">
             <div
@@ -108,6 +132,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { useLogger, type LogLevel } from '../composables/useLogger'
 import { useTrystero } from '../composables/useTrystero'
 import { describeRelayHealth, type RelayHealth } from '../lib/net/relayHealth'
+import { latestConnectionReport } from '../composables/useTrystero'
 
 const logger = useLogger()
 const isOpen = ref(false)
@@ -123,6 +148,13 @@ const trystero = useTrystero()
 const relayHealth = ref<RelayHealth | null>(null)
 const relaySummary = computed(() => (relayHealth.value ? describeRelayHealth(relayHealth.value) : ''))
 let relayTimer: number | null = null
+
+const connections = computed(() => latestConnectionReport.value)
+const gatheredSummary = computed(() => {
+  const g = connections.value?.gathered
+  if (!g) return ''
+  return (['host', 'srflx', 'relay'] as const).map((t) => `${t} ${g[t]}`).join(', ')
+})
 
 function refreshRelayHealth() {
   const health = trystero.getRelayHealth()
@@ -157,7 +189,12 @@ function clearLogs() {
 
 function copyLogs() {
   try {
-    const text = logger.exportLogs()
+    const report = latestConnectionReport.value
+    const text =
+      logger.exportLogs() +
+      (report
+        ? `\n\n--- connections ---\n${JSON.stringify({ gathered: report.gathered, relayErrors: report.relayErrors, attempts: report.attempts }, null, 1)}`
+        : '')
     navigator.clipboard.writeText(text).then(() => {
       console.log('Logs copied to clipboard')
     }).catch(err => {

@@ -92,13 +92,13 @@
           </div>
           <p class="text-gray-400 mb-2">Waiting for stream...</p>
           <p v-if="isConnecting" class="text-sm text-gray-500">Connecting...</p>
-          <div v-else-if="noStreamHint" class="mt-2 max-w-xs mx-auto">
-            <p class="text-sm text-yellow-400/90 font-medium">Couldn't reach the stream yet</p>
-            <p class="text-xs text-gray-500 mt-1">
-              The streamer may not be live, or a strict network is blocking the connection. This will connect
-              automatically once they're reachable.
-            </p>
-          </div>
+          <!-- What is actually happening: searching, negotiating, or blocked by NAT -->
+          <ConnectionDoctor
+            v-else-if="isConnected"
+            :diagnosis="diagnosis"
+            class="mt-3 max-w-sm mx-auto"
+            @action="onDoctorAction"
+          />
         </div>
       </div>
 
@@ -108,6 +108,13 @@
           <div class="w-8 h-8 mx-auto mb-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
           <p class="text-yellow-300 font-medium">Stream interrupted</p>
           <p class="text-xs text-gray-400 mt-1">Reconnecting automatically. Your recording so far is saved.</p>
+          <ConnectionDoctor
+            v-if="diagnosis.level === 'error' || diagnosis.level === 'warn'"
+            :diagnosis="diagnosis"
+            compact
+            class="mt-3 max-w-sm mx-auto"
+            @action="onDoctorAction"
+          />
         </div>
       </div>
 
@@ -136,6 +143,12 @@
           :key="s"
           class="px-2 py-1 bg-gray-800/80 rounded text-xs"
         >{{ STRATEGY_LABELS[s] }}</span>
+        <span
+          v-if="remoteStream && diagnosis.path"
+          class="px-2 py-1 rounded text-xs"
+          :class="diagnosis.path === 'relay' ? 'bg-glow/20 text-glow' : 'bg-moss/20 text-moss'"
+          :title="diagnosis.path === 'relay' ? 'Video comes through your relay (still end-to-end encrypted)' : 'Video comes straight from the streamer'"
+        >{{ PATH_LABELS[diagnosis.path] }}</span>
       </div>
 
       <!-- Storage warning: footage may stop persisting soon -->
@@ -144,8 +157,8 @@
       </div>
 
       <!-- Connection Error (never over a stream that's actually playing) -->
-      <div v-if="trystero.error && !remoteStream" class="absolute inset-x-4 bottom-20 p-4 bg-red-900/90 rounded-lg text-center">
-        <p class="text-red-200 mb-2">{{ trystero.error }}</p>
+      <div v-if="trystero.error.value && !remoteStream" class="absolute inset-x-4 bottom-20 p-4 bg-red-900/90 rounded-lg text-center">
+        <p class="text-red-200 mb-2">{{ trystero.error.value }}</p>
         <button
           v-if="!isRetrying"
           class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white text-sm"
@@ -181,7 +194,12 @@
           <span class="text-slate-400">
             Home archive
             <span class="font-mono text-slate-300">{{ pairedHome }}</span>:
-            <span :class="forwarding ? 'text-moss' : 'text-slate-500'">{{ forwarding ? 'forwarding ✓' : (remoteStream ? 'connecting…' : 'ready') }}</span>
+            <span :class="archiveStatus.tone">{{ archiveStatus.text }}</span>
+            <button
+              v-if="archiveStatus.action"
+              class="ml-1 text-glow underline"
+              @click="onDoctorAction(archiveStatus.action)"
+            >fix</button>
           </span>
           <button class="ml-auto text-slate-500 hover:text-slate-300 underline" @click="unpairHome">unpair</button>
         </template>
@@ -242,6 +260,11 @@
         <div v-else-if="isConnecting" class="text-center text-gray-400">
           <div class="w-8 h-8 mx-auto mb-2 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
           <p>Connecting to {{ props.roomCode }}...</p>
+        </div>
+        <!-- Joined from a link, then left: offer the way back in -->
+        <div v-else class="flex gap-2">
+          <button class="flex-1 btn-emergency py-3" @click="joinStream(props.roomCode!)">Join {{ props.roomCode }} again</button>
+          <button class="flex-none px-4 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm" @click="enterAnotherCode">Other code</button>
         </div>
       </div>
 
@@ -328,6 +351,7 @@
 
     <!-- Debug Modal -->
     <DebugModal ref="debugModal" />
+    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" @saved="onRelaySaved" />
   </div>
 </template>
 
@@ -341,7 +365,16 @@ import type { Recording } from '../types'
 import { getFullRoomId, isValidShortRoomId } from '../utils/roomId'
 import { getPairedHome, setPairedHome, clearPairedHome, archiveRoomId } from '../lib/archive'
 import { createStallMonitor } from '../lib/net/streamHealth'
+import { extractRoomCode, extractHomeKey } from '../lib/net/shareLink'
+import { isOfflineSignal } from '../lib/net/offlinePair'
+import { adoptRelayFromUrl } from '../lib/net/iceConfig'
+import { adoptDiscoveryFromUrl } from '../lib/net/discoveryConfig'
+import type { DiagnosisAction } from '../lib/net/diagnosis'
+import { useConnectionDiagnosis } from '../composables/useConnectionDiagnosis'
 import DebugModal from '../components/DebugModal.vue'
+import ConnectionDoctor from '../components/ConnectionDoctor.vue'
+import RelaySetup from '../components/RelaySetup.vue'
+import { useRouter } from 'vue-router'
 
 const qrScanner = useQRScanner()
 
@@ -364,6 +397,7 @@ const STRATEGY_LABELS: Record<string, string> = {
   nostr: '🐦 Nostr',
   mqtt: '📡 MQTT',
 }
+const PATH_LABELS: Record<string, string> = { lan: '⇄ local', direct: '⇄ direct', relay: '⇄ via relay' }
 const qrVideo = ref<HTMLVideoElement>()
 const qrCanvas = ref<HTMLCanvasElement>()
 const debugModal = ref<InstanceType<typeof DebugModal>>()
@@ -379,7 +413,6 @@ const playbackUrl = ref<string | null>(null)
 const showQRScanner = ref(false)
 const selectedCameraId = ref('')
 const availableCameras = ref<MediaDeviceInfo[]>([])
-const noStreamHint = ref(false)
 const streamInterrupted = ref(false)
 // Auto-record every stream (including post-reconnect segments) until the user
 // explicitly presses Stop.
@@ -404,12 +437,64 @@ const STREAM_TIMEOUT_MS = 12000
 // user with a manual "Retry" — a fresh join often lands on faster relays.
 const MAX_AUTO_RETRIES = 2
 const autoRetries = ref(0)
+// A connection that found the streamer and is mid-negotiation (often a relay
+// path through a VPN) must not be torn down by the rejoin — that would restart
+// it from zero with the same odds. Give it a few more rounds instead.
+const MAX_WATCHDOG_EXTENSIONS = 3
+let watchdogExtensions = 0
 // How often we ask WebRTC whether bytes are still arriving.
 const STALL_POLL_MS = 2000
 const stallMonitor = createStallMonitor()
 let stallTimer: number | null = null
 
 const counts = computed(() => trystero.counts.value)
+const router = useRouter()
+
+// --- connection status + relay setup ---
+const diag = useConnectionDiagnosis(trystero, {
+  role: 'collector',
+  hasStream: () => !!remoteStream.value && !streamInterrupted.value,
+})
+const diagnosis = diag.diagnosis
+const showRelay = ref(false)
+const relayAutoTest = ref(false)
+
+function onDoctorAction(action: DiagnosisAction) {
+  if (action === 'setup-relay' || action === 'test-relay') {
+    relayAutoTest.value = action === 'test-relay'
+    showRelay.value = true
+  } else if (action === 'check-code') {
+    enterAnotherCode()
+  } else if (action === 'pair-offline') {
+    router.push('/offline')
+  } else if (action === 'retry') {
+    retryConnection()
+  }
+}
+
+// Relay settings only reach connections made after them — rejoin.
+function onRelaySaved() {
+  diag.refreshRelay()
+  if (isConnected.value || remoteStream.value) retryConnection()
+}
+
+function enterAnotherCode() {
+  const code = props.roomCode || inputRoomCode.value
+  disconnect()
+  inputRoomCode.value = code ?? ''
+  if (props.roomCode) router.push('/collect')
+}
+
+// A phone moving between networks (Wi-Fi → mobile, or back from a dead
+// zone) fires 'online'. Rejoin promptly instead of waiting out the watchdog.
+function onBackOnline() {
+  if (!isConnected.value || (remoteStream.value && !streamInterrupted.value)) return
+  console.log('[CollectView] Network came back — reconnecting')
+  setTimeout(() => {
+    if (!remoteStream.value || streamInterrupted.value) retryConnection(true)
+  }, 1500)
+}
+window.addEventListener('online', onBackOnline)
 
 // --- home archive forwarding ---
 // A second, independent P2P connection: while this phone watches the demo, it
@@ -422,8 +507,35 @@ const showPair = ref(false)
 const pairInput = ref('')
 watch(() => archiveFwd.peerCount.value, (n) => (forwarding.value = n > 0))
 
+// Why forwarding to home is or isn't happening. A home router and a phone on
+// mobile data are often a strict-NAT pair as well — the fix is the same relay.
+const archiveDiag = useConnectionDiagnosis(archiveFwd, { role: 'streamer' })
+const archiveStatus = computed<{ text: string; tone: string; action?: DiagnosisAction }>(() => {
+  const d = archiveDiag.diagnosis.value
+  if (forwarding.value) return { text: d.path === 'relay' ? 'forwarding ✓ via relay' : 'forwarding ✓', tone: 'text-moss' }
+  if (!remoteStream.value) return { text: 'ready', tone: 'text-slate-500' }
+  switch (d.code) {
+    case 'blocked-no-relay':
+      return { text: "can't reach home — needs a relay", tone: 'text-yellow-300', action: 'setup-relay' }
+    case 'relay-unreachable':
+    case 'relay-rejected':
+    case 'failed-with-relay':
+      return { text: "can't reach home — relay problem", tone: 'text-yellow-300', action: 'test-relay' }
+    case 'no-signaling':
+    case 'offline':
+      return { text: "can't reach the discovery servers", tone: 'text-yellow-300' }
+    default:
+      return { text: 'connecting to home…', tone: 'text-slate-500' }
+  }
+})
+
+// Trystero reports a stream once per track (audio, then video); re-opening
+// the archive room for the second report tore down the first connection.
+let forwardedStream: MediaStream | null = null
 async function startForwarding(stream: MediaStream) {
   if (!pairedHome.value) return
+  if (forwardedStream === stream) return
+  forwardedStream = stream
   try {
     await archiveFwd.init(['both'])
     await archiveFwd.createRoom(archiveRoomId(pairedHome.value), ['both'], stream)
@@ -433,6 +545,7 @@ async function startForwarding(stream: MediaStream) {
   }
 }
 function stopForwarding() {
+  forwardedStream = null
   archiveFwd.leaveRoom()
   forwarding.value = false
 }
@@ -494,7 +607,7 @@ async function joinStream(shortCode: string) {
 
     // Reachability watchdog: if no stream arrives in time, silently re-establish
     // the connection a couple of times before surfacing a manual retry.
-    noStreamHint.value = false
+    watchdogExtensions = 0
     armStreamWatchdog()
 
     // Set up stream received callback
@@ -503,8 +616,8 @@ async function joinStream(shortCode: string) {
       const isReplacement = remoteStream.value !== null && remoteStream.value !== stream
       remoteStream.value = stream
       streamInterrupted.value = false
-      noStreamHint.value = false
-      autoRetries.value = 0
+        autoRetries.value = 0
+      watchdogExtensions = 0
       trystero.error.value = null // clear any stale connection error now that video is here
       if (streamWatchdog) { clearTimeout(streamWatchdog); streamWatchdog = null }
       watchStreamHealth(stream)
@@ -553,12 +666,23 @@ function armStreamWatchdog() {
   if (streamWatchdog) clearTimeout(streamWatchdog)
   streamWatchdog = window.setTimeout(() => {
     if (remoteStream.value && !streamInterrupted.value) return
+    const code = diagnosis.value.code
+    if ((code === 'negotiating' || code === 'waiting-for-video') && watchdogExtensions < MAX_WATCHDOG_EXTENSIONS) {
+      watchdogExtensions++
+      console.log(`[CollectView] Negotiation in progress — waiting (${watchdogExtensions}/${MAX_WATCHDOG_EXTENSIONS})`)
+      armStreamWatchdog()
+      return
+    }
+    // Rejoining cannot fix a NAT block or a broken relay; discovery keeps
+    // running in the open room, and the status card says what would help.
+    if (code === 'blocked-no-relay' || code === 'relay-unreachable' || code === 'relay-rejected' || code === 'failed-with-relay') {
+      console.log(`[CollectView] Not rejoining: ${code}`)
+      return
+    }
     if (autoRetries.value < MAX_AUTO_RETRIES) {
       autoRetries.value++
       console.log(`[CollectView] No live stream — auto-retry ${autoRetries.value}/${MAX_AUTO_RETRIES}`)
       retryConnection(true)
-    } else {
-      noStreamHint.value = true
     }
   }, STREAM_TIMEOUT_MS)
 }
@@ -648,7 +772,6 @@ function disconnect() {
   stopStallMonitor()
   remoteStream.value = null
   isConnected.value = false
-  noStreamHint.value = false
   streamInterrupted.value = false
   wakeLock.release()
   if (streamWatchdog) { clearTimeout(streamWatchdog); streamWatchdog = null }
@@ -800,17 +923,32 @@ async function startQRScanner() {
     (data) => {
       console.log('[CollectView] QR Code detected:', data)
       
-      // Extract room code from URL or direct input
-      let roomCode = data.trim()
-      
-      // If it's a URL, extract the room code
-      if (data.includes('/collect/')) {
-        const match = data.match(/\/collect\/([A-Z0-9]{6})/i)
-        if (match) {
-          roomCode = match[1].toUpperCase()
-        }
+      // A share link may carry a relay and discovery relays — adopt them
+      // exactly as if the link had been opened, then read the room code.
+      try {
+        const url = new URL(data.trim())
+        adoptRelayFromUrl(url.search)
+        adoptDiscoveryFromUrl(url.search)
+        diag.refreshRelay()
+      } catch {
+        /* not a URL: a bare room code */
       }
-      
+      // A home-archive pairing QR: pair with it here instead of rejecting it.
+      const homeKey = extractHomeKey(data)
+      if (homeKey) {
+        stopQRScanner()
+        pairInput.value = homeKey
+        pairHome()
+        return
+      }
+      if (isOfflineSignal(data)) {
+        stopQRScanner()
+        alert('That is a face-to-face pairing code. Open “Pair face to face” (Home → No internet?) to use it.')
+        return
+      }
+
+      const roomCode = extractRoomCode(data) ?? ''
+
       if (isValidShortRoomId(roomCode)) {
         inputRoomCode.value = roomCode
         joinStream(roomCode)
@@ -849,6 +987,7 @@ watch(remoteStream, (newStream) => {
 
 // Cleanup
 onUnmounted(() => {
+  window.removeEventListener('online', onBackOnline)
   if (durationInterval) clearInterval(durationInterval)
   if (streamWatchdog) clearTimeout(streamWatchdog)
   if (isRecording.value) {

@@ -26,8 +26,11 @@ to delete in one place.
 - **Tamper-evident recordings.** Each recording's chunks are SHA-256 hashed into
   a Merkle tree; the root is signed with an anonymous Ed25519 key. Anyone can
   later verify the footage is unaltered.
-- **Works offline / installable.** A PWA that runs from cache with no network;
-  two phones on one hotspot can connect with no internet at all.
+- **Works offline / installable.** A PWA that runs from cache with no network.
+  With no internet at all, devices on one hotspot pair face to face by
+  swapping two short codes (QR, or text via AirDrop / Nearby Share); one
+  filming phone can serve several viewers, and every device keeps a signed
+  copy.
 - **Cross-network.** A TURN relay (shared via a `?turn=` link, or self-hosted)
   lets peers connect across strict/carrier NAT, not just the same network. See
   [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md).
@@ -70,7 +73,7 @@ npm run dev -- --host      # open the printed LAN URL on your phone
 
 ```bash
 npm run build          # production PWA build
-npm run test:unit      # 81 unit tests (integrity, counts, routing, ICE config)
+npm run test:unit      # 273 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes)
 npm run tauri:build    # optional native desktop app
 ```
 
@@ -79,20 +82,33 @@ verification procedure.
 
 ## Configuration
 
+**Can't connect across networks?** Open **Network** in the app (tap the
+*Online* pill). It checks what kind of network this device is on, and lets you
+add and test a relay. Two devices that are both behind strict NAT — a VPN on
+one side and a mobile carrier on the other is the classic case — cannot
+connect directly at all; the Stream/Collect status card says when that is what
+is happening. See [docs/RELIABILITY_AUDIT_3.md](./docs/RELIABILITY_AUDIT_3.md).
+
 There is deliberately **no default TURN relay** — the free public one this app
 once bundled died and was silently slowing every connection (see
 [docs/RELIABILITY_AUDIT.md](./docs/RELIABILITY_AUDIT.md) §1). When both peers
 sit behind strict NAT, supply a relay one of three ways (highest precedence
 first — full guide in [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md)):
 
-1. Share link param, persisted on the device:
-   `/collect/CODE?turn=turns%3Ayour-relay%3A443|user|pass`
-2. Build-time env vars:
+1. On the device: the **Network** page (server + credentials, or a provider's
+   credentials link). The stream's share link then carries it automatically.
+2. Share link param, persisted on the device:
+   `/collect/CODE?turn=turns%3Ayour-relay%3A443|user|pass` or `?ice=<https credentials link>`
+3. Build-time env vars:
 
    ```
    VITE_TURN_URL=turns:your-relay:443
    VITE_TURN_USERNAME=user
    VITE_TURN_CREDENTIAL=pass
+   # or short-lived credentials from an HTTPS endpoint:
+   VITE_ICE_SERVERS_URL=https://…
+   # where share links should point (needed when running from localhost/app shells):
+   VITE_PUBLIC_URL=https://app.example.org
    ```
 
 Prefer `turns:` on port 443 — it survives networks that block UDP/plain TURN.
