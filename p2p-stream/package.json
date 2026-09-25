@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "build:standalone": "npm run build && node scripts/build-standalone.js",
+    "build:extension": "vue-tsc --noEmit && vite build --mode extension && node scripts/build-extension.js",
     "preview": "vite preview",
     "test:unit": "vitest",
     "test:coverage": "vitest run --coverage",

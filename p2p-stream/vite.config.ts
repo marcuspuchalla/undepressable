@@ -4,7 +4,10 @@ import { VitePWA } from 'vite-plugin-pwa'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { resolve } from 'path'
 
-export default defineConfig({
+// `vite build --mode extension` packages the app as a browser extension
+// (scripts/build-extension.js): same code, no service worker — the installed
+// extension is itself the offline copy — and its own output folder.
+export default defineConfig(({ mode }) => ({
   plugins: [
     nodePolyfills({
       include: ['process', 'util', 'buffer', 'stream'],
@@ -15,7 +18,7 @@ export default defineConfig({
       },
     }),
     vue(),
-    VitePWA({
+    mode !== 'extension' && VitePWA({
       registerType: 'autoUpdate',
       injectRegister: 'auto',
       strategies: 'generateSW',
@@ -142,6 +145,7 @@ export default defineConfig({
     allowedHosts: true
   },
   build: {
+    outDir: mode === 'extension' ? 'dist-extension/app' : 'dist',
     target: 'esnext',
     sourcemap: true,
     // Ensure all assets are self-contained
@@ -157,4 +161,4 @@ export default defineConfig({
   optimizeDeps: {
     include: ['simple-peer', 'qrcode', 'jsqr', 'trystero/torrent', 'trystero/nostr']
   }
-})
+}))

@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, createWebHashHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 import StreamView from '../views/StreamView.vue'
 import CollectView from '../views/CollectView.vue'
@@ -9,8 +9,13 @@ import OfflineView from '../views/OfflineView.vue'
 import PairHomeView from '../views/PairHomeView.vue'
 import NetworkView from '../views/NetworkView.vue'
 
+// Inside the browser extension there is no server to answer /collect/CODE, so
+// routes live in the hash (#/collect/CODE). Everywhere else: normal paths.
+const inExtension =
+  typeof location !== 'undefined' && /^(chrome|moz|safari-web)-extension:$/.test(location.protocol)
+
 const router = createRouter({
-  history: createWebHistory(),
+  history: inExtension ? createWebHashHistory() : createWebHistory(),
   routes: [
     {
       path: '/',
