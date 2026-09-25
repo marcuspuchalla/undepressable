@@ -302,6 +302,143 @@ Object.assign(scenarios, {
     return [watched !== null && archived !== null && /Recording a forwarded stream/.test(status), `phone video ${watched}s, home video ${archived}s; home: ${status.slice(0, 120)}`]
   },
 })
+// Record `seconds` of the fake camera through the app's own recorder (the dev
+// server serves source modules, so the page can import them directly).
+async function recordOnDevice(page, seconds) {
+  return page.evaluate(async (ms) => {
+    const { useRecording } = await import('/src/composables/useRecording.ts')
+    const rec = useRecording()
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    await rec.startRecording(stream, 'low')
+    await new Promise((r) => setTimeout(r, ms))
+    const saved = await rec.stopRecording()
+    stream.getTracks().forEach((t) => t.stop())
+    return { id: saved.id, chunks: saved.chunks.length, signed: !!saved.proof }
+  }, seconds * 1000)
+}
+const importStatus = async (p) => (await p.locator('[data-testid=import-status]').innerText()).replace(/\s+/g, ' ')
+async function importFiles(p, files) {
+  await p.locator('[data-testid=import-input]').setInputFiles(files)
+  await p.waitForFunction(() => {
+    const el = document.querySelector('[data-testid=import-status]')
+    return el && !/Checking every second/.test(el.textContent)
+  }, null, { timeout: 30000 })
+  return importStatus(p)
+}
+
+Object.assign(scenarios, {
+  // Relay to a safe place with no network: a recording travels as a file
+  // (share sheet / USB) and the receiving device checks every second of it.
+  async 'evidence-file'() {
+    const { readFileSync, writeFileSync, mkdtempSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const phone = await newPage({})
+    await phone.goto(`${APP}/recordings`)
+    const rec = await recordOnDevice(phone, 4)
+    await phone.reload()
+    await phone.locator('[data-testid=recording]').first().waitFor()
+    // The phone's own copy verifies from disk.
+    await phone.getByRole('button', { name: 'Verify integrity' }).first().click()
+    const selfCheck = await phone.locator('[data-testid=verify-result]').first().innerText({ timeout: 15000 })
+    await phone.locator('[data-testid=send-evidence]').first().click()
+    const [download] = await Promise.all([
+      phone.waitForEvent('download'),
+      phone.locator('[data-testid=save-evidence]').first().click(),
+    ])
+    const dir = mkdtempSync(join(tmpdir(), 'und-evidence-'))
+    const bundle = join(dir, download.suggestedFilename())
+    await download.saveAs(bundle)
+
+    const other = await newPage({})
+    await other.goto(`${APP}/recordings`)
+    const imported = await importFiles(other, bundle)
+    const listed = await other.locator('[data-testid=recording]').count()
+    const again = await importFiles(other, bundle)
+
+    // One flipped byte in the middle of the video must be caught.
+    const bytes = readFileSync(bundle)
+    bytes[Math.floor(bytes.length / 2)] ^= 0xff
+    const tampered = join(dir, 'tampered.zip')
+    writeFileSync(tampered, bytes)
+    const third = await newPage({})
+    await third.goto(`${APP}/recordings`)
+    const refused = await importFiles(third, tampered)
+    const thirdListed = await third.locator('[data-testid=recording]').count()
+
+    const ok =
+      rec.signed && /Unaltered/.test(selfCheck) && /\.zip$/.test(bundle) &&
+      /Verified and imported/.test(imported) && listed === 1 && /already has/.test(again) &&
+      /Not imported/.test(refused) && /altered/.test(refused) && thirdListed === 0
+    return [ok, `recorded ${rec.chunks} chunks; self-check "${selfCheck}"; import: "${imported.slice(0, 60)}"; again: "${again.slice(0, 50)}"; tampered: "${refused.slice(0, 110)}"`]
+  },
+
+  // Store and forward: what the phone recorded on its own reaches the home
+  // archive once both are online, checked chunk by chunk on arrival.
+  async 'home-sync'() {
+    const HOME = 'HQMRT7XP'
+    const home = await newPage({ undepressable_home_key: HOME })
+    await home.goto(`${APP}/archive`)
+    const phone = await newPage({ undepressable_paired_home: HOME })
+    await phone.goto(`${APP}/recordings`)
+    const a = await recordOnDevice(phone, 3)
+    const b = await recordOnDevice(phone, 5)
+    await phone.reload()
+    await phone.locator('[data-testid=send-home]').waitFor({ timeout: 10000 })
+    const before = await phone.locator('[data-testid=home-sync-status]').innerText()
+    const t0 = Date.now()
+    await phone.locator('[data-testid=send-home]').click()
+    const done = await phone
+      .waitForFunction(() => /Everything is at home/.test(document.querySelector('[data-testid=home-sync-status]')?.textContent ?? ''), null, { timeout: 60000 })
+      .then(() => (Date.now() - t0) / 1000)
+      .catch(() => null)
+    const homeCard = await home.locator('[data-testid=archive-received]').innerText().catch(() => '')
+    const atHome = await phone.locator('[data-testid=at-home]').count()
+    // The home device now holds complete, verifiable copies.
+    await home.goto(`${APP}/recordings`)
+    await home.locator('[data-testid=recording]').first().waitFor({ timeout: 10000 }).catch(() => {})
+    const homeRecs = await home.locator('[data-testid=recording]').count()
+    const verdicts = []
+    for (let i = 0; i < homeRecs; i++) {
+      const card = home.locator('[data-testid=recording]').nth(i)
+      await card.locator('[data-testid=verify]').click()
+      verdicts.push(await card.locator('[data-testid=verify-result]').innerText({ timeout: 15000 }).catch(() => 'no verdict'))
+    }
+    const ok = done !== null && atHome === 2 && homeRecs === 2 && verdicts.length === 2 && verdicts.every((v) => /Unaltered/.test(v)) && (homeCard.match(/verified/g) ?? []).length === 2
+    return [ok, `${a.chunks}+${b.chunks} chunks; before: "${before.slice(0, 45)}"; home: "${homeCard.replace(/\s+/g, ' ').slice(0, 90)}"; delivered in ${done}s; phone "at home" badges ${atHome}; home has ${homeRecs}: ${verdicts.join(', ')}`]
+  },
+})
+Object.assign(scenarios, {
+  // No internet, face to face: each device hands its signed recordings to the
+  // other over the pairing link — e.g. to someone leaving the scene.
+  async 'offline-handover'() {
+    const A = await newPage({})
+    await A.goto(`${APP}/offline`)
+    await A.getByText("I'm filming").click()
+    await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const B = await offlineViewer(A)
+    const playing = await videoWithin(B, 20000)
+    await B.waitForTimeout(3000) // a few seconds of footage on both devices
+    const statusOf = (p) => p.locator('[data-testid=transfer-status]').first().innerText().catch(() => '')
+    const until = (p, re) =>
+      p.waitForFunction((src) => new RegExp(src).test(document.querySelector('[data-testid=transfer-status]')?.textContent ?? ''), re.source, { timeout: 30000 }).then(() => true).catch(() => false)
+    // The viewer hands its copy to the person filming…
+    await B.locator('[data-testid=send-recordings]').click()
+    const aGot = await until(A, /received ✓/)
+    const bSent = await until(B, /handed over ✓/)
+    // …and the person filming hands theirs to the viewer.
+    await A.locator('[data-testid=send-recordings]').first().click()
+    const bGot = await until(B, /received ✓/)
+    const aStatus = await statusOf(A)
+    const bStatus = await statusOf(B)
+    // What arrived is a complete, verifiable recording on the other device.
+    await B.goto(`${APP}/recordings`)
+    const fromA = B.locator('[data-testid=recording]', { hasText: 'from a paired phone' }).first()
+    await fromA.locator('[data-testid=verify]').click().catch(() => {})
+    const verdict = await fromA.locator('[data-testid=verify-result]').innerText({ timeout: 15000 }).catch(() => 'no verdict')
+    const ok = playing !== null && aGot && bSent && bGot && /Unaltered/.test(verdict)
+    return [ok, `video ${playing}s; filming device: "${aStatus}"; viewer: "${bStatus}"; viewer's copy of A's recording: ${verdict}`]
+  },
+})
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']
 const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'offline-isolated'])
 

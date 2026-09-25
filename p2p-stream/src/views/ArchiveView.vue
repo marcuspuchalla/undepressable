@@ -5,7 +5,8 @@
       <h1 class="font-display font-black text-slate-50 text-3xl mb-3">A safe place to keep the footage</h1>
       <p class="text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
         Leave this running on a device that stays safe — a home computer. Pair a phone once, and whatever that phone
-        watches at the scene is forwarded here and recorded, even if the phone is later taken.
+        watches at the scene is forwarded here and recorded, even if the phone is later taken. What the phone recorded
+        while it could not reach you arrives later, checked against its signature.
       </p>
     </section>
 
@@ -76,6 +77,36 @@
         <video v-show="remoteStream" ref="videoEl" autoplay playsinline muted class="w-full rounded-xl bg-black mt-3 max-h-64" />
       </div>
 
+      <!-- Recordings the phones filmed themselves, sent afterwards -->
+      <div v-if="incomingList.length || sync.received.value.length || sync.rejected.value.length" class="card" data-testid="archive-received">
+        <div class="flex items-center gap-2 mb-3">
+          <span class="font-mono text-[11px] text-slate-500">SENT BY PAIRED PHONES</span>
+          <span class="h-px flex-1 bg-line" />
+        </div>
+        <ul class="space-y-2 text-sm">
+          <li v-for="t in incomingList" :key="t.id">
+            <div class="flex items-center justify-between text-slate-300">
+              <span>Receiving {{ t.id.slice(0, 8) }}… · {{ t.done }}/{{ t.total }} s</span>
+              <span class="text-xs text-slate-500">checked as it arrives</span>
+            </div>
+            <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden mt-1">
+              <div class="h-full bg-moss transition-all" :style="{ width: (100 * t.done) / t.total + '%' }" />
+            </div>
+          </li>
+          <li v-for="m in sync.received.value" :key="m.recording.id" class="flex items-center justify-between">
+            <span class="flex items-center gap-2 text-slate-300">
+              <svg class="w-4 h-4 text-moss" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              {{ m.chunkSizes.length }} s from {{ new Date(m.recording.startedAt).toLocaleString() }} · verified
+            </span>
+            <span class="font-mono text-xs text-slate-500">{{ m.recording.id.slice(0, 8) }}…</span>
+          </li>
+          <li v-for="r in sync.rejected.value" :key="r.id" class="text-xs text-red-300">
+            ✗ Refused {{ r.id.slice(0, 8) }}…: {{ r.reason }}
+          </li>
+        </ul>
+        <RouterLink to="/recordings" class="inline-block mt-3 text-xs text-glow hover:underline">Open Recordings →</RouterLink>
+      </div>
+
       <!-- Archived this session -->
       <div v-if="archived.length" class="card">
         <div class="flex items-center gap-2 mb-3">
@@ -108,6 +139,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import QRCode from 'qrcode'
 import { useTrystero } from '../composables/useTrystero'
 import { useRecording } from '../composables/useRecording'
+import { useSyncReceiver } from '../composables/useRecordingSync'
 import { getHomeKey, archiveRoomId } from '../lib/archive'
 import type { Recording } from '../types'
 import { useConnectionDiagnosis } from '../composables/useConnectionDiagnosis'
@@ -121,6 +153,10 @@ import { RouterLink } from 'vue-router'
 
 const trystero = useTrystero()
 const recording = useRecording()
+// Phones also send what they recorded themselves — including footage filmed
+// with no connection at all — once they can reach this device.
+const sync = useSyncReceiver(trystero)
+const incomingList = computed(() => Object.values(sync.incoming.value))
 
 const homeKey = ref('')
 
@@ -268,6 +304,7 @@ function formatDuration(ms: number): string {
 onUnmounted(() => {
   if (durationInterval) clearInterval(durationInterval)
   if (isRecording.value) recording.stopRecording()
+  sync.stop()
   trystero.leaveRoom()
 })
 </script>

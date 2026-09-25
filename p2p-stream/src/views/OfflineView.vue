@@ -95,6 +95,12 @@
             <ul v-if="l.phase === 'timed-out'" class="mt-2 text-xs text-slate-400 list-disc list-inside space-y-1">
               <li v-for="tip in OFFLINE_CONNECT_TIPS" :key="tip">{{ tip }}</li>
             </ul>
+            <div v-if="l.phase === 'connected' || l.transfer" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              <button v-if="l.phase === 'connected'" class="text-glow underline" data-testid="send-recordings" @click="handOver(l.id)">
+                Hand over my recordings
+              </button>
+              <span class="text-slate-400" data-testid="transfer-status">{{ transferText(l.transfer) }}</span>
+            </div>
           </div>
         </div>
 
@@ -154,6 +160,12 @@
             </div>
           </div>
           <video ref="remoteVideo" autoplay playsinline muted class="w-full rounded-xl bg-black max-h-72" />
+          <div v-if="watchLink && (watchPhase === 'connected' || watchLink.transfer)" class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <button v-if="watchPhase === 'connected'" class="text-glow underline" data-testid="send-recordings" @click="handOver(watchLink.id)">
+              Hand over my recordings
+            </button>
+            <span class="text-slate-400" data-testid="transfer-status">{{ transferText(watchLink.transfer) }}</span>
+          </div>
           <ul v-if="watchPhase === 'timed-out'" class="mt-3 text-xs text-slate-400 list-disc list-inside space-y-1">
             <li v-for="tip in OFFLINE_CONNECT_TIPS" :key="tip">{{ tip }}</li>
           </ul>
@@ -168,6 +180,8 @@
 
       <p v-if="role" class="text-xs text-slate-500 text-center px-6 leading-relaxed">
         Recordings made here are hashed and signed exactly like online ones — find them under Recordings.
+        “Hand over” copies every signed recording on this device to the other one, checked second by second on
+        arrival: a way to get footage to someone who is leaving, without any internet.
       </p>
       <div v-else class="text-center">
         <RouterLink to="/guide" class="text-xs text-glow hover:underline">How else can I use this? →</RouterLink>
@@ -179,7 +193,7 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted, computed, watch, defineComponent, h } from 'vue'
 import { RouterLink } from 'vue-router'
-import { useOfflinePair } from '../composables/useOfflinePair'
+import { useOfflinePair, type LinkTransfer } from '../composables/useOfflinePair'
 import { useQRScanner } from '../composables/useQRScanner'
 import { useRecording } from '../composables/useRecording'
 import { useWakeLock } from '../composables/useWakeLock'
@@ -404,6 +418,7 @@ const watchStep = ref<'get-invite' | 'show-reply' | 'live'>('get-invite')
 const reply = ref<string | null>(null)
 const remoteStream = computed(() => pair.remoteStream.value)
 const watchPhase = computed<LinkPhase>(() => pair.links.value[0]?.phase ?? 'closed')
+const watchLink = computed(() => pair.links.value[0] ?? null)
 const interrupted = ref(false)
 const watchTitle = computed(() => {
   if (watchPhase.value === 'connected') return interrupted.value ? 'Picture frozen — waiting for it to resume' : 'Connected — no internet involved'
@@ -490,6 +505,32 @@ const stallTimer = window.setInterval(async () => {
 }, 2000)
 
 // --- both --------------------------------------------------------------------
+
+// Hand every signed recording on this device to the other one. The segment
+// being recorded right now is closed (and signed) first so it goes too;
+// recording carries on in a new segment.
+async function handOver(linkId: number) {
+  const stream = role.value === 'stream' ? localStream : remoteStream.value
+  if (recording.isRecording.value && stream) {
+    await queueRecording(async () => {
+      await stopRecordingNow()
+      await startRecordingOf(stream)
+    })
+  }
+  pair.sendRecordings(linkId)
+}
+
+function transferText(t: LinkTransfer | null): string {
+  if (!t) return ''
+  const parts: string[] = []
+  if (t.outgoing) parts.push(`sending ${t.outgoing.done}/${t.outgoing.total} s`)
+  if (t.sent) parts.push(`${t.sent} handed over ✓`)
+  else if (t.sending && !t.outgoing) parts.push(t.offered === 0 ? 'nothing signed to hand over yet' : 'offering…')
+  if (t.incoming) parts.push(`receiving ${t.incoming.done}/${t.incoming.total} s`)
+  if (t.received) parts.push(`${t.received} received ✓ verified`)
+  if (t.refused.length) parts.push(`refused: ${t.refused.join('; ')}`)
+  return parts.join(' · ')
+}
 
 async function restart() {
   stopScan()

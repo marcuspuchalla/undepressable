@@ -89,7 +89,9 @@ export function useOPFS() {
     }
   }
 
-  // Read all chunks for a recording
+  // Read all chunks for a recording, in recording order. Directory
+  // iteration order is unspecified, so sort by the zero-padded file name —
+  // a Blob read back from a file has no name to sort by afterwards.
   async function readAllChunks(
     campaignId: string,
     recordingId: string
@@ -101,29 +103,39 @@ export function useOPFS() {
 
     try {
       const recordingDir = await campaignDir.getDirectoryHandle(recordingId)
-      
-      // Iterate through all chunk files
+      const names: string[] = []
       // @ts-ignore - TypeScript doesn't know about values() method yet
       for await (const entry of recordingDir.values()) {
-        if (entry.kind === 'file' && entry.name.startsWith('chunk-')) {
-          const fileHandle = await recordingDir.getFileHandle(entry.name)
-          const file = await fileHandle.getFile()
-          chunks.push(file.slice())
-        }
+        if (entry.kind === 'file' && entry.name.startsWith('chunk-')) names.push(entry.name)
       }
-
-      // Sort chunks by index
-      chunks.sort((a, b) => {
-        const indexA = parseInt((a as any).name?.match(/chunk-(\d+)/)?.[1] || '0')
-        const indexB = parseInt((b as any).name?.match(/chunk-(\d+)/)?.[1] || '0')
-        return indexA - indexB
-      })
-
+      names.sort()
+      for (const name of names) {
+        const fileHandle = await recordingDir.getFileHandle(name)
+        chunks.push(await fileHandle.getFile())
+      }
     } catch (err) {
       console.error('Failed to read chunks:', err)
     }
 
     return chunks
+  }
+
+  // Indexes of the chunk files present for a recording.
+  async function listChunkIndexes(campaignId: string, recordingId: string): Promise<number[]> {
+    const campaignDir = await createCampaignDir(campaignId)
+    if (!campaignDir) return []
+    const out: number[] = []
+    try {
+      const recordingDir = await campaignDir.getDirectoryHandle(recordingId)
+      // @ts-ignore
+      for await (const entry of recordingDir.values()) {
+        const m = entry.kind === 'file' ? /^chunk-(\d+)\.webm$/.exec(entry.name) : null
+        if (m) out.push(Number(m[1]))
+      }
+    } catch {
+      /* no directory yet */
+    }
+    return out.sort((a, b) => a - b)
   }
 
   // Delete recording
@@ -197,6 +209,7 @@ export function useOPFS() {
     writeChunk,
     readChunk,
     readAllChunks,
+    listChunkIndexes,
     deleteRecording,
     getStorageUsage,
     listRecordings
