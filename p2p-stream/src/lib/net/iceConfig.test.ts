@@ -7,6 +7,18 @@ import {
   setRuntimeTurn,
   adoptTurnFromUrl,
   buildIceServers,
+  parseIceServersResponse,
+  isValidIceUrl,
+  fetchIceServers,
+  getRelaySetup,
+  saveRelaySettings,
+  relayShareParams,
+  adoptRelayFromUrl,
+  setRelaySharingEnabled,
+  resolveRtcConfig,
+  setForceRelay,
+  relayServersOf,
+  turnSpecOf,
 } from "./iceConfig";
 
 function memoryStorage() {
@@ -121,5 +133,156 @@ describe("buildIceServers", () => {
     const servers = buildIceServers({ VITE_TURN_URL: "turn:env:3478" }, runtime);
     expect(servers[servers.length - 1]).toEqual({ urls: ["turns:runtime:443"], username: "ru", credential: "rp" });
     expect(JSON.stringify(servers)).not.toContain("turn:env");
+  });
+});
+
+describe("parseIceServersResponse", () => {
+  const turn = { urls: "turn:r.example:3478", username: "u", credential: "p" };
+
+  it("accepts the shapes real providers return", () => {
+    expect(parseIceServersResponse([turn])).toEqual([turn]); // Metered
+    expect(parseIceServersResponse({ iceServers: [turn] })).toEqual([turn]);
+    expect(parseIceServersResponse({ iceServers: { ...turn, urls: [turn.urls, "turns:r.example:443"] } })).toEqual([
+      { ...turn, urls: [turn.urls, "turns:r.example:443"] },
+    ]); // Cloudflare: a single object
+    expect(parseIceServersResponse({ ice_servers: [{ url: "stun:s.example" }] })).toEqual([{ urls: "stun:s.example" }]);
+    expect(parseIceServersResponse({ v: { iceServers: [turn] } })).toEqual([turn]); // Xirsys
+  });
+
+  it("drops anything that is not a STUN/TURN url", () => {
+    expect(parseIceServersResponse([{ urls: ["https://evil.example", "turn:ok:3478"] }])).toEqual([{ urls: "turn:ok:3478" }]);
+    expect(parseIceServersResponse([{ urls: "javascript:alert(1)" }, null, 7])).toEqual([]);
+    expect(parseIceServersResponse({ nothing: true })).toEqual([]);
+    expect(parseIceServersResponse(null)).toEqual([]);
+  });
+});
+
+describe("isValidIceUrl", () => {
+  it("requires https (http only for local testing)", () => {
+    expect(isValidIceUrl("https://x.metered.live/api/v1/turn/credentials?apiKey=k")).toBe(true);
+    expect(isValidIceUrl("http://localhost:8787/ice")).toBe(true);
+    expect(isValidIceUrl("http://relay.example/ice")).toBe(false);
+    expect(isValidIceUrl("turn:relay.example")).toBe(false);
+    expect(isValidIceUrl("not a url")).toBe(false);
+  });
+});
+
+describe("fetchIceServers", () => {
+  const url = "https://creds.example/ice";
+  const servers = [{ urls: "turn:r.example:3478", username: "u", credential: "p" }];
+  const ok = (body: unknown) => async () => ({ ok: true, status: 200, json: async () => body }) as any;
+
+  it("fetches, then serves from cache until the TTL passes", async () => {
+    const storage = memoryStorage();
+    let t = 1000;
+    let calls = 0;
+    const fetchImpl = (async () => {
+      calls++;
+      return ok(servers)();
+    }) as any;
+    expect(await fetchIceServers(url, { fetchImpl, storage, now: () => t })).toEqual(servers);
+    expect(await fetchIceServers(url, { fetchImpl, storage, now: () => t })).toEqual(servers);
+    expect(calls).toBe(1);
+    t += 11 * 60 * 1000;
+    await fetchIceServers(url, { fetchImpl, storage, now: () => t });
+    expect(calls).toBe(2);
+  });
+
+  it("falls back to stale credentials when the endpoint fails", async () => {
+    const storage = memoryStorage();
+    let t = 0;
+    await fetchIceServers(url, { fetchImpl: ok(servers) as any, storage, now: () => t });
+    t += 60 * 60 * 1000;
+    const failing = (async () => ({ ok: false, status: 503, json: async () => ({}) })) as any;
+    expect(await fetchIceServers(url, { fetchImpl: failing, storage, now: () => t })).toEqual(servers);
+  });
+
+  it("returns null when nothing usable exists", async () => {
+    const storage = memoryStorage();
+    const failing = (async () => {
+      throw new Error("offline");
+    }) as any;
+    expect(await fetchIceServers(url, { fetchImpl: failing, storage })).toBeNull();
+    expect(await fetchIceServers(url, { fetchImpl: ok({ nope: 1 }) as any, storage })).toBeNull();
+  });
+});
+
+describe("relay setup, sharing and links", () => {
+  const turn = { urls: ["turns:r.example:443"], username: "u", credential: "p" };
+
+  it("reports no relay by default", () => {
+    expect(getRelaySetup({}, memoryStorage()).source).toBe("none");
+  });
+
+  it("prefers this device's settings over build-time config", () => {
+    const storage = memoryStorage();
+    const env = { VITE_TURN_URL: "turn:env:3478", VITE_ICE_SERVERS_URL: "https://env.example/ice" };
+    expect(getRelaySetup(env, storage)).toMatchObject({ source: "build", iceUrl: "https://env.example/ice" });
+    saveRelaySettings({ turn, iceUrl: null }, "settings", storage);
+    expect(getRelaySetup(env, storage)).toMatchObject({ source: "runtime", origin: "settings", turn, iceUrl: null });
+  });
+
+  it("puts the relay in share links unless the user opted out", () => {
+    const storage = memoryStorage();
+    saveRelaySettings({ turn, iceUrl: "https://creds.example/ice" }, "settings", storage);
+    const setup = getRelaySetup({}, storage);
+    expect(relayShareParams(setup, storage)).toEqual({ turn: turnSpecOf(turn), ice: "https://creds.example/ice" });
+    setRelaySharingEnabled(false, storage);
+    expect(relayShareParams(setup, storage)).toEqual({});
+  });
+
+  it("adopts a relay from a link, round-tripping what relayShareParams produced", () => {
+    const sender = memoryStorage();
+    saveRelaySettings({ turn, iceUrl: "https://creds.example/ice" }, "settings", sender);
+    const qs = "?" + new URLSearchParams(relayShareParams(getRelaySetup({}, sender), sender)).toString();
+
+    const receiver = memoryStorage();
+    const adopted = adoptRelayFromUrl(qs, receiver);
+    expect(adopted).toEqual({ turn, iceUrl: "https://creds.example/ice" });
+    expect(getRelaySetup({}, receiver)).toMatchObject({ source: "runtime", origin: "link", turn });
+  });
+
+  it("ignores links without (valid) relay params", () => {
+    const storage = memoryStorage();
+    expect(adoptRelayFromUrl("?ice=http://evil.example/x&turn=junk", storage)).toEqual({ turn: null, iceUrl: null });
+    expect(getRelaySetup({}, storage).source).toBe("none");
+  });
+});
+
+describe("resolveRtcConfig", () => {
+  it("never pre-gathers a candidate pool and bundles everything", async () => {
+    const config = await resolveRtcConfig({ storage: memoryStorage() });
+    expect(config.iceCandidatePoolSize).toBe(0);
+    expect(config.bundlePolicy).toBe("max-bundle");
+    expect(config.iceTransportPolicy).toBeUndefined();
+  });
+
+  it("merges fetched credentials after STUN", async () => {
+    const storage = memoryStorage();
+    saveRelaySettings({ turn: null, iceUrl: "https://creds.example/ice" }, "settings", storage);
+    const fetched = [{ urls: "turn:r.example:3478", username: "u", credential: "p" }];
+    const fetchImpl = (async () => ({ ok: true, status: 200, json: async () => fetched })) as any;
+    const config = await resolveRtcConfig({ storage, fetchImpl });
+    expect(config.iceServers?.slice(0, STUN_SERVERS.length)).toEqual(STUN_SERVERS);
+    expect(config.iceServers?.at(-1)).toEqual(fetched[0]);
+  });
+
+  it("forces relay-only only when a relay exists to force", async () => {
+    const storage = memoryStorage();
+    setForceRelay(true, storage);
+    expect((await resolveRtcConfig({ storage })).iceTransportPolicy).toBeUndefined();
+    saveRelaySettings({ turn: { urls: ["turn:r:3478"], username: "u", credential: "p" }, iceUrl: null }, "settings", storage);
+    expect((await resolveRtcConfig({ storage })).iceTransportPolicy).toBe("relay");
+  });
+});
+
+describe("relayServersOf", () => {
+  it("keeps only TURN urls", () => {
+    expect(
+      relayServersOf([
+        { urls: "stun:s:3478" },
+        { urls: ["stun:x", "turn:t:3478", "turns:t:443"], username: "u", credential: "p" },
+      ]),
+    ).toEqual([{ urls: ["turn:t:3478", "turns:t:443"], username: "u", credential: "p" }]);
   });
 });
