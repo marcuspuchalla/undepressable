@@ -35,3 +35,4 @@ coverage
 .env.local
 .env.*.local
 dist-extension
+dist-updates

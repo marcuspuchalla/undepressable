@@ -5,6 +5,7 @@ import router from './router'
 import App from './App.vue'
 import { adoptRelayFromUrl } from './lib/net/iceConfig'
 import { adoptDiscoveryFromUrl } from './lib/net/discoveryConfig'
+import { startUpdates } from './composables/useUpdates'
 
 import './assets/main.css'
 
@@ -39,3 +40,7 @@ app.use(PrimeVue, {
 })
 
 app.mount('#app')
+
+// Production web builds: service worker for offline use, and updates only
+// after this copy has checked who signed them.
+startUpdates()

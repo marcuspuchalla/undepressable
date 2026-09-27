@@ -3,6 +3,20 @@ import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { resolve } from 'path'
+import { execFileSync } from 'child_process'
+import { readFileSync } from 'fs'
+
+// Compiled into the app and written into release.json (scripts/sign-release.mjs),
+// so a copy can tell which published release it is.
+function buildId(): string {
+  if (process.env.VITE_BUILD_ID) return process.env.VITE_BUILD_ID
+  const { version } = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8'))
+  try {
+    return `${version}+${execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: __dirname, encoding: 'utf8' }).trim()}`
+  } catch {
+    return `${version}+local`
+  }
+}
 
 // `vite build --mode extension` packages the app as a browser extension
 // (scripts/build-extension.js): same code, no service worker — the installed
@@ -19,8 +33,10 @@ export default defineConfig(({ mode }) => ({
     }),
     vue(),
     mode !== 'extension' && VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      // Never swap the app's code silently: a waiting version is checked
+      // against the release keys and offered (composables/useUpdates.ts).
+      registerType: 'prompt',
+      injectRegister: false,
       strategies: 'generateSW',
       workbox: {
         // Cache all assets aggressively for offline use
@@ -84,8 +100,9 @@ export default defineConfig(({ mode }) => ({
           }
         ],
         
-        // Skip waiting so new service worker activates immediately
-        skipWaiting: true,
+        // A new version waits until someone accepts it (or every tab of the
+        // app is closed — browsers allow no more control than that).
+        skipWaiting: false,
         clientsClaim: true
       },
       manifest: {
@@ -132,9 +149,14 @@ export default defineConfig(({ mode }) => ({
       }
     })
   ],
+  define: {
+    __APP_BUILD__: JSON.stringify(buildId()),
+  },
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(__dirname, 'src'),
+      // No service worker in the extension (it updates via its store or by hand).
+      ...(mode === 'extension' ? { 'virtual:pwa-register': resolve(__dirname, 'src/lib/update/pwaRegisterStub.ts') } : {}),
     }
   },
   server: {

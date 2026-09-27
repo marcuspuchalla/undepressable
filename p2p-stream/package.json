@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --noEmit && vite build",
+    "build": "vue-tsc --noEmit && vite build && node scripts/sign-release.mjs",
+    "release:keygen": "node scripts/sign-release.mjs --keygen",
     "build:standalone": "npm run build && node scripts/build-standalone.js",
     "build:extension": "vue-tsc --noEmit && vite build --mode extension && node scripts/build-extension.js",
     "preview": "vite preview",
