@@ -13,7 +13,8 @@
 // public-relay, relay-added-live, crowd, crowd-large, internet-drops,
 // offline-two-viewers, offline-isolated, archive, evidence-file, home-sync,
 // offline-handover, offline-chain, offline-chain-repair, messenger-pair,
-// messenger-pair-late, amplify-streamer, amplify-viewer.
+// messenger-pair-late, amplify-streamer, amplify-viewer, sealed-home,
+// sealed-passphrase, sealed-blind-carrier.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
@@ -643,6 +644,137 @@ Object.assign(scenarios, {
     } finally {
       srv.close()
     }
+  },
+})
+// Is the first stored chunk of a recording plain WebM (EBML header) or sealed?
+const firstChunkIsWebm = (page, id) =>
+  page.evaluate(async (rid) => {
+    const { getRecording } = await import('/src/lib/recordingDb.ts')
+    const { useOPFS } = await import('/src/composables/useOPFS.ts')
+    const r = await getRecording(rid)
+    const blob = await useOPFS().readChunk(r.campaignId, r.id, 0)
+    const b = new Uint8Array(await blob.slice(0, 4).arrayBuffer())
+    return b[0] === 0x1a && b[1] === 0x45 && b[2] === 0xdf && b[3] === 0xa3
+  }, id)
+async function openProtect(page) {
+  if (!(await page.locator('[data-testid=seal-home]').isVisible().catch(() => false))) await page.getByText('Protect recordings on this device').click()
+}
+async function verifyFirst(page, hasText) {
+  const card = hasText ? page.locator('[data-testid=recording]', { hasText }).first() : page.locator('[data-testid=recording]').first()
+  await card.locator('[data-testid=verify]').click()
+  return card.locator('[data-testid=verify-result]').innerText({ timeout: 15000 }).catch(() => 'no verdict')
+}
+async function pairPhoneWithHome(home, phone) {
+  await home.goto(`${APP}/archive`)
+  await home.waitForFunction(() => /\/pair-home\//.test(document.body.innerText), null, { timeout: 15000 })
+  const link = await home.evaluate(() => document.body.innerText.match(/\S*\/pair-home\/\S+/)[0])
+  const u = new URL(link)
+  await phone.goto(`${APP}${u.pathname}${u.search}`)
+  return phone.locator('text=receive sealed recordings').waitFor({ timeout: 5000 }).then(() => true).catch(() => false)
+}
+Object.assign(scenarios, {
+  // A seized phone gives nothing away: recordings sealed to the home archive
+  // are unreadable on the phone and open only at home.
+  async 'sealed-home'() {
+    const home = await newPage({ undepressable_home_key: 'HQMRT7XP' })
+    const phone = await newPage({})
+    const sealingOffered = await pairPhoneWithHome(home, phone)
+    await home.goto(`${APP}/archive`)
+    await phone.goto(`${APP}/recordings`)
+    await openProtect(phone)
+    await phone.locator('[data-testid=seal-home]').check()
+    const rec = await recordOnDevice(phone, 3)
+    await phone.reload()
+    const badge = await phone.locator('[data-testid=sealed-badge]').first().innerText().catch(() => '')
+    const plainOnDisk = await firstChunkIsWebm(phone, rec.id)
+    await phone.getByTitle('Play').first().click()
+    const refusal = await phone.locator('[data-testid=sealed-notice]').first().innerText().catch(() => '')
+    const intact = await verifyFirst(phone)
+    await phone.locator('[data-testid=send-home]').click()
+    const sent = await phone
+      .waitForFunction(() => /Everything is at home/.test(document.querySelector('[data-testid=home-sync-status]')?.textContent ?? ''), null, { timeout: 60000 })
+      .then(() => true)
+      .catch(() => false)
+    await home.goto(`${APP}/recordings`)
+    await home.locator('[data-testid=recording]').first().waitFor({ timeout: 10000 }).catch(() => {})
+    const opened = await home.locator('text=arrived sealed · opened here').count()
+    const homeVerdict = await verifyFirst(home)
+    const homePlain = await firstChunkIsWebm(home, rec.id)
+    const ok = sealingOffered && /sealed for home/.test(badge) && !plainOnDisk && /cannot open it/.test(refusal) && /Intact \(sealed/.test(intact) && sent && opened === 1 && /Unaltered/.test(homeVerdict) && homePlain
+    return [ok, `pairing offered sealing: ${sealingOffered}; phone: "${badge}", plain WebM on disk: ${plainOnDisk}, play → "${refusal.slice(0, 50)}", verify → ${intact}; sent home: ${sent}; home: opened ${opened}, ${homeVerdict}, plain on disk: ${homePlain}`]
+  },
+
+  // Locked with a passphrase: unreadable after a reload until unlocked.
+  async 'sealed-passphrase'() {
+    const phone = await newPage({})
+    await phone.goto(`${APP}/recordings`)
+    await openProtect(phone)
+    await phone.locator('[data-testid=seal-passphrase]').check()
+    await phone.locator('[data-testid=pass-new]').fill('correct horse battery')
+    await phone.locator('[data-testid=pass-again]').fill('correct horse battery')
+    await phone.locator('[data-testid=pass-save]').click()
+    await phone.locator('text=Passphrase set').waitFor({ timeout: 20000 })
+    const rec = await recordOnDevice(phone, 3)
+    await phone.reload() // the unlocked key lives in memory only
+    const plainOnDisk = await firstChunkIsWebm(phone, rec.id)
+    await phone.getByTitle('Play').first().click()
+    const refusal = await phone.locator('[data-testid=sealed-notice]').first().innerText().catch(() => '')
+    const locked = await verifyFirst(phone)
+    await openProtect(phone)
+    await phone.locator('[data-testid=pass-unlock]').fill('wrong passphrase')
+    await phone.locator('[data-testid=unlock]').click()
+    const wrong = await phone.locator('text=Wrong passphrase').waitFor({ timeout: 20000 }).then(() => true).catch(() => false)
+    await phone.locator('[data-testid=pass-unlock]').fill('correct horse battery')
+    await phone.locator('[data-testid=unlock]').click()
+    await phone.locator('text=Unlocked for this session').waitFor({ timeout: 20000 }).catch(() => {})
+    const unlocked = await verifyFirst(phone)
+    await phone.getByTitle('Play').first().click()
+    const plays = await phone
+      .waitForFunction(() => {
+        const v = document.querySelector('.fixed video')
+        return !!v && v.readyState >= 2 && v.videoWidth > 0
+      }, null, { timeout: 15000 })
+      .then(() => true)
+      .catch(() => false)
+    const ok = !plainOnDisk && /unlock/.test(refusal) && /Intact \(sealed/.test(locked) && wrong && /Unaltered/.test(unlocked) && plays
+    return [ok, `plain on disk: ${plainOnDisk}; locked: play → "${refusal.slice(0, 40)}", verify → ${locked}; wrong passphrase refused: ${wrong}; unlocked: ${unlocked}, plays: ${plays}`]
+  },
+
+  // A friend carries a sealed recording to safety without being able to watch it.
+  async 'sealed-blind-carrier'() {
+    const { mkdtempSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const HOME = 'HQMRT7XP'
+    const home = await newPage({ undepressable_home_key: HOME })
+    const phone = await newPage({})
+    await pairPhoneWithHome(home, phone)
+    await home.goto(`${APP}/archive`)
+    await phone.goto(`${APP}/recordings`)
+    await openProtect(phone)
+    await phone.locator('[data-testid=seal-home]').check()
+    await recordOnDevice(phone, 3)
+    await phone.reload()
+    await phone.locator('[data-testid=send-evidence]').first().click()
+    const [download] = await Promise.all([phone.waitForEvent('download'), phone.locator('[data-testid=save-evidence]').first().click()])
+    const file = join(mkdtempSync(join(tmpdir(), 'und-sealed-')), download.suggestedFilename())
+    await download.saveAs(file)
+    // The friend: paired with the same home (by code — no key of their own).
+    const friend = await newPage({ undepressable_paired_home: HOME })
+    await friend.goto(`${APP}/recordings`)
+    const imported = await importFiles(friend, file)
+    const intact = await verifyFirst(friend)
+    await friend.getByTitle('Play').first().click()
+    const cannot = await friend.locator('[data-testid=sealed-notice]').first().innerText().catch(() => '')
+    await friend.locator('[data-testid=send-home]').click()
+    const sent = await friend
+      .waitForFunction(() => /Everything is at home/.test(document.querySelector('[data-testid=home-sync-status]')?.textContent ?? ''), null, { timeout: 60000 })
+      .then(() => true)
+      .catch(() => false)
+    await home.goto(`${APP}/recordings`)
+    await home.locator('[data-testid=recording]').first().waitFor({ timeout: 10000 }).catch(() => {})
+    const homeVerdict = await verifyFirst(home)
+    const ok = /\.zip$/.test(file) && /Verified and imported/.test(imported) && /Intact \(sealed/.test(intact) && /someone else/.test(cannot) && sent && /Unaltered/.test(homeVerdict)
+    return [ok, `sealed file ${download.suggestedFilename()}; friend: "${imported.slice(0, 40)}", ${intact}, play → "${cannot.slice(0, 40)}"; sent home: ${sent}; home: ${homeVerdict}`]
   },
 })
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']

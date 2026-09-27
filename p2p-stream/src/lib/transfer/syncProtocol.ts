@@ -198,7 +198,22 @@ export function checkManifest(id: string, raw: unknown): { ok: true; manifest: E
   if (manifest.chunkSizes.length !== manifest.proof.chunkHashes.length) return { ok: false, reason: 'chunk count does not match the proof' }
   const v = verifyProof(manifest.proof)
   if (!v.valid) return { ok: false, reason: v.reason ?? 'invalid signature' }
+  // A sealed copy travels as encrypted chunks, checked against the proof the
+  // same device made over them — so a device that cannot open it can still
+  // carry it and know it is intact.
+  const sealed = manifest.sealed?.proof
+  if (sealed) {
+    if (sealed.recordingId !== id || sealed.pubKey !== manifest.proof.pubKey) return { ok: false, reason: 'sealed proof is from a different recording or device' }
+    if (sealed.chunkHashes.length !== manifest.chunkSizes.length) return { ok: false, reason: 'sealed chunk count does not match' }
+    const sv = verifyProof(sealed)
+    if (!sv.valid) return { ok: false, reason: sv.reason ?? 'invalid sealed signature' }
+  }
   return { ok: true, manifest }
+}
+
+/** The hash a transferred chunk must have: of the encrypted chunk for sealed copies. */
+export function expectedChunkHash(manifest: EvidenceManifest, p: number): string | undefined {
+  return (manifest.sealed?.proof ?? manifest.proof).chunkHashes[p]
 }
 
 export function createSyncReceiver(wire: SyncWire, inbox: Inbox, events: ReceiverEvents = {}) {
@@ -260,7 +275,7 @@ export function createSyncReceiver(wire: SyncWire, inbox: Inbox, events: Receive
     const got = have.get(id)!
     if (got.has(p) || !(p >= 0 && p < manifest.chunkSizes.length)) return
     if (bytes.length !== manifest.chunkSizes[p]) return
-    if (toHex(await sha256(bytes)) !== manifest.proof.chunkHashes[p]) {
+    if (toHex(await sha256(bytes)) !== expectedChunkHash(manifest, p)) {
       console.warn(`[sync] chunk ${p} of ${id} failed verification — dropped`)
       return
     }

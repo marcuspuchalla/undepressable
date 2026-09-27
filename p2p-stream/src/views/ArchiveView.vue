@@ -141,6 +141,7 @@ import { useTrystero } from '../composables/useTrystero'
 import { useRecording } from '../composables/useRecording'
 import { useSyncReceiver } from '../composables/useRecordingSync'
 import { getHomeKey, archiveRoomId } from '../lib/archive'
+import { archiveKeyPair } from '../lib/seal/keys'
 import type { Recording } from '../types'
 import { useConnectionDiagnosis } from '../composables/useConnectionDiagnosis'
 import { resolveShareBase, buildPairHomeUrl, getConfiguredPublicUrl } from '../lib/net/shareLink'
@@ -174,9 +175,12 @@ const pairBase = computed(() => {
     envPublicUrl: (import.meta as any).env?.VITE_PUBLIC_URL ?? null,
   })
 })
+// The pairing link also carries this archive's sealing key: a paired phone
+// can then seal its recordings so that only this device can open them.
+const sealKey = archiveKeyPair().publicKey
 const linkParams = computed(() => {
   void linkTick.value
-  return { ...relayShareParams(), ...discoveryShareParams() }
+  return { ...relayShareParams(), ...discoveryShareParams(), seal: sealKey }
 })
 const relayInLink = computed(() => 'turn' in linkParams.value || 'ice' in linkParams.value)
 const pairUrl = computed(() => (homeKey.value ? buildPairHomeUrl(pairBase.value.base, homeKey.value, linkParams.value, pairBase.value.hash) : ''))

@@ -10,8 +10,12 @@
           This phone will now quietly forward whatever you watch to your home archive
           (<span class="font-mono text-moss">{{ code }}</span>) and it will be recorded there too.
         </p>
-        <p class="text-slate-500 text-xs mb-6">
-          At the demo, just scan the streamer's code as usual — forwarding happens automatically.
+        <p class="text-slate-500 text-xs mb-4">
+          At the scene, just scan the streamer's code as usual — forwarding happens automatically.
+        </p>
+        <p v-if="sealing" class="text-xs text-glow mb-6 leading-relaxed">
+          This archive can also receive <strong>sealed</strong> recordings: encrypted on this phone so that only the
+          archive can open them. Turn it on under Recordings → Protect recordings.
         </p>
         <RouterLink to="/collect" class="btn-primary py-3 px-6">Go to Collect</RouterLink>
       </template>
@@ -31,11 +35,19 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { setPairedHome } from '../lib/archive'
+import { setPairedHomeSealKey } from '../lib/seal/keys'
+import { linkSearch } from '../lib/appLocation'
 
 const props = defineProps<{ code: string }>()
 const ok = ref(false)
+const sealing = ref(false)
 
 onMounted(() => {
   ok.value = setPairedHome(props.code)
+  if (!ok.value) return
+  // Newer archives put their sealing key in the link (?seal=…); pairing
+  // with another archive must not keep the previous one's key.
+  const seal = new URLSearchParams(linkSearch()).get('seal')
+  sealing.value = seal ? setPairedHomeSealKey(seal) : (setPairedHomeSealKey(null), false)
 })
 </script>

@@ -44,6 +44,9 @@
       </div>
     </div>
 
+    <!-- Sealing: recordings a seized phone cannot show -->
+    <ProtectRecordings @changed="refreshRecordings" />
+
     <!-- Storage Info -->
     <div class="card mb-4">
       <div class="flex items-center justify-between mb-2">
@@ -93,7 +96,10 @@
               <span v-if="recording.origin?.kind === 'imported'" class="text-xs text-glow">imported · verified</span>
               <span v-else-if="recording.origin?.kind === 'synced'" class="text-xs text-glow">from a paired phone{{ recording.origin.verified ? ' · verified' : '' }}</span>
               <span v-if="atHome[recording.id]" class="text-xs text-moss" data-testid="at-home">✓ at home</span>
+              <span v-if="recording.sealed" class="text-xs text-amber-300" data-testid="sealed-badge">🔒 sealed{{ SEAL_LABEL[sealAudience(recording.sealed.keys)] }}</span>
+              <span v-if="recording.origin?.opened" class="text-xs text-glow">arrived sealed · opened here</span>
             </div>
+            <p v-if="notice[recording.id]" class="text-xs text-amber-200 mb-1" data-testid="sealed-notice">{{ notice[recording.id] }}</p>
 
             <p class="text-sm text-gray-400 truncate">Campaign: {{ recording.campaignId.slice(0, 8) }}...</p>
 
@@ -120,7 +126,7 @@
                 class="font-medium"
                 data-testid="verify-result"
               >
-                {{ verifyResults[recording.id].valid ? '✓ Unaltered' : '✗ ' + verifyResults[recording.id].reason }}
+                {{ verifyResults[recording.id].valid ? (verifyResults[recording.id].sealed ? '✓ Intact (sealed — not opened)' : '✓ Unaltered') : '✗ ' + verifyResults[recording.id].reason }}
               </span>
               <span class="text-gray-600 font-mono" title="Anonymous signing key">signer {{ recording.proof.pubKey.slice(0, 8) }}…</span>
             </div>
@@ -167,6 +173,10 @@
               The video travels with its signed proof. Works without internet — AirDrop, Quick Share, Bluetooth, a
               USB stick. The receiving device checks every second of it under Recordings → Import.
             </p>
+            <p v-if="recording.sealed" class="text-amber-200 leading-relaxed">
+              🔒 It stays sealed: only whoever holds the key can open it. Anyone else who receives it can still check
+              that it is intact and pass it on — for example to your home archive.
+            </p>
             <div class="flex flex-wrap gap-2">
               <button v-if="sendPanel[recording.id].canShare" class="btn-primary text-xs py-1.5" @click="shareEvidence(recording)">
                 Share…
@@ -198,7 +208,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, shallowRef, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, shallowRef, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useRecordingStore } from '../stores/recording'
 import { useOPFS } from '../composables/useOPFS'
@@ -215,7 +225,9 @@ import {
   readEvidenceInput,
   verifyEvidence,
 } from '../lib/transfer/evidence'
-import { chunkBlobs, verifyStored, importEvidence, deliveredTo, makeOutbox } from '../lib/transfer/library'
+import { chunkBlobs, verifyStored, importEvidence, deliveredTo, makeOutbox, footage } from '../lib/transfer/library'
+import { sealAudience, type SealAudience } from '../lib/seal/keys'
+import ProtectRecordings from '../components/ProtectRecordings.vue'
 
 const recordingStore = useRecordingStore()
 const opfs = useOPFS()
@@ -234,10 +246,15 @@ const storageUsed = ref(0)
 const storageQuota = ref(0)
 const playingRecording = ref<Recording | null>(null)
 const playerVideo = ref<HTMLVideoElement>()
-const verifyResults = ref<Record<string, { valid: boolean; reason?: string }>>({})
+const verifyResults = ref<Record<string, { valid: boolean; reason?: string; sealed?: boolean }>>({})
+const notice = ref<Record<string, string>>({})
+const SEAL_LABEL: Record<SealAudience, string> = { home: ' for home', passphrase: ' · passphrase', both: ' · home + passphrase', other: '' }
 const verifying = ref<Record<string, number>>({})
 
 async function verify(recording: Recording) {
+  // Never show the previous verdict while checking again (it may be about to change: e.g. after unlocking).
+  const { [recording.id]: _old, ...others } = verifyResults.value
+  verifyResults.value = others
   verifying.value = { ...verifying.value, [recording.id]: 0 }
   try {
     const r = await verifyStored(recording, (done, total) => {
@@ -265,16 +282,34 @@ async function refreshRecordings() {
   await refreshHome()
 }
 
-// The footage in recording order (chunk metadata first; raw files as a fallback).
+// The footage in recording order, opened if sealed and a key is at hand
+// (chunk metadata first; raw files as a fallback for unsigned recordings).
 async function videoBlob(recording: Recording): Promise<Blob | null> {
-  const blobs = (await chunkBlobs(recording)) ?? (await opfs.readAllChunks(recording.campaignId, recording.id))
-  return blobs.length ? new Blob(blobs, { type: recording.metadata.codec }) : null
+  const f = await footage(recording)
+  if ('video' in f) return f.video
+  if ('sealedFor' in f) {
+    const who = sealAudience(recording.sealed?.keys ?? [])
+    notice.value = {
+      ...notice.value,
+      [recording.id]:
+        who === 'home'
+          ? 'Sealed for your home archive — this phone cannot open it. Send it home to watch it there.'
+          : who === 'other'
+            ? 'Sealed for someone else — this device cannot open it. You can check it is intact and pass it on.'
+            : 'Sealed — unlock with your passphrase under “Protect recordings” to open it.',
+    }
+    return null
+  }
+  const raw = await opfs.readAllChunks(recording.campaignId, recording.id)
+  return raw.length ? new Blob(raw, { type: recording.metadata.codec }) : null
 }
 
 async function playRecording(recording: Recording) {
-  playingRecording.value = recording
   const blob = await videoBlob(recording)
-  if (blob && playerVideo.value) playerVideo.value.src = URL.createObjectURL(blob)
+  if (!blob) return
+  playingRecording.value = recording
+  await nextTick()
+  if (playerVideo.value) playerVideo.value.src = URL.createObjectURL(blob)
 }
 
 function closePlayer() {
@@ -339,7 +374,7 @@ async function openSend(recording: Recording) {
     return
   }
   const pair = [
-    new File(blobs, videoName(manifest), { type: 'video/webm' }),
+    new File(blobs, videoName(manifest), { type: manifest.sealed ? 'application/octet-stream' : 'video/webm' }),
     new File([JSON.stringify(manifest, null, 2)], evidenceTxtName(manifest), { type: 'text/plain' }),
   ]
   let zip: File | undefined

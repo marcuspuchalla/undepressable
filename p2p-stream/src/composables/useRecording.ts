@@ -1,6 +1,8 @@
 import { ref } from 'vue'
 import { ensurePersistentStorage } from '../lib/persistence'
 import { putRecording } from '../lib/recordingDb'
+import { newContentKey, sealContentKey, encryptChunk } from '../lib/seal/crypto'
+import { sealRecipients } from '../lib/seal/keys'
 import { useOPFS } from './useOPFS'
 import { checkStorage, type StorageAssessment } from '../lib/storageGuard'
 import type { Recording, RecordingChunk, VideoQuality } from '../types'
@@ -87,6 +89,7 @@ export function useRecording() {
     mimeType: string
     chunks: Blob[]
     hashes: Map<number, string> // chunk index -> full SHA-256 hex, for the Merkle proof
+    seal: { contentKey: Uint8Array; cipherHashes: Map<number, string> } | null
     chunkIndex: number
     pending: number
   }
@@ -272,8 +275,19 @@ export function useRecording() {
         mimeType,
         chunks: [],
         hashes: new Map(),
+        seal: null,
         chunkIndex: 0,
         pending: 0
+      }
+
+      // Sealing (lib/seal): a fresh content key per recording, wrapped for
+      // the home archive and/or this device's passphrase key. Only public
+      // keys are needed here, so recording never asks for anything.
+      const recipients = sealRecipients()
+      if (recipients.length > 0) {
+        const contentKey = newContentKey()
+        recording.sealed = { v: 1, keys: await sealContentKey(contentKey, recipients) }
+        s.seal = { contentKey, cipherHashes: new Map() }
       }
 
       // Store session for later download
@@ -298,12 +312,26 @@ export function useRecording() {
         // index: the second chunk overwrote the first on disk.
         const index = s.chunkIndex++
 
-        // Store in memory for continuous playback/download
-        s.chunks.push(event.data)
+        // Keep in memory for playback/download while recording — but never
+        // plaintext of a sealed recording: that must not outlive the recorder.
+        if (!s.seal) s.chunks.push(event.data)
 
         try {
+          const plain = new Uint8Array(await event.data.arrayBuffer())
+          // Full SHA-256 hex of the footage feeds the Merkle proof; the chunk's
+          // own `checksum` keeps its short prefix for quick display.
+          const fullHash = toHex(await sha256(plain))
+          // Sealed: only ciphertext ever reaches storage, with its own hash so
+          // a copy can be checked without opening it.
+          let stored: Blob = event.data
+          if (s.seal) {
+            const cipher = await encryptChunk(s.seal.contentKey, plain)
+            s.seal.cipherHashes.set(index, toHex(await sha256(cipher)))
+            stored = new Blob([cipher as BlobPart])
+          }
+
           // Write to OPFS for persistence
-          const opfsPath = await opfs.writeChunk(s.campaignId, s.recording.id, index, event.data)
+          const opfsPath = await opfs.writeChunk(s.campaignId, s.recording.id, index, stored)
 
           if (!opfsPath) {
             console.error('Failed to write chunk to OPFS')
@@ -320,16 +348,12 @@ export function useRecording() {
             checkStorage().then(updateStorageWarning)
           }
 
-          const buffer = await event.data.arrayBuffer()
-          // Full SHA-256 hex feeds the Merkle proof; the chunk's own `checksum`
-          // keeps its short prefix for quick display/back-compat.
-          const fullHash = toHex(await sha256(buffer))
           s.hashes.set(index, fullHash)
           const chunk: RecordingChunk = {
             index,
             timestamp: new Date(),
             duration: 1000, // 1 second chunks
-            size: event.data.size,
+            size: stored.size,
             opfsPath,
             checksum: fullHash.slice(0, 16)
           }
@@ -401,7 +425,13 @@ export function useRecording() {
           const hashes = s.recording.chunks.map((c) => s.hashes.get(c.index)!)
           s.recording.proof = buildProof(s.recording.id, hashes, getIdentity())
           console.log('[useRecording] Proof built, merkle root:', s.recording.proof.merkleRoot.slice(0, 16))
+          if (s.seal && s.recording.sealed) {
+            const cipherHashes = s.recording.chunks.map((c) => s.seal!.cipherHashes.get(c.index)!)
+            s.recording.sealed.proof = buildProof(s.recording.id, cipherHashes, getIdentity())
+          }
         }
+        // The content key goes out of reach with the session.
+        if (s.seal) s.seal.contentKey.fill(0)
       } catch (e) {
         console.warn('[useRecording] Failed to build integrity proof:', e)
       }

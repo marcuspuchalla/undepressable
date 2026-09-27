@@ -42,6 +42,7 @@ export function serializeRecording(recording: Recording): Record<string, unknown
   if (recording.endedAt) out.endedAt = recording.endedAt.toISOString();
   if (recording.proof) out.proof = recording.proof; // already plain JSON
   if (recording.origin) out.origin = recording.origin;
+  if (recording.sealed) out.sealed = recording.sealed;
   return out;
 }
 
