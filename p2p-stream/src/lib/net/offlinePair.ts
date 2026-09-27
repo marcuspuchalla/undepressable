@@ -100,15 +100,16 @@ async function inflate(input: Uint8Array): Promise<Uint8Array | null> {
 
 /**
  * Pack a session description into the shortest text that still round-trips,
- * so it fits in a single scannable QR code.
+ * so it fits in a single scannable QR code. `internet` keeps the public and
+ * relay candidates, for codes that travel over a messenger.
  *
  * Compression is best-effort: where `CompressionStream` is missing we fall back
  * to plain base64 and mark it, rather than failing the pairing outright.
  */
-export async function encodeSignal(signal: OfflineSignal): Promise<string> {
-  const compact = extractCompact(signal.s, signal.t);
+export async function encodeSignal(signal: OfflineSignal, opts: { internet?: boolean } = {}): Promise<string> {
+  const compact = extractCompact(signal.s, signal.t, opts);
   if (compact) return COMPACT_PREFIX + toBase64Url(packCompact(compact));
-  const payload = JSON.stringify({ ...signal, s: stripNonHostCandidates(signal.s) });
+  const payload = JSON.stringify({ ...signal, s: opts.internet ? signal.s : stripNonHostCandidates(signal.s) });
   const raw = new TextEncoder().encode(payload);
   const packed = await deflate(raw);
   return packed && packed.length < raw.length

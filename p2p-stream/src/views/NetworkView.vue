@@ -45,7 +45,7 @@
       <!-- Relay -->
       <div class="card space-y-3">
         <h2 class="font-semibold text-slate-100">Relay (TURN) server</h2>
-        <RelaySetup inline @saved="onRelaySaved" />
+        <RelaySetup inline :show-stun="nat?.kind === 'blocked'" @saved="onRelaySaved" />
       </div>
 
       <!-- Share links -->
@@ -94,6 +94,32 @@
         </details>
       </div>
 
+      <!-- Which code is this? -->
+      <div id="this-copy" class="card space-y-2" data-testid="this-copy">
+        <h2 class="font-semibold text-slate-100">This copy of the app</h2>
+        <dl class="text-sm grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
+          <dt class="text-slate-500">Build</dt>
+          <dd class="font-mono text-slate-300 break-all">{{ APP_BUILD }}</dd>
+          <template v-if="updates.current?.manifest">
+            <dt class="text-slate-500">Fingerprint</dt>
+            <dd class="font-mono text-slate-300">{{ shortFingerprint(updates.current.manifest.fingerprint) }}</dd>
+          </template>
+          <dt class="text-slate-500">Signature</dt>
+          <dd :class="updates.current?.status === 'signed' ? 'text-moss' : 'text-slate-400'">
+            {{ CURRENT_TEXT[updates.current?.status ?? 'none'] }}
+          </dd>
+        </dl>
+        <p class="text-xs text-slate-500 leading-relaxed">
+          Updates are never installed silently: a new version is checked against the developers' release
+          {{ updates.trustedKeys === 1 ? 'key' : 'keys' }} this copy carries ({{ updates.trustedKeys }}) and offered only if
+          it is signed. An unsigned update is shown as a warning — the website may have been taken over. To compare
+          this copy with a published release, read the fingerprint aloud to someone who has the release notes.
+        </p>
+        <button class="btn-secondary text-xs py-1.5" :disabled="checkingUpdate" @click="onCheckUpdate">
+          {{ checkingUpdate ? 'Checking…' : updates.waiting ? 'An update is waiting (see the banner)' : 'Check for updates' }}
+        </button>
+      </div>
+
       <!-- What connects where -->
       <div class="card space-y-2">
         <h2 class="font-semibold text-slate-100">What connects where</h2>
@@ -116,8 +142,29 @@ import RelaySetup from '../components/RelaySetup.vue'
 import { probeNat, testRelay, describeRelayError, type NatProbeResult, type NatKind, type RelayTestResult } from '../lib/net/natProbe'
 import { STUN_SERVERS, hasRelay, resolveRtcConfig, relayServersOf } from '../lib/net/iceConfig'
 import { resolveShareBase, getConfiguredPublicUrl, setConfiguredPublicUrl, type Reachability } from '../lib/net/shareLink'
+import { appBase, usesHashRoutes } from '../lib/appLocation'
 import { getCustomRelays, setCustomRelays, isCustomRelaysOnly, setCustomRelaysOnly, parseRelayList } from '../lib/net/discoveryConfig'
 import { NOSTR_RELAYS, TORRENT_TRACKERS } from '../types'
+import { updates, checkForUpdate, APP_BUILD } from '../composables/useUpdates'
+import { shortFingerprint } from '../lib/update/release'
+
+const CURRENT_TEXT: Record<string, string> = {
+  signed: '✓ signed by the developers',
+  unverifiable: 'not checked — this copy carries no release keys',
+  unsigned: 'published without a signature',
+  forged: '✗ the published signature does not match',
+  missing: 'no published release description',
+  none: 'unknown (offline, or not a published build)',
+}
+const checkingUpdate = ref(false)
+async function onCheckUpdate() {
+  checkingUpdate.value = true
+  try {
+    await checkForUpdate()
+  } finally {
+    setTimeout(() => (checkingUpdate.value = false), 1500)
+  }
+}
 
 const NAT_TEXT: Record<NatKind, { title: string; body: string; tone: string; box: string }> = {
   open: {
@@ -194,7 +241,8 @@ const configuredTick = ref(0)
 const shareBase = computed(() => {
   void configuredTick.value
   return resolveShareBase({
-    origin: location.origin,
+    origin: appBase(),
+    hashRoutes: usesHashRoutes(),
     configured: getConfiguredPublicUrl(),
     envPublicUrl: (import.meta as any).env?.VITE_PUBLIC_URL ?? null,
   })

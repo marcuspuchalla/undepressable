@@ -51,7 +51,7 @@ describe("normalizePublicUrl", () => {
 
 describe("resolveShareBase", () => {
   it("prefers the address configured on the device, then the build's", () => {
-    expect(resolveShareBase({ origin: "tauri://localhost", configured: "app.example", envPublicUrl: "https://env.example" })).toEqual({
+    expect(resolveShareBase({ origin: "tauri://localhost", configured: "app.example", envPublicUrl: "https://env.example" })).toMatchObject({
       base: "https://app.example",
       reachability: "public",
       source: "configured",
@@ -61,7 +61,7 @@ describe("resolveShareBase", () => {
   });
 
   it("uses a public origin as-is", () => {
-    expect(resolveShareBase({ origin: "https://app.example" })).toEqual({
+    expect(resolveShareBase({ origin: "https://app.example" })).toMatchObject({
       base: "https://app.example",
       reachability: "public",
       source: "origin",
@@ -70,7 +70,7 @@ describe("resolveShareBase", () => {
   });
 
   it("rewrites a localhost dev server to its LAN address", () => {
-    expect(resolveShareBase({ origin: "http://localhost:4400", lanIp: "192.168.1.5" })).toEqual({
+    expect(resolveShareBase({ origin: "http://localhost:4400", lanIp: "192.168.1.5" })).toMatchObject({
       base: "http://192.168.1.5:4400",
       reachability: "lan",
       source: "lan-ip",
@@ -79,7 +79,7 @@ describe("resolveShareBase", () => {
   });
 
   it("never builds a LAN link for an app shell, and flags it device-only", () => {
-    expect(resolveShareBase({ origin: "tauri://localhost", lanIp: "192.168.1.5" })).toEqual({
+    expect(resolveShareBase({ origin: "tauri://localhost", lanIp: "192.168.1.5" })).toMatchObject({
       base: "tauri://localhost",
       reachability: "device",
       source: "origin",
@@ -137,3 +137,25 @@ describe("home-archive pairing links", () => {
     expect(extractHomeKey("")).toBeNull();
   });
 });
+
+describe("links from copies that live outside their own website", () => {
+  it("a mirror under a path links to itself with the route in the hash", () => {
+    const b = resolveShareBase({ origin: "https://gw.example/ipfs/bafyabc/", hashRoutes: true });
+    expect(b).toMatchObject({ base: "https://gw.example/ipfs/bafyabc/", reachability: "public", hash: true });
+    expect(buildCollectUrl(b.base, "ABC123", { turn: "t|u|p" }, b.hash)).toBe("https://gw.example/ipfs/bafyabc/#/collect/ABC123?turn=t%7Cu%7Cp");
+    expect(extractRoomCode(buildCollectUrl(b.base, "ABC123", {}, true))).toBe("ABC123");
+  });
+
+  it("a configured public address wins and uses ordinary paths", () => {
+    const b = resolveShareBase({ origin: "file:///media/usb/undepressable.html", configured: "https://app.example", hashRoutes: true });
+    expect(b).toMatchObject({ base: "https://app.example", hash: false });
+  });
+
+  it("the portable file links to itself (only this device can open that)", () => {
+    const b = resolveShareBase({ origin: "file:///media/usb/undepressable.html", hashRoutes: true });
+    expect(b).toMatchObject({ reachability: "device", hash: true });
+    expect(buildPairHomeUrl(b.base, "HQMRT7XP", {}, b.hash)).toBe("file:///media/usb/undepressable.html#/pair-home/HQMRT7XP");
+    expect(extractHomeKey(buildPairHomeUrl(b.base, "HQMRT7XP", {}, b.hash))).toBe("HQMRT7XP");
+  });
+});
+

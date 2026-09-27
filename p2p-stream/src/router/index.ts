@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, createWebHashHistory } from 'vue-router'
 import HomeView from '../views/HomeView.vue'
 import StreamView from '../views/StreamView.vue'
 import CollectView from '../views/CollectView.vue'
@@ -8,9 +8,15 @@ import ArchiveView from '../views/ArchiveView.vue'
 import OfflineView from '../views/OfflineView.vue'
 import PairHomeView from '../views/PairHomeView.vue'
 import NetworkView from '../views/NetworkView.vue'
+import { usesHashRoutes } from '../lib/appLocation'
+
+// Copies that don't live at the root of their own website (the extension, the
+// portable single file, mirrors under any path) keep routes in the hash:
+// no server answers /collect/CODE for them. See lib/appLocation.ts.
+const hashRoutes = usesHashRoutes()
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: hashRoutes ? createWebHashHistory() : createWebHistory(),
   routes: [
     {
       path: '/',

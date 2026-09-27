@@ -2,6 +2,17 @@
 
 Complete guide to making the P2P Emergency Stream app work 100% offline after initial installation.
 
+> **Status (2026-09, verified):** `scripts/e2e/pwa-offline.mjs` visits the
+> production build once, kills the web server, and checks that the home page,
+> deep links and the lazily loaded streaming code all load from the device and
+> that two devices still pair face to face and stream. The app asks for
+> persistent storage when installed and when recording starts, so the browser
+> does not evict the app or the evidence under storage pressure. What this
+> page calls "local discovery" does not exist in browsers — devices meet by
+> exchanging codes (`/offline`); see `docs/OFFLINE_AND_PROXIMITY.md`. A
+> browser-extension build (`npm run build:extension`) is a second way to
+> carry the app without any website.
+
 ---
 
 ## The Goal

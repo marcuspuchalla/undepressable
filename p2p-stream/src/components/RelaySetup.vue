@@ -30,6 +30,11 @@
           This build ships a relay. Anything you enter here replaces it on this device.
         </p>
 
+        <!-- The quick option for people without a relay: free public ones, tested first -->
+        <PublicRelayHelper :show-stun="showStun" @applied="onPublicApplied" />
+
+        <p class="text-xs uppercase tracking-wide text-slate-500 pt-1">Or use your own relay</p>
+
         <!-- mode -->
         <div class="inline-flex rounded-lg border border-line overflow-hidden text-xs">
           <button
@@ -158,8 +163,9 @@ import {
   type RelaySetup,
 } from '../lib/net/iceConfig'
 import { testRelay, describeRelayError, type RelayTestResult, type RelayProtocol } from '../lib/net/natProbe'
+import PublicRelayHelper from './PublicRelayHelper.vue'
 
-const props = defineProps<{ open?: boolean; inline?: boolean; autoTest?: boolean }>()
+const props = defineProps<{ open?: boolean; inline?: boolean; autoTest?: boolean; showStun?: boolean }>()
 // 'saved': ICE servers changed — connections must be re-made to use them.
 // 'share-changed': only what goes into share links changed.
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void; (e: 'saved'): void; (e: 'share-changed'): void }>()
@@ -274,6 +280,11 @@ function remove() {
   load()
   result.value = null
   savedNote.value = 'Relay removed.'
+  emit('saved')
+}
+
+function onPublicApplied() {
+  load()
   emit('saved')
 }
 

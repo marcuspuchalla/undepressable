@@ -48,6 +48,7 @@ const ACTION_LABEL: Record<DiagnosisAction, string> = {
   'check-code': 'Re-enter the code',
   retry: 'Try again',
   'pair-offline': 'Pair face to face',
+  'pair-messenger': 'Pair by messenger instead',
 }
 
 const busy = computed(() => ['searching', 'negotiating', 'waiting-for-video'].includes(props.diagnosis.code))

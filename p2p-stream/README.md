@@ -26,13 +26,37 @@ to delete in one place.
 - **Tamper-evident recordings.** Each recording's chunks are SHA-256 hashed into
   a Merkle tree; the root is signed with an anonymous Ed25519 key. Anyone can
   later verify the footage is unaltered.
-- **Works offline / installable.** A PWA that runs from cache with no network.
-  With no internet at all, devices on one hotspot pair face to face by
+- **Use it once, then without the site.** An installable PWA: after one
+  visit it opens with no network and even with the web server gone (verified
+  by `scripts/e2e/pwa-offline.mjs`). Also packaged as a **browser extension**
+  that carries its own copy of the app (`npm run build:extension`).
+- **The app spreads without any website.** The whole app is one HTML file
+  (Home → *Pass the app on*): it runs from disk on a computer (Chrome/Edge) and as a mirror
+  under any path — IPFS, a subfolder, anyone's website. See
+  [STANDALONE.md](./STANDALONE.md).
+- **A seized domain cannot silently swap the code.** Updates are never
+  installed silently; an installed copy checks that a new version is signed
+  by the developers' key and warns loudly if it is not
+  ([docs/THREAT_MODEL.md](./docs/THREAT_MODEL.md) §2).
+- **No discovery server needed.** If the servers that introduce devices are
+  blocked, *Pair by messenger*: two short codes over Signal, SMS or e-mail, and
+  the devices connect directly (or through your relay).
+- **Reach everyone.** *Amplify* pushes the stream — from the phone filming or
+  from any viewer, e.g. one abroad — to a WHIP broadcast server (MediaMTX,
+  Owncast, Cloudflare Stream…) that serves it on the open web.
+- **No internet at all.** Devices on one hotspot pair face to face by
   swapping two short codes (QR, or text via AirDrop / Nearby Share); one
-  filming phone can serve several viewers, and every device keeps a signed
-  copy.
+  filming phone can serve several viewers, any viewer can **share onward**
+  (chains A → B → C), and every device keeps a signed copy.
+- **Get footage to a safe place.** A paired home device records what a phone
+  watches, and later receives what the phone recorded on its own. Recordings
+  travel as **evidence files** (video + proof) over AirDrop / Quick Share /
+  Bluetooth, or are **handed over** face to face. Every copy is checked
+  against its signature, chunk by chunk, on arrival.
 - **Cross-network.** A TURN relay (shared via a `?turn=` link, or self-hosted)
-  lets peers connect across strict/carrier NAT, not just the same network. See
+  lets peers connect across strict/carrier NAT, not just the same network. No
+  relay of your own: the app can test volunteer-run public ones and use those
+  that answer (opt-in, no guarantees). See
   [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md).
 
 ## Architecture
@@ -72,10 +96,23 @@ npm run dev -- --host      # open the printed LAN URL on your phone
 - **Verify later:** open **Recordings** → **Verify integrity**.
 
 ```bash
-npm run build          # production PWA build
-npm run test:unit      # 273 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes)
-npm run tauri:build    # optional native desktop app
+npm run build            # production PWA build (+ the single-file app and release.json, signed if a key is set)
+npm run build:portable   # just the single-file app: dist-portable/undepressable.html
+npm run build:extension  # browser extension: dist-extension/{chrome,firefox}/ + zips
+npm run release:keygen   # a release signing key pair (see docs/THREAT_MODEL.md §2)
+npm run test:unit        # 339 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes, evidence transfer, releases, WHIP)
+npm run tauri:build      # optional native desktop app
 ```
+
+**Browser extension.** Load `dist-extension/chrome` unpacked
+(chrome://extensions → Developer mode → *Load unpacked*), or in Firefox
+about:debugging → *Load Temporary Add-on* → `dist-extension/firefox/manifest.json`
+(a permanent Firefox install needs Mozilla's signing). The Chromium zip can be
+passed around and loaded where a store is blocked. Tested in Chromium; the
+Firefox package is built but not run here. It needs no
+permissions; the toolbar button opens the app in a tab. Share links from the
+extension only open inside it — set the app's public address on the Network
+page, or have viewers use the in-app scanner.
 
 See [TESTING.md](./TESTING.md) for the test map and the two-peer / two-phone
 verification procedure.
@@ -115,14 +152,21 @@ Prefer `turns:` on port 443 — it survives networks that block UDP/plain TURN.
 
 ## Notes & honest limitations
 
+**Read [docs/THREAT_MODEL.md](./docs/THREAT_MODEL.md)** before relying on the
+app: what it resists, and what it does not (recordings are not encrypted on
+the device yet; signed releases are built but no developer key is set yet).
+
 - **Privacy-first fonts.** The UI does **not** load web fonts from a CDN (that
   would leak every viewer's IP and break offline); it uses a system font stack.
   Self-hosted Fraunces/Archivo woff2 can be dropped into `tailwind.config.js`.
 - **TURN is a relay.** A direct P2P path is preferred; TURN only relays
   (still end-to-end encrypted) when strict NAT blocks a direct connection. It is
   the one optional "central" component and can be self-hosted.
-- **Not yet built** (see `../PROJECT_PLAN.md`): hierarchical relay for very large
-  swarms, at-rest encryption of recordings, and cross-collector aggregation.
+- **Not yet built** (see `../PROJECT_PLAN.md`): at-rest encryption of
+  recordings, cross-collector aggregation, and the native Bluetooth /
+  Wi-Fi Direct mesh ([docs/NATIVE_MESH.md](./docs/NATIVE_MESH.md)) — the web
+  app can neither find nearby devices by radio nor connect them without a
+  shared network.
 
 ## Provenance
 

@@ -33,6 +33,9 @@
       </div>
     </header>
 
+    <!-- A waiting update: offered if signed, a warning if not -->
+    <UpdateBanner />
+
     <!-- Main Content -->
     <main class="flex-1 overflow-hidden">
       <RouterView />
@@ -147,6 +150,7 @@ import { ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import ConnectionStatus from './components/ConnectionStatus.vue'
 import DebugModal from './components/DebugModal.vue'
+import UpdateBanner from './components/UpdateBanner.vue'
 
 const showHelp = ref(false)
 const debugModal = ref<InstanceType<typeof DebugModal>>()

@@ -5,7 +5,8 @@ export type UserRole = 'streamer' | 'collector'
 
 // Connection states
 export type ConnectionState = 'new' | 'connecting' | 'connected' | 'failed' | 'closed'
-export type RecordingStatus = 'recording' | 'completed' | 'failed' | 'cancelled'
+// 'receiving': arriving from another device (home sync), not complete yet.
+export type RecordingStatus = 'recording' | 'completed' | 'failed' | 'cancelled' | 'receiving'
 
 // Video quality presets
 export type VideoQuality = 'low' | 'medium' | 'high'
@@ -43,6 +44,17 @@ export interface Recording {
   }
   // Tamper-evidence: Merkle root over chunk hashes, signed by an anonymous key.
   proof?: RecordingProof
+  // Set when this copy came from another device rather than this one's camera.
+  origin?: RecordingOrigin
+}
+
+export interface RecordingOrigin {
+  /** imported: from an evidence file; synced: sent by a paired device. */
+  kind: 'imported' | 'synced'
+  /** ISO time the copy arrived here. */
+  at: string
+  /** Every chunk was checked against the signed proof on arrival. */
+  verified: boolean
 }
 
 // Peer information

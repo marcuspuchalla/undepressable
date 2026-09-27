@@ -451,3 +451,251 @@ the same way:
   makes that rare.
 - **MQTT sockets still leak per retry** (bounded), and MQTT is dead on
   443-only networks.
+
+---
+
+## Part 3 — round 4: more ways through, and getting footage out
+
+The follow-up asked for: public relays for people with none, every "Ways to
+use it" scenario tested (one-to-many, hotspot, home forwarding), the app
+installable for offline use, a browser extension, relaying footage to a safe
+place without internet, and off-grid meshing.
+
+### 21. No relay of your own → tested public relays, opt-in
+
+When the app sees a strict network (the NAT check says *UDP blocked*, or a
+collector has been searching for 10 s with no relay configured) the status
+card now says so up front (`strict-network`), and the relay sheet opens with
+**Try free public ones**: each candidate is tested *on this network* first
+(stopping at the first relay candidate, ~1.6 s), results are listed per
+server, and only those that answered are used — after an explicit tap, with
+the warning that volunteers run them, they can vanish, and they see who
+connects to whom (never the video). Public relays are not put into share
+links. Honest finding from the research: there is no dependable public TURN
+without sign-up. The list holds the two recently reported to work
+(`freestun.net`, `relay.backups.cz`); when none answers, the sheet says so
+and points at free provider tiers (ExpressTURN, Metered, Cloudflare) or
+self-hosting.
+
+**Extra STUN.** A network that blocks the usual STUN servers gets *More STUN
+servers*: a tested built-in list, or a fresh list fetched from
+`pradt2/always-online-stun` (re-tested hourly upstream), spread across
+providers, at most four kept.
+
+### 22. One to many, at scale
+
+`crowd-large`: one streamer, six viewers. Every device shows the same counts
+(6 watching, 7 recording — the streamer keeps a copy too), the streamer
+uploads to at most two direct children, and at least four viewers are served
+by other viewers (relay tree).
+
+### 23. Use it once, then without the site
+
+- **PWA, verified with the server gone** (`scripts/e2e/pwa-offline.mjs`):
+  two profiles visit the production build once; the web server is then
+  killed. The home page, deep links (`/offline`, `/collect/ABC123`,
+  `/recordings`, `/network`, `/guide`) and the lazily loaded streaming code
+  all load from the device, and two devices pair face to face and stream.
+- **Evidence is not evictable:** the app asks for persistent storage when
+  installed and when a recording starts (`navigator.storage.persist()`); the
+  home screen offers *Install app* where the browser supports it.
+- **Browser extension** (`npm run build:extension`): the same app with hash
+  routes and no service worker, as Chromium (MV3 service worker) and Firefox
+  (MV3 background script) packages plus zips that can be passed around and
+  loaded offline. No permissions. `scripts/e2e/extension.mjs` loads it into
+  Chromium: all routes render, no CSP or chunk errors, the share sheet warns
+  that `chrome-extension://` links open nowhere else, and it streams to a
+  web-app viewer by room code and face to face. Firefox: packaged, not run here.
+
+### 24. Relay to a safe place — three ways, all verified on arrival
+
+- **Evidence files.** Recordings → share icon: the video plus its proof as
+  one stored `.zip`, or the video + `.evidence.txt` where a share sheet
+  refuses zips (Chrome's Web Share accepts media, text and PDF only). The
+  proof carries every chunk's size, so a receiver cuts the video back into the
+  exact pieces that were hashed and signed. Recordings → *Import* re-hashes
+  each one and names the second that was altered. Standard `unzip` opens the
+  bundle; a README inside explains verification without the app.
+- **Store and forward to the home archive.** The phone offers its signed
+  recordings; the home asks only for chunks it lacks (resumable), drops any
+  chunk whose hash does not match the signed proof, and refuses evidence
+  whose signature does not verify or that does not match the offer.
+- **Face to face.** On an offline link, *Hand over my recordings* runs the
+  same protocol over a second data channel, framed for chunks larger than one
+  data-channel message and paced by `bufferedAmount`.
+
+`lib/transfer/syncProtocol.ts` is transport-agnostic; it runs over Trystero
+(`useTrystero.addChannel`) and over a plain `RTCDataChannel`.
+
+### 25. Off-grid chains
+
+A face-to-face viewer can **Share onward**: it invites further devices and
+forwards what it receives, so the picture spreads A → B → C with no
+internet, and the person filming uploads only to the devices next to them.
+Re-pairing upstream keeps the downstream links and feeds them the new
+picture. Bluetooth discovery and Wi-Fi Direct video need native code: design
+in [`NATIVE_MESH.md`](NATIVE_MESH.md).
+
+### 26. Evidence bugs found on the way
+
+- **Two chunks could share an index.** The recorder read its chunk counter
+  after awaiting the storage write. Two `dataavailable` events back to back —
+  which is exactly what `stop()` produces (`requestData()` plus the final
+  chunk) — got the same index: the second overwrote the first on disk, and
+  the proof's hash order could differ from the footage. Indexes are now
+  claimed synchronously; the proof follows chunk order.
+- **Playback and download were in directory order.** `readAllChunks` sorted
+  by a `name` that Blobs read back from files do not have, so every
+  comparison was 0. OPFS iteration order is unspecified. Now sorted by the
+  zero-padded file name.
+- **"Verify integrity" only checked the proof against itself** (Merkle root
+  and signature over the stored hashes) — not the footage. It now re-hashes
+  the stored chunks.
+
+### Round 4 verification
+
+- **Unit (E1):** 312 tests (was 273). New: evidence manifest, bundle
+  round-trip (and `unzip -t` on the result), tamper/cut/padded/forged
+  detection, the sync protocol (delivery, resume, damaged chunk re-asked,
+  chunks that never verify, forged signature, evidence not matching the
+  offer, declined offers), data-channel framing and backpressure.
+- **End to end (E2):** every scenario, in one run against the dev server,
+  plus the production build and the extension package:
+
+  | Scenario | Result |
+  |---|---|
+  | open network | video 1.1 s, `LOCAL` |
+  | blocked, no relay | *networks block a direct connection — set up a relay* |
+  | blocked, relay in the link / streamer only | video 1.3 s / 3.7 s, `RELAY` |
+  | blocked, wrong relay password | *relay rejected its username/password* |
+  | public relays, one live and one dead stand-in | live one ✓ in 1.6 s, dead one ✗; video 8.8 s after opting in |
+  | relay added while a viewer waits | viewer's video 1.3 s later |
+  | crowd (3) / crowd-large (6 viewers) | all play; counts 6/7 on all seven devices; streamer uploads to 2, 4 served by seeds |
+  | internet drops mid-stream | still playing 15 s after discovery died |
+  | offline: two viewers / isolated | 103-char codes, both ~0.9 s / "couldn't reach them" + tips |
+  | home archive live forward | phone and home both play; home records |
+  | evidence file | export, import on a second device "✓ Verified and imported"; one flipped byte: "Second 3 … does not match what was signed", nothing stored |
+  | home sync | two recordings delivered in 0.5–0.7 s; both verify at home |
+  | offline hand-over | both directions "received ✓ verified"; copy verifies |
+  | offline chain A → B → C | C plays A via B; A serves one viewer |
+  | offline chain repair | B re-pairs with a new filming phone; C decodes 43 frames in 3 s without re-pairing |
+  | PWA, server killed | home, 5 deep links and lazy streaming code load; two devices pair and stream |
+  | extension (Chromium) | all routes, no CSP/chunk errors; streams by room code and face to face |
+
+- **Owed on real devices:** the public relays from a real VPN and a real
+  carrier (the test used local stand-ins); AirDrop / Quick Share / Bluetooth
+  carrying evidence files (headless Chromium has no share sheet); PWA
+  install and offline start on iOS and Android; the extension in Firefox;
+  chains over a real iPhone hotspot (guests may be isolated from each other —
+  make the relaying phone the hotspot).
+
+### Round 4 known limits
+
+- **Public relays are a stopgap.** They may be down, full or throttled at any
+  time, and their operators see connection metadata. The app tests before use
+  and never shares them in links; it cannot make them reliable.
+- **An evidence bundle holds up to ~4 GB** (no ZIP64); larger recordings go
+  as the video plus its evidence file.
+- **Store and forward runs while Recordings is open** on the phone and Home
+  archive on the home device — browsers give pages no background sync that
+  could carry this reliably.
+- **A chain adds one re-encode per hop** (each relay decodes and re-encodes),
+  so quality and latency degrade along long chains, and a relaying phone
+  spends battery on every device it serves.
+- **Bluetooth discovery and Wi-Fi Direct video are not built** — design in
+  [`NATIVE_MESH.md`](NATIVE_MESH.md).
+
+
+---
+
+## Part 4 — round 5: censorship resistance
+
+Asked for: evolve this into the most censorship-resistant way to record and
+distribute live streams. The weak points found, in order of how completely
+they could stop someone:
+
+### 27. Discovery servers were a single thing to block
+
+Every connection over the internet started at public Nostr relays, BitTorrent
+trackers or MQTT brokers. A firewall that blocks those stops two devices from
+ever meeting, even when direct traffic or a relay would work. **Pair by
+messenger** removes discovery entirely: the face-to-face codes now also carry
+public (STUN) and relay (TURN) addresses (pairing-code format v3, local codes
+stay v2 for older copies), so two codes sent over any chat app connect the
+devices across the internet. The "can't reach any discovery server" verdict
+now offers exactly that. Verified with discovery pointed at a dead server and
+direct UDP between the devices dropped: ~115-character invite, video in ~1 s,
+also with the reply sent back 90 s later.
+
+### 28. Whoever held the domain could silently replace the app
+
+The PWA used `autoUpdate` + `skipWaiting`: any new build on the site took over
+every installed copy at once, mid-stream included. After a seizure that is the
+most dangerous path of all. Now nothing updates silently; the installed copy
+checks a waiting update's Ed25519-signed release manifest against keys it
+carries, offers signed updates, and warns — without an install button — about
+anything else. A browser still applies a waiting update once all windows are
+closed, which the warning says. Signing keys are not set up yet
+(THREAT_MODEL §2 lists the steps). Verified with three real builds served in
+turn from one origin.
+
+### 29. The app could not outlive its website — and the "standalone" build was broken
+
+`build:standalone` inlined only the entry script; the lazily loaded streaming
+code still pointed at `/assets/…`, so the file could never stream on its own
+(its docs also claimed `file://` could not work at all — in Chromium it does).
+The portable build now inlines everything, uses hash routes and relative
+links, and produces one file that runs from disk and from any mirror path;
+share and pairing links point back at whichever copy made them. From
+`file://` the private file system (OPFS) is unavailable, so recordings would
+have lived in memory only: recording storage now falls back to IndexedDB.
+*Pass the app on* hands the file around; the web app only hands out a copy
+that matches its signed release.
+
+### 30. Distribution stopped at people who have the app
+
+*Amplify* pushes the stream over WHIP to any broadcast server, from the phone
+filming or from any viewer — so a viewer abroad can put a stream from a
+blocked network onto the open web. Found on the way: the share sheet did not
+scroll, so on a phone everything below the QR code was out of reach.
+
+### Round 5 verification
+
+- **Unit:** 339 tests (was 312). New: pairing-code v3 (typed candidates,
+  priorities, relay-only codes, v2 unchanged for local codes), release
+  manifests and signatures (signed, forged, changed after signing, unsigned,
+  key rotation), hash-routed links and link parameters, WHIP (headers,
+  resource, DELETE, every error kind, source replacement).
+- **End to end, one run:** all 22 scenarios in `scenarios.mjs` pass, plus:
+
+  | New check | Result |
+  |---|---|
+  | messenger-pair: discovery dead, direct UDP dropped, relay on one side | 115-char invite, 103-char reply; video 1.0 s via the relay |
+  | messenger-pair-late: reply sent back after 90 s | video 1.0 s |
+  | updates.mjs: signed update / intruder-signed update | offered and installed / warning, no install button, reload keeps the trusted copy |
+  | portable.mjs: file from the web app | byte-identical to the release (0.96 MB) |
+  | two copies opened from disk | pair and stream; the viewer's recording verifies (IndexedDB) |
+  | a copy of the copy | runs, no errors |
+  | mirror under an arbitrary path | share link `…/mirror/any/path/#/collect/CODE?relays=…`; a fresh viewer joins and watches |
+  | amplify-streamer / amplify-viewer | wrong token refused; live; stand-in server decodes the video; stop sends DELETE / viewer re-broadcasts the room's stream |
+  | extension.mjs | now also hands out the single-file app |
+  | pwa-offline.mjs | still passes with updates on "prompt" |
+
+- **Owed on real devices and servers:** messenger pairing between a real VPN
+  and a real carrier; the single file in Firefox and Safari; a real IPFS
+  gateway; MediaMTX and Cloudflare Stream as WHIP targets with an
+  H.264-capable browser (the test browser sent VP8); the update warning in an
+  installed home-screen app on Android and iOS.
+
+### Round 5 known limits
+
+- Signed releases need a developer key to be set up before they protect
+  anyone (THREAT_MODEL §2); until then updates show as "cannot check".
+- A browser applies a waiting update when every window is closed. The
+  warning comes first; it cannot stop that.
+- Pairing codes sent over a messenger are good for a few minutes and reveal
+  network addresses to whoever carries them.
+- Recordings are still not encrypted on the device.
+- WebRTC and TURN traffic is not disguised; deep packet inspection can
+  recognise and block it (a relay on 443 raises the bar, no more).
+

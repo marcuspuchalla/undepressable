@@ -1,137 +1,45 @@
-# Standalone / Offline Usage Guide
+# The app as one file (portable copy)
 
-Due to browser security restrictions, **WebRTC and Camera require HTTPS or localhost** - they don't work with `file://` protocol (opening HTML directly from Downloads).
+`npm run build:portable` → `dist-portable/undepressable.html` (~1 MB): the
+whole app — code, styles, the streaming libraries that normally load lazily —
+in a single HTML file. `npm run build` also places it next to the web app
+(`dist/undepressable.html`, listed in the signed `release.json`), and the
+browser extension carries it too.
 
-However, you can still use this app in offline/emergency scenarios with these workarounds:
+In the app: **Home → Pass the app on → Share the app… / Save the file.** The
+web app hands out the copy it checked against this build's published release;
+the portable copy hands out itself.
 
-## Option 1: Single File Distribution (Easiest)
+## Where it runs
 
-Build a standalone HTML file with everything inlined:
+| How it is opened | Works? |
+|---|---|
+| From disk in Chrome or Edge on a computer (`file://…`) | **Yes** (verified in Chromium) — camera, streaming, face-to-face and messenger pairing, recording (IndexedDB; `file://` has no OPFS) |
+| From disk in Firefox or Safari | Not tested yet |
+| Uploaded anywhere as `index.html` — a subfolder, an IPFS gateway, a phone's file-server app | **Yes** — a full mirror; routes live in the hash, so any path works, and its share links point at the mirror |
+| Opened from the Files app on iPhone | No — iOS shows a preview, not a browser |
+| Opened from a file manager on Android | Unreliable — Chrome often gets a `content://` address, which is not a secure context (no camera). Serve it instead (a file-server app, or any website) |
 
-```bash
-npm run build:standalone
-```
+Verified in Chromium by `scripts/e2e/portable.mjs`: the handed-out file is
+byte-identical to the release; two copies opened from disk pair and stream;
+the viewer's recording verifies; a copy of the copy runs; a mirror under an
+arbitrary path streams, and a viewer opening its share link joins.
 
-This creates `dist/p2p-stream-standalone.html` (~330 KB).
+## Why it matters
 
-### How to use on phones:
+Taking down a website — or seizing its domain — does not stop a file that is
+already on people's devices, and anyone can re-host it. A copy you received
+from someone should still be checked: compare its SHA-256 with the
+`undepressable.html` entry in a signed `release.json` (see
+`docs/THREAT_MODEL.md`).
 
-#### A) AirDrop/Transfer to a friend with WiFi Hotspot
-1. Person A creates a WiFi hotspot on their phone
-2. Person B (with hotspot access) opens the standalone HTML file using a **File Server app**:
-   - **iOS**: "Documents by Readdle", "File Hub", or "Caddy" (free file server)
-   - **Android**: "File Manager +", "MiXplorer", or "Simple HTTP Server"
-3. Person B shares the local URL (e.g., `http://192.168.1.5:8080`) with Person A
-4. Both can now stream!
+## Limits
 
-#### B) Transfer to a laptop
-1. Put the HTML file on a laptop
-2. Run a quick server:
-   ```bash
-   # If you have Node.js
-   npx serve -s . -p 4400
-   
-   # Or Python
-   python3 -m http.server 4400
-   
-   # Or PHP
-   php -S localhost:4400
-   ```
-3. Connect phones to laptop's WiFi hotspot
-4. Open `http://laptop-ip:4400/p2p-stream-standalone.html`
+- Tor Browser turns WebRTC off, so a copy opened in it shows the app but cannot
+  stream. An onion site can still hand out the file for download; open it in
+  a normal browser.
 
-#### C) Use ngrok for quick sharing
-```bash
-# Install ngrok
-npm install -g ngrok
-
-# Serve the file
-npx serve -s dist -p 4400
-
-# In another terminal, expose via HTTPS
-ngrok http 4400
-```
-Share the ngrok HTTPS URL.
-
----
-
-## Option 2: Bluetooth Transfer (Limited)
-
-Unfortunately, **Web Bluetooth** doesn't support file transfers or WebRTC signaling. But you can:
-
-1. Use native Bluetooth file sharing to transfer the standalone HTML
-2. Recipient opens it via a file server app (see Option 1)
-
----
-
-## Option 3: WiFi Direct (Android Only)
-
-Some Android devices support WiFi Direct which works without internet:
-
-1. Enable WiFi Direct in Android Settings
-2. Connect devices directly
-3. Use a file server app to serve the HTML
-4. Access via local IP
-
----
-
-## Option 4: Portable Router / Offline Network
-
-For protests/events, bring a small portable WiFi router (no internet needed):
-
-1. Set up router with a simple password
-2. All participants connect to the same WiFi
-3. One person serves the HTML file
-4. Everyone accesses via local network
-
----
-
-## Why `file://` Doesn't Work
-
-Browsers block these APIs on `file://` protocol:
-
-| Feature | Requires |
-|---------|----------|
-| Camera (`getUserMedia`) | HTTPS or localhost |
-| WebRTC | HTTPS or localhost |
-| Service Worker | HTTPS or localhost |
-| OPFS (file storage) | Works on file:// |
-
-This is a security feature to prevent malicious websites from accessing your camera without permission.
-
----
-
-## Recommended Emergency Workflow
-
-### Scenario: Phone confiscation risk
-
-**Before the event:**
-1. Build standalone file: `npm run build:standalone`
-2. Distribute to all participants via Signal/Wire beforehand
-3. Everyone installs a file server app
-
-**At the event:**
-1. One person enables WiFi hotspot
-2. Others connect and serve the file locally
-3. Streamer starts broadcast
-4. Collectors join via local network
-
-**If internet is blocked:**
-- The WiFi hotspot doesn't need internet
-- Trystero's BitTorrent DHT works over local network
-- Nostr can use offline relays
-
----
-
-## Technical Limitations
-
-We cannot bypass these browser restrictions:
-- ❌ Open from Downloads and use camera
-- ❌ Pure P2P without any network (Bluetooth LE bandwidth is too low for video)
-- ❌ WebRTC over Bluetooth
-
-But these workarounds enable practical offline usage:
-- ✅ Local WiFi hotspot (no internet needed)
-- ✅ Portable router
-- ✅ File server apps
-- ✅ Laptop as hub
+- No service worker: a mirror does not install as an app or cache itself;
+  keep the file.
+- Nothing updates it. That is the point — and also why you should replace it
+  with a newer signed release now and then.

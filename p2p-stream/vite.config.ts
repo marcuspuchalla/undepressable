@@ -3,8 +3,31 @@ import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
 import { nodePolyfills } from 'vite-plugin-node-polyfills'
 import { resolve } from 'path'
+import { execFileSync } from 'child_process'
+import { readFileSync } from 'fs'
 
-export default defineConfig({
+// Compiled into the app and written into release.json (scripts/sign-release.mjs),
+// so a copy can tell which published release it is.
+function buildId(): string {
+  if (process.env.VITE_BUILD_ID) return process.env.VITE_BUILD_ID
+  const { version } = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8'))
+  try {
+    return `${version}+${execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: __dirname, encoding: 'utf8' }).trim()}`
+  } catch {
+    return `${version}+local`
+  }
+}
+
+// `vite build --mode extension` packages the app as a browser extension
+// (scripts/build-extension.js): same code, no service worker — the installed
+// extension is itself the offline copy — and its own output folder.
+// `vite build --mode portable` makes the self-contained single-file app
+// (scripts/build-portable.js): relative paths, hash routes, one inlined bundle,
+// so it runs from a file or from any mirror under any path.
+export default defineConfig(({ mode }) => {
+  const portable = mode === 'portable'
+  const noServiceWorker = mode === 'extension' || portable
+  return {
   plugins: [
     nodePolyfills({
       include: ['process', 'util', 'buffer', 'stream'],
@@ -15,9 +38,11 @@ export default defineConfig({
       },
     }),
     vue(),
-    VitePWA({
-      registerType: 'autoUpdate',
-      injectRegister: 'auto',
+    !noServiceWorker && VitePWA({
+      // Never swap the app's code silently: a waiting version is checked
+      // against the release keys and offered (composables/useUpdates.ts).
+      registerType: 'prompt',
+      injectRegister: false,
       strategies: 'generateSW',
       workbox: {
         // Cache all assets aggressively for offline use
@@ -28,7 +53,9 @@ export default defineConfig({
         
         // Cache navigation requests (all routes)
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api/, /^\/__/],
+        // The single-file app sits next to the site (scripts/build-portable.js);
+        // opening it directly must not be answered with index.html.
+        navigateFallbackDenylist: [/^\/api/, /^\/__/, /^\/undepressable\.html$/, /^\/release\.(json|sig)$/],
         
         // Clean up old caches
         cleanupOutdatedCaches: true,
@@ -81,8 +108,9 @@ export default defineConfig({
           }
         ],
         
-        // Skip waiting so new service worker activates immediately
-        skipWaiting: true,
+        // A new version waits until someone accepts it (or every tab of the
+        // app is closed — browsers allow no more control than that).
+        skipWaiting: false,
         clientsClaim: true
       },
       manifest: {
@@ -129,9 +157,17 @@ export default defineConfig({
       }
     })
   ],
+  base: portable ? './' : '/',
+  define: {
+    __APP_BUILD__: JSON.stringify(buildId()),
+    __HASH_ROUTES__: JSON.stringify(portable),
+    __PORTABLE__: JSON.stringify(portable),
+  },
   resolve: {
     alias: {
-      '@': resolve(__dirname, 'src')
+      '@': resolve(__dirname, 'src'),
+      // No service worker in the extension (it updates via its store or by hand).
+      ...(noServiceWorker ? { 'virtual:pwa-register': resolve(__dirname, 'src/lib/update/pwaRegisterStub.ts') } : {}),
     }
   },
   server: {
@@ -142,19 +178,25 @@ export default defineConfig({
     allowedHosts: true
   },
   build: {
+    outDir: mode === 'extension' ? 'dist-extension/app' : portable ? 'dist-portable/app' : 'dist',
+    // One file: no lazily loaded chunks a file:// page could not fetch.
+    ...(portable ? { cssCodeSplit: false, assetsInlineLimit: 1024 * 1024 } : {}),
     target: 'esnext',
     sourcemap: true,
     // Ensure all assets are self-contained
     rollupOptions: {
-      output: {
-        manualChunks: {
-          'trystero-torrent': ['trystero/torrent'],
-          'trystero-nostr': ['trystero/nostr']
-        }
-      }
+      output: portable
+        ? { inlineDynamicImports: true }
+        : {
+            manualChunks: {
+              'trystero-torrent': ['trystero/torrent'],
+              'trystero-nostr': ['trystero/nostr']
+            }
+          }
     }
   },
   optimizeDeps: {
     include: ['simple-peer', 'qrcode', 'jsqr', 'trystero/torrent', 'trystero/nostr']
   }
+}
 })

@@ -1,23 +1,57 @@
 <template>
   <div class="h-full overflow-y-auto p-4">
-    <h2 class="text-xl font-bold mb-4">Recordings</h2>
-    
+    <div class="flex items-center justify-between mb-4 gap-3">
+      <h2 class="text-xl font-bold">Recordings</h2>
+      <label class="btn-secondary text-sm py-1.5 cursor-pointer" data-testid="import-evidence">
+        Import…
+        <input
+          type="file"
+          multiple
+          accept=".zip,.webm,.txt,.json,video/webm,application/zip,text/plain,application/json"
+          class="hidden"
+          data-testid="import-input"
+          @change="onImport"
+        />
+      </label>
+    </div>
+
+    <!-- Import result -->
+    <div v-if="importState" class="card mb-4 text-sm" role="status" data-testid="import-status">
+      <p v-if="importState.busy" class="text-slate-300">
+        Checking every second of the video against its signature… {{ importState.done }}/{{ importState.total || '?' }}
+      </p>
+      <template v-else>
+        <p :class="importState.ok ? 'text-moss' : 'text-red-300'" class="font-medium">{{ importState.message }}</p>
+        <p v-if="importState.detail" class="text-xs text-slate-400 mt-1">{{ importState.detail }}</p>
+      </template>
+    </div>
+
+    <!-- Home archive: store and forward -->
+    <div v-if="pairedHome" class="card mb-4 text-sm space-y-2" data-testid="home-sync">
+      <div class="flex items-center gap-2">
+        <svg class="w-4 h-4 text-moss shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" /></svg>
+        <span class="text-slate-300">Home archive <span class="font-mono">{{ pairedHome }}</span></span>
+      </div>
+      <p class="text-slate-400" data-testid="home-sync-status">{{ syncText }}</p>
+      <div v-if="syncSender?.progress.value" class="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+        <div class="h-full bg-moss transition-all" :style="{ width: (100 * syncSender.progress.value.done) / syncSender.progress.value.total + '%' }" />
+      </div>
+      <div class="flex gap-2">
+        <button v-if="syncState === 'idle' && notHome > 0" class="btn-primary text-sm py-1.5" data-testid="send-home" @click="sendHome">
+          Send {{ notHome }} to home now
+        </button>
+        <button v-if="syncState !== 'idle'" class="btn-secondary text-sm py-1.5" @click="stopSync">Stop</button>
+      </div>
+    </div>
+
     <!-- Storage Info -->
     <div class="card mb-4">
       <div class="flex items-center justify-between mb-2">
         <span class="text-sm text-gray-400">Storage</span>
-        <button 
-          class="text-xs text-primary-400 hover:text-primary-300"
-          @click="refreshRecordings"
-        >
-          Refresh
-        </button>
+        <button class="text-xs text-primary-400 hover:text-primary-300" @click="refreshRecordings">Refresh</button>
       </div>
       <div class="h-2 bg-gray-700 rounded-full overflow-hidden">
-        <div 
-          class="h-full bg-primary-500 transition-all"
-          :style="{ width: storagePercent + '%' }"
-        />
+        <div class="h-full bg-primary-500 transition-all" :style="{ width: storagePercent + '%' }" />
       </div>
       <div class="flex justify-between mt-2 text-xs text-gray-500">
         <span>{{ formatBytes(storageUsed) }} used</span>
@@ -33,19 +67,13 @@
         </svg>
       </div>
       <h3 class="text-lg font-medium mb-2">No Recordings Yet</h3>
-      <p class="text-gray-400 mb-4">Start collecting a stream to save recordings.</p>
-      <RouterLink to="/collect" class="btn-primary">
-        Collect Stream
-      </RouterLink>
+      <p class="text-gray-400 mb-4">Start collecting a stream to save recordings — or import one someone sent you.</p>
+      <RouterLink to="/collect" class="btn-primary">Collect Stream</RouterLink>
     </div>
 
     <!-- Recordings List -->
     <div v-else class="space-y-3">
-      <div 
-        v-for="recording in recordings" 
-        :key="recording.id"
-        class="card"
-      >
+      <div v-for="recording in recordings" :key="recording.id" class="card" data-testid="recording">
         <div class="flex items-start gap-4">
           <!-- Thumbnail -->
           <div class="w-24 h-16 bg-gray-900 rounded-lg flex items-center justify-center flex-shrink-0">
@@ -57,81 +85,97 @@
 
           <!-- Info -->
           <div class="flex-1 min-w-0">
-            <div class="flex items-center gap-2 mb-1">
-              <span 
-                class="px-2 py-0.5 rounded text-xs font-medium"
-                :class="recording.status === 'completed' ? 'bg-green-900/50 text-green-400' : 'bg-yellow-900/50 text-yellow-400'"
-              >
-                {{ recording.status }}
+            <div class="flex flex-wrap items-center gap-2 mb-1">
+              <span class="px-2 py-0.5 rounded text-xs font-medium" :class="STATUS_CLASS[recording.status] ?? STATUS_CLASS.recording">
+                {{ recording.status === 'receiving' ? 'arriving…' : recording.status }}
               </span>
-              <span class="text-xs text-gray-500">
-                {{ formatDate(recording.startedAt) }}
-              </span>
+              <span class="text-xs text-gray-500">{{ formatDate(recording.startedAt) }}</span>
+              <span v-if="recording.origin?.kind === 'imported'" class="text-xs text-glow">imported · verified</span>
+              <span v-else-if="recording.origin?.kind === 'synced'" class="text-xs text-glow">from a paired phone{{ recording.origin.verified ? ' · verified' : '' }}</span>
+              <span v-if="atHome[recording.id]" class="text-xs text-moss" data-testid="at-home">✓ at home</span>
             </div>
-            
-            <p class="text-sm text-gray-400 truncate">
-              Campaign: {{ recording.campaignId.slice(0, 8) }}...
-            </p>
-            
+
+            <p class="text-sm text-gray-400 truncate">Campaign: {{ recording.campaignId.slice(0, 8) }}...</p>
+
             <div class="flex items-center gap-4 mt-2 text-xs text-gray-500">
               <span>{{ recording.chunks.length }} chunks</span>
               <span>{{ recording.metadata.resolution.width }}x{{ recording.metadata.resolution.height }}</span>
-              <span v-if="recording.endedAt">
-                {{ formatDuration(recording.endedAt.getTime() - recording.startedAt.getTime()) }}
-              </span>
+              <span v-if="recording.endedAt">{{ formatDuration(recording.endedAt.getTime() - recording.startedAt.getTime()) }}</span>
             </div>
 
             <!-- Tamper-evidence -->
             <div v-if="recording.proof" class="mt-2 flex flex-wrap items-center gap-2 text-xs">
               <button
                 class="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 flex items-center gap-1 transition-colors"
+                data-testid="verify"
+                :disabled="verifying[recording.id] !== undefined"
                 @click="verify(recording)"
               >
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                Verify integrity
+                {{ verifying[recording.id] !== undefined ? `Checking… ${verifying[recording.id]}%` : 'Verify integrity' }}
               </button>
               <span
                 v-if="verifyResults[recording.id]"
                 :class="verifyResults[recording.id].valid ? 'text-green-400' : 'text-red-400'"
                 class="font-medium"
+                data-testid="verify-result"
               >
                 {{ verifyResults[recording.id].valid ? '✓ Unaltered' : '✗ ' + verifyResults[recording.id].reason }}
               </span>
               <span class="text-gray-600 font-mono" title="Anonymous signing key">signer {{ recording.proof.pubKey.slice(0, 8) }}…</span>
             </div>
+
           </div>
 
           <!-- Actions -->
           <div class="flex flex-col gap-2">
-            <button 
-              class="p-2 hover:bg-gray-700 rounded-lg transition-colors"
-              title="Play"
-              @click="playRecording(recording)"
-            >
+            <button class="p-2 hover:bg-gray-700 rounded-lg transition-colors" title="Play" @click="playRecording(recording)">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </button>
-            <button 
+            <button
+              v-if="recording.proof && recording.status === 'completed'"
               class="p-2 hover:bg-gray-700 rounded-lg transition-colors"
-              title="Download"
-              @click="downloadRecording(recording)"
+              title="Send or save with proof"
+              data-testid="send-evidence"
+              @click="openSend(recording)"
             >
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+              </svg>
+            </button>
+            <button v-else class="p-2 hover:bg-gray-700 rounded-lg transition-colors" title="Download" @click="downloadRecording(recording)">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
             </button>
-            <button 
-              class="p-2 hover:bg-red-900/50 text-red-400 rounded-lg transition-colors"
-              title="Delete"
-              @click="deleteRecording(recording)"
-            >
+            <button class="p-2 hover:bg-red-900/50 text-red-400 rounded-lg transition-colors" title="Delete" @click="deleteRecording(recording)">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
             </button>
           </div>
+        </div>
+        <!-- Send / save as evidence -->
+        <div v-if="sendPanel[recording.id]" class="mt-3 rounded-lg border border-line bg-white/5 p-3 text-xs space-y-2" data-testid="send-panel">
+          <p v-if="sendPanel[recording.id].busy" class="text-slate-300">Preparing the video and its proof…</p>
+          <p v-else-if="sendPanel[recording.id].error" class="text-red-300">{{ sendPanel[recording.id].error }}</p>
+          <template v-else>
+            <p class="text-slate-400 leading-relaxed">
+              The video travels with its signed proof. Works without internet — AirDrop, Quick Share, Bluetooth, a
+              USB stick. The receiving device checks every second of it under Recordings → Import.
+            </p>
+            <div class="flex flex-wrap gap-2">
+              <button v-if="sendPanel[recording.id].canShare" class="btn-primary text-xs py-1.5" @click="shareEvidence(recording)">
+                Share…
+              </button>
+              <button class="btn-secondary text-xs py-1.5" data-testid="save-evidence" @click="saveEvidence(recording)">
+                Save as file
+              </button>
+            </div>
+          </template>
         </div>
       </div>
     </div>
@@ -147,28 +191,42 @@
             </svg>
           </button>
         </div>
-        <video
-          ref="playerVideo"
-          class="w-full rounded-lg"
-          controls
-          autoplay
-        />
+        <video ref="playerVideo" class="w-full rounded-lg" controls autoplay />
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, shallowRef, computed, onMounted, onUnmounted, watch } from 'vue'
+import { RouterLink } from 'vue-router'
 import { useRecordingStore } from '../stores/recording'
 import { useOPFS } from '../composables/useOPFS'
-import { useRecording } from '../composables/useRecording'
+import { useTrystero } from '../composables/useTrystero'
+import { useSyncSender } from '../composables/useRecordingSync'
 import type { Recording } from '../types'
-import type { VerificationResult } from '../lib/integrity'
+import { getPairedHome, archiveRoomId } from '../lib/archive'
+import {
+  manifestFor,
+  buildBundle,
+  bundleName,
+  videoName,
+  evidenceTxtName,
+  readEvidenceInput,
+  verifyEvidence,
+} from '../lib/transfer/evidence'
+import { chunkBlobs, verifyStored, importEvidence, deliveredTo, makeOutbox } from '../lib/transfer/library'
 
 const recordingStore = useRecordingStore()
 const opfs = useOPFS()
-const recorder = useRecording()
+
+const STATUS_CLASS: Record<string, string> = {
+  completed: 'bg-green-900/50 text-green-400',
+  recording: 'bg-yellow-900/50 text-yellow-400',
+  receiving: 'bg-sky-900/50 text-sky-300',
+  failed: 'bg-red-900/50 text-red-300',
+  cancelled: 'bg-gray-800 text-gray-400',
+}
 
 // State
 const recordings = computed(() => recordingStore.recordings)
@@ -176,10 +234,20 @@ const storageUsed = ref(0)
 const storageQuota = ref(0)
 const playingRecording = ref<Recording | null>(null)
 const playerVideo = ref<HTMLVideoElement>()
-const verifyResults = ref<Record<string, VerificationResult>>({})
+const verifyResults = ref<Record<string, { valid: boolean; reason?: string }>>({})
+const verifying = ref<Record<string, number>>({})
 
-function verify(recording: Recording) {
-  verifyResults.value = { ...verifyResults.value, [recording.id]: recorder.verifyRecording(recording) }
+async function verify(recording: Recording) {
+  verifying.value = { ...verifying.value, [recording.id]: 0 }
+  try {
+    const r = await verifyStored(recording, (done, total) => {
+      verifying.value = { ...verifying.value, [recording.id]: Math.round((100 * done) / total) }
+    })
+    verifyResults.value = { ...verifyResults.value, [recording.id]: r }
+  } finally {
+    const { [recording.id]: _done, ...rest } = verifying.value
+    verifying.value = rest
+  }
 }
 
 const storagePercent = computed(() => {
@@ -187,7 +255,6 @@ const storagePercent = computed(() => {
   return (storageUsed.value / storageQuota.value) * 100
 })
 
-// Methods
 async function refreshRecordings() {
   await recordingStore.loadRecordings()
   const usage = await opfs.getStorageUsage()
@@ -195,17 +262,19 @@ async function refreshRecordings() {
     storageUsed.value = usage.used
     storageQuota.value = usage.remaining + usage.used
   }
+  await refreshHome()
+}
+
+// The footage in recording order (chunk metadata first; raw files as a fallback).
+async function videoBlob(recording: Recording): Promise<Blob | null> {
+  const blobs = (await chunkBlobs(recording)) ?? (await opfs.readAllChunks(recording.campaignId, recording.id))
+  return blobs.length ? new Blob(blobs, { type: recording.metadata.codec }) : null
 }
 
 async function playRecording(recording: Recording) {
   playingRecording.value = recording
-  
-  // Load chunks and create blob
-  const chunks = await opfs.readAllChunks(recording.campaignId, recording.id)
-  if (chunks.length > 0 && playerVideo.value) {
-    const blob = new Blob(chunks, { type: recording.metadata.codec })
-    playerVideo.value.src = URL.createObjectURL(blob)
-  }
+  const blob = await videoBlob(recording)
+  if (blob && playerVideo.value) playerVideo.value.src = URL.createObjectURL(blob)
 }
 
 function closePlayer() {
@@ -216,26 +285,201 @@ function closePlayer() {
   playingRecording.value = null
 }
 
-async function downloadRecording(recording: Recording) {
-  const chunks = await opfs.readAllChunks(recording.campaignId, recording.id)
-  if (chunks.length === 0) return
-  
-  const blob = new Blob(chunks, { type: recording.metadata.codec })
-  const url = URL.createObjectURL(blob)
-  
+function saveFile(file: Blob, name: string) {
+  const url = URL.createObjectURL(file)
   const a = document.createElement('a')
   a.href = url
-  a.download = `recording-${recording.id.slice(0, 8)}-${formatDateForFilename(recording.startedAt)}.webm`
+  a.download = name
   document.body.appendChild(a)
   a.click()
   document.body.removeChild(a)
-  
-  URL.revokeObjectURL(url)
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
+
+async function downloadRecording(recording: Recording) {
+  const blob = await videoBlob(recording)
+  if (blob) saveFile(blob, `recording-${recording.id.slice(0, 8)}-${formatDateForFilename(recording.startedAt)}.webm`)
+}
+
+// --- send / save with proof ---
+// Two steps on purpose: building the files can take longer than a browser
+// lets a tap count as permission to open the share sheet.
+interface SendPrep {
+  busy: boolean
+  error?: string
+  zip?: File
+  pair?: File[]
+  canShare?: boolean
+}
+const sendPanel = ref<Record<string, SendPrep>>({})
+
+function shareable(p: SendPrep): File[] | null {
+  if (typeof navigator.canShare !== 'function') return null
+  try {
+    if (p.zip && navigator.canShare({ files: [p.zip] })) return [p.zip]
+    if (p.pair && navigator.canShare({ files: p.pair })) return p.pair
+  } catch {
+    /* canShare throws on some platforms for unsupported types */
+  }
+  return null
+}
+
+async function openSend(recording: Recording) {
+  if (sendPanel.value[recording.id]) {
+    const { [recording.id]: _closed, ...rest } = sendPanel.value
+    sendPanel.value = rest
+    return
+  }
+  sendPanel.value = { ...sendPanel.value, [recording.id]: { busy: true } }
+  const set = (p: SendPrep) => (sendPanel.value = { ...sendPanel.value, [recording.id]: p })
+  const manifest = manifestFor(recording)
+  const blobs = manifest ? await chunkBlobs(recording) : null
+  if (!manifest || !blobs) {
+    set({ busy: false, error: 'Some of this recording is missing from the device, so it cannot be sent with its proof.' })
+    return
+  }
+  const pair = [
+    new File(blobs, videoName(manifest), { type: 'video/webm' }),
+    new File([JSON.stringify(manifest, null, 2)], evidenceTxtName(manifest), { type: 'text/plain' }),
+  ]
+  let zip: File | undefined
+  try {
+    zip = new File([await buildBundle(manifest, blobs)], bundleName(manifest), { type: 'application/zip' })
+  } catch {
+    /* over ~4 GB: send the two files instead */
+  }
+  const prep: SendPrep = { busy: false, zip, pair }
+  prep.canShare = shareable(prep) !== null
+  set(prep)
+}
+
+async function shareEvidence(recording: Recording) {
+  const p = sendPanel.value[recording.id]
+  const files = p && shareable(p)
+  if (!files) return saveEvidence(recording)
+  try {
+    await navigator.share({ files, title: 'Undepressable recording' })
+  } catch (e: any) {
+    if (e?.name !== 'AbortError') saveEvidence(recording)
+  }
+}
+
+function saveEvidence(recording: Recording) {
+  const p = sendPanel.value[recording.id]
+  if (!p) return
+  if (p.zip) saveFile(p.zip, p.zip.name)
+  else for (const f of p.pair ?? []) saveFile(f, f.name)
+}
+
+// --- import ---
+const importState = ref<{ busy: boolean; ok?: boolean; message?: string; detail?: string; done?: number; total?: number } | null>(null)
+
+async function onImport(event: Event) {
+  const input = event.target as HTMLInputElement
+  const files = [...(input.files ?? [])]
+  input.value = ''
+  if (!files.length) return
+  importState.value = { busy: true, done: 0, total: 0 }
+  try {
+    const picked = await readEvidenceInput(files)
+    if (!picked.ok) {
+      importState.value = { busy: false, ok: false, message: 'Not imported', detail: picked.reason }
+      return
+    }
+    const check = await verifyEvidence(picked.manifest, picked.video, (done, total) => {
+      importState.value = { busy: true, done, total }
+    })
+    if (!check.valid) {
+      importState.value = { busy: false, ok: false, message: '✗ Not imported — this is not the recording that was signed', detail: check.reason }
+      return
+    }
+    const result = await importEvidence(picked.manifest, picked.video)
+    const seconds = picked.manifest.chunkSizes.length
+    importState.value = {
+      busy: false,
+      ok: true,
+      message: result === 'exists' ? '✓ Verified — this device already has this recording' : `✓ Verified and imported (${seconds} s)`,
+      detail: `Every second matches the signature of key ${picked.manifest.proof.pubKey.slice(0, 8)}…`,
+    }
+    await refreshRecordings()
+  } catch (e: any) {
+    importState.value = { busy: false, ok: false, message: 'Import failed', detail: e?.message ?? String(e) }
+  }
+}
+
+// --- store and forward to the paired home archive ---
+const pairedHome = getPairedHome()
+const atHome = ref<Record<string, string>>({})
+const notHome = ref(0)
+const syncState = ref<'idle' | 'connecting' | 'sending' | 'done'>('idle')
+const syncTrystero = useTrystero()
+const syncSender = shallowRef<ReturnType<typeof useSyncSender> | null>(null)
+let syncWatchers: (() => void)[] = []
+let connectingSince = 0
+const tick = ref(0)
+let tickTimer: number | null = null
+
+async function refreshHome() {
+  if (!pairedHome) return
+  atHome.value = deliveredTo(pairedHome)
+  notHome.value = (await makeOutbox(pairedHome).pending()).length
+  if (syncState.value !== 'idle' && notHome.value === 0) syncState.value = 'done'
+}
+
+async function sendHome() {
+  if (!pairedHome) return
+  syncState.value = 'connecting'
+  connectingSince = Date.now()
+  tickTimer ??= window.setInterval(() => tick.value++, 1000)
+  await syncTrystero.init(['both'])
+  const sender = useSyncSender(syncTrystero, pairedHome)
+  syncSender.value = sender
+  syncWatchers = [
+    watch(sender.progress, (p) => {
+      if (p && syncState.value !== 'done') syncState.value = 'sending'
+    }),
+    watch(sender.delivered, () => refreshRecordings()),
+  ]
+  await syncTrystero.joinRoom(archiveRoomId(pairedHome), ['both'])
+}
+
+function stopSync() {
+  syncSender.value?.stop()
+  syncSender.value = null
+  for (const stop of syncWatchers.splice(0)) stop()
+  syncTrystero.leaveRoom()
+  syncState.value = 'idle'
+  if (tickTimer) {
+    clearInterval(tickTimer)
+    tickTimer = null
+  }
+}
+
+const syncText = computed(() => {
+  void tick.value
+  switch (syncState.value) {
+    case 'idle':
+      return notHome.value === 0
+        ? 'Everything signed on this device is already at home.'
+        : `${notHome.value} recording${notHome.value === 1 ? ' is' : 's are'} not at home yet. They are sent when both devices are online — the home device must have the Home archive screen open.`
+    case 'connecting': {
+      const s = Math.round((Date.now() - connectingSince) / 1000)
+      return s < 20
+        ? 'Looking for your home archive…'
+        : `Still looking (${s} s). Is the Home archive screen open at home and online? Strict networks may need a relay (Network).`
+    }
+    case 'sending': {
+      const p = syncSender.value?.progress.value
+      return p ? `Sending — ${p.done} of ${p.total} s of the current recording (${notHome.value} left). Each second is checked at home.` : 'Sending…'
+    }
+    case 'done':
+      return '✓ Everything is at home, checked against its signature. Keep this device\'s copy or delete it — that is up to you.'
+  }
+  return ''
+})
 
 async function deleteRecording(recording: Recording) {
   if (!confirm('Are you sure you want to delete this recording?')) return
-  
   await opfs.deleteRecording(recording.campaignId, recording.id)
   await recordingStore.deleteRecording(recording.id)
   await refreshRecordings()
@@ -243,12 +487,7 @@ async function deleteRecording(recording: Recording) {
 
 // Utilities
 function formatDate(date: Date): string {
-  return new Intl.DateTimeFormat('en-US', {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(new Date(date))
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(date))
 }
 
 function formatDateForFilename(date: Date): string {
@@ -259,7 +498,6 @@ function formatDuration(ms: number): string {
   const seconds = Math.floor(ms / 1000)
   const minutes = Math.floor(seconds / 60)
   const hours = Math.floor(minutes / 60)
-  
   if (hours > 0) {
     return `${hours}:${(minutes % 60).toString().padStart(2, '0')}:${(seconds % 60).toString().padStart(2, '0')}`
   }
@@ -274,8 +512,13 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
-// Lifecycle
+const onRecordingSaved = () => void refreshRecordings()
 onMounted(() => {
   refreshRecordings()
+  window.addEventListener('undepressable:recording-saved', onRecordingSaved)
+})
+onUnmounted(() => {
+  window.removeEventListener('undepressable:recording-saved', onRecordingSaved)
+  if (syncState.value !== 'idle') stopSync()
 })
 </script>

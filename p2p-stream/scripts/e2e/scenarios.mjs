@@ -10,8 +10,10 @@
 //   node scripts/e2e/scenarios.mjs [scenario ...]
 //
 // Scenarios: open, blocked, relay-link, relay-one-side, relay-rejected,
-// relay-added-live, crowd, internet-drops, offline-two-viewers,
-// offline-isolated, archive.
+// public-relay, relay-added-live, crowd, crowd-large, internet-drops,
+// offline-two-viewers, offline-isolated, archive, evidence-file, home-sync,
+// offline-handover, offline-chain, offline-chain-repair, messenger-pair,
+// messenger-pair-late, amplify-streamer, amplify-viewer.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
@@ -140,6 +142,26 @@ const scenarios = {
     const b = await statusOf(B)
     return [/rejected its username\/password/.test(b), `viewer: ${b}`]
   },
+  // A strict pair with no relay of their own: the streamer opts into "free
+  // public relays" (pointed at the local TURN server via a dev-only override),
+  // the app tests them, keeps the one that answers, and the viewer gets in.
+  async 'public-relay'() {
+    const candidates = JSON.stringify([
+      { id: 'local', label: 'local test relay', server: { urls: [`turn:${HOST_IP}:3478`], username: 'test', credential: 'test' } },
+      { id: 'dead', label: 'dead relay', server: { urls: [`turn:${HOST_IP}:3479`], username: 'x', credential: 'y' } },
+    ])
+    const { page: A, code } = await startStream({ undepressable_dev_public_relay_candidates: candidates })
+    const B = await newPage({})
+    await B.goto(`${APP}/collect/${code}`)
+    await A.waitForSelector('text=your networks block a direct connection', { timeout: 60000 })
+    await A.getByRole('button', { name: 'Set up a relay' }).click()
+    await A.locator('[data-testid=test-public-relays]').click()
+    await A.locator('[data-testid=use-public-relays]').waitFor({ timeout: 20000 })
+    const results = (await A.locator('[data-testid=test-public-relays] ~ ul').innerText()).replace(/\s+/g, ' ')
+    await A.locator('[data-testid=use-public-relays]').click()
+    const s = await videoWithin(B, 40000)
+    return [s !== null && /✓ local test relay/.test(results) && /✗ dead relay/.test(results), `tests: ${results}; viewer video ${s}s after opting in`]
+  },
   async 'relay-added-live'() {
     const { page: A, code } = await startStream({})
     const B = await newPage({})
@@ -153,6 +175,38 @@ const scenarios = {
     await A.getByRole('button', { name: 'Save', exact: true }).click()
     const s = await videoWithin(B, 40000) // the viewer does nothing
     return [s !== null, `viewer video ${s}s after the streamer saved a relay`]
+  },
+  // Use case 02 at a size where the relay tree matters: the streamer uploads
+  // only to its direct children, seed viewers forward to the rest, and every
+  // device agrees on how many are watching and recording.
+  async 'crowd-large'() {
+    const N = 6
+    const tree = []
+    const { page: A, code } = await startStream({})
+    A.on('console', (m) => {
+      if (/\[Tree\] (Root streams directly|.* seated under seed)/.test(m.text())) tree.push(m.text())
+    })
+    const viewers = []
+    for (let i = 0; i < N; i++) {
+      const p = await newPage({})
+      await p.goto(`${APP}/collect/${code}`)
+      viewers.push(p)
+      await p.waitForTimeout(800)
+    }
+    const times = await Promise.all(viewers.map((p) => videoWithin(p, 60000)))
+    // Counters are a heartbeat away from agreeing; give them a few beats.
+    const countsOf = (p) => p.$$eval('.tabular-nums', (els) => els.slice(0, 2).map((e) => Number(e.textContent.trim())))
+    const want = JSON.stringify([N, N + 1])
+    let all = []
+    for (let i = 0; i < 10; i++) {
+      all = await Promise.all([A, ...viewers].map(countsOf))
+      if (all.every((c) => JSON.stringify(c) === want)) break
+      await A.waitForTimeout(2000)
+    }
+    const direct = new Set(tree.filter((t) => /Root streams directly/.test(t)).map((t) => t.split(' ').pop())).size
+    const seeded = tree.filter((t) => /seated under seed/.test(t)).length
+    const ok = times.every((t) => t !== null) && all.every((c) => JSON.stringify(c) === want) && direct <= 2 && seeded >= N - 2
+    return [ok, `videos ${times.map((t) => (t === null ? 'NONE' : t.toFixed(1))).join(', ')}s; counts [watching, recording] on each device ${all.map((c) => c.join('/')).join(' ')}; streamer uploads to ${direct}, ${seeded} served by seeds`]
   },
   async crowd() {
     const { page: A, code } = await startStream({})
@@ -250,8 +304,349 @@ Object.assign(scenarios, {
     return [watched !== null && archived !== null && /Recording a forwarded stream/.test(status), `phone video ${watched}s, home video ${archived}s; home: ${status.slice(0, 120)}`]
   },
 })
+// Record `seconds` of the fake camera through the app's own recorder (the dev
+// server serves source modules, so the page can import them directly).
+async function recordOnDevice(page, seconds) {
+  return page.evaluate(async (ms) => {
+    const { useRecording } = await import('/src/composables/useRecording.ts')
+    const rec = useRecording()
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    await rec.startRecording(stream, 'low')
+    await new Promise((r) => setTimeout(r, ms))
+    const saved = await rec.stopRecording()
+    stream.getTracks().forEach((t) => t.stop())
+    return { id: saved.id, chunks: saved.chunks.length, signed: !!saved.proof }
+  }, seconds * 1000)
+}
+const importStatus = async (p) => (await p.locator('[data-testid=import-status]').innerText()).replace(/\s+/g, ' ')
+async function importFiles(p, files) {
+  await p.locator('[data-testid=import-input]').setInputFiles(files)
+  await p.waitForFunction(() => {
+    const el = document.querySelector('[data-testid=import-status]')
+    return el && !/Checking every second/.test(el.textContent)
+  }, null, { timeout: 30000 })
+  return importStatus(p)
+}
+
+Object.assign(scenarios, {
+  // Relay to a safe place with no network: a recording travels as a file
+  // (share sheet / USB) and the receiving device checks every second of it.
+  async 'evidence-file'() {
+    const { readFileSync, writeFileSync, mkdtempSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const phone = await newPage({})
+    await phone.goto(`${APP}/recordings`)
+    const rec = await recordOnDevice(phone, 4)
+    await phone.reload()
+    await phone.locator('[data-testid=recording]').first().waitFor()
+    // The phone's own copy verifies from disk.
+    await phone.getByRole('button', { name: 'Verify integrity' }).first().click()
+    const selfCheck = await phone.locator('[data-testid=verify-result]').first().innerText({ timeout: 15000 })
+    await phone.locator('[data-testid=send-evidence]').first().click()
+    const [download] = await Promise.all([
+      phone.waitForEvent('download'),
+      phone.locator('[data-testid=save-evidence]').first().click(),
+    ])
+    const dir = mkdtempSync(join(tmpdir(), 'und-evidence-'))
+    const bundle = join(dir, download.suggestedFilename())
+    await download.saveAs(bundle)
+
+    const other = await newPage({})
+    await other.goto(`${APP}/recordings`)
+    const imported = await importFiles(other, bundle)
+    const listed = await other.locator('[data-testid=recording]').count()
+    const again = await importFiles(other, bundle)
+
+    // One flipped byte in the middle of the video must be caught.
+    const bytes = readFileSync(bundle)
+    bytes[Math.floor(bytes.length / 2)] ^= 0xff
+    const tampered = join(dir, 'tampered.zip')
+    writeFileSync(tampered, bytes)
+    const third = await newPage({})
+    await third.goto(`${APP}/recordings`)
+    const refused = await importFiles(third, tampered)
+    const thirdListed = await third.locator('[data-testid=recording]').count()
+
+    const ok =
+      rec.signed && /Unaltered/.test(selfCheck) && /\.zip$/.test(bundle) &&
+      /Verified and imported/.test(imported) && listed === 1 && /already has/.test(again) &&
+      /Not imported/.test(refused) && /altered/.test(refused) && thirdListed === 0
+    return [ok, `recorded ${rec.chunks} chunks; self-check "${selfCheck}"; import: "${imported.slice(0, 60)}"; again: "${again.slice(0, 50)}"; tampered: "${refused.slice(0, 110)}"`]
+  },
+
+  // Store and forward: what the phone recorded on its own reaches the home
+  // archive once both are online, checked chunk by chunk on arrival.
+  async 'home-sync'() {
+    const HOME = 'HQMRT7XP'
+    const home = await newPage({ undepressable_home_key: HOME })
+    await home.goto(`${APP}/archive`)
+    const phone = await newPage({ undepressable_paired_home: HOME })
+    await phone.goto(`${APP}/recordings`)
+    const a = await recordOnDevice(phone, 3)
+    const b = await recordOnDevice(phone, 5)
+    await phone.reload()
+    await phone.locator('[data-testid=send-home]').waitFor({ timeout: 10000 })
+    const before = await phone.locator('[data-testid=home-sync-status]').innerText()
+    const t0 = Date.now()
+    await phone.locator('[data-testid=send-home]').click()
+    const done = await phone
+      .waitForFunction(() => /Everything is at home/.test(document.querySelector('[data-testid=home-sync-status]')?.textContent ?? ''), null, { timeout: 60000 })
+      .then(() => (Date.now() - t0) / 1000)
+      .catch(() => null)
+    const homeCard = await home.locator('[data-testid=archive-received]').innerText().catch(() => '')
+    const atHome = await phone.locator('[data-testid=at-home]').count()
+    // The home device now holds complete, verifiable copies.
+    await home.goto(`${APP}/recordings`)
+    await home.locator('[data-testid=recording]').first().waitFor({ timeout: 10000 }).catch(() => {})
+    const homeRecs = await home.locator('[data-testid=recording]').count()
+    const verdicts = []
+    for (let i = 0; i < homeRecs; i++) {
+      const card = home.locator('[data-testid=recording]').nth(i)
+      await card.locator('[data-testid=verify]').click()
+      verdicts.push(await card.locator('[data-testid=verify-result]').innerText({ timeout: 15000 }).catch(() => 'no verdict'))
+    }
+    const ok = done !== null && atHome === 2 && homeRecs === 2 && verdicts.length === 2 && verdicts.every((v) => /Unaltered/.test(v)) && (homeCard.match(/verified/g) ?? []).length === 2
+    return [ok, `${a.chunks}+${b.chunks} chunks; before: "${before.slice(0, 45)}"; home: "${homeCard.replace(/\s+/g, ' ').slice(0, 90)}"; delivered in ${done}s; phone "at home" badges ${atHome}; home has ${homeRecs}: ${verdicts.join(', ')}`]
+  },
+})
+Object.assign(scenarios, {
+  // No internet, face to face: each device hands its signed recordings to the
+  // other over the pairing link — e.g. to someone leaving the scene.
+  async 'offline-handover'() {
+    const A = await newPage({})
+    await A.goto(`${APP}/offline`)
+    await A.getByText("I'm filming").click()
+    await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const B = await offlineViewer(A)
+    const playing = await videoWithin(B, 20000)
+    await B.waitForTimeout(3000) // a few seconds of footage on both devices
+    const statusOf = (p) => p.locator('[data-testid=transfer-status]').first().innerText().catch(() => '')
+    const until = (p, re) =>
+      p.waitForFunction((src) => new RegExp(src).test(document.querySelector('[data-testid=transfer-status]')?.textContent ?? ''), re.source, { timeout: 30000 }).then(() => true).catch(() => false)
+    // The viewer hands its copy to the person filming…
+    await B.locator('[data-testid=send-recordings]').click()
+    const aGot = await until(A, /received ✓/)
+    const bSent = await until(B, /handed over ✓/)
+    // …and the person filming hands theirs to the viewer.
+    await A.locator('[data-testid=send-recordings]').first().click()
+    const bGot = await until(B, /received ✓/)
+    const aStatus = await statusOf(A)
+    const bStatus = await statusOf(B)
+    // What arrived is a complete, verifiable recording on the other device.
+    await B.goto(`${APP}/recordings`)
+    const fromA = B.locator('[data-testid=recording]', { hasText: 'from a paired phone' }).first()
+    await fromA.locator('[data-testid=verify]').click().catch(() => {})
+    const verdict = await fromA.locator('[data-testid=verify-result]').innerText({ timeout: 15000 }).catch(() => 'no verdict')
+    const ok = playing !== null && aGot && bSent && bGot && /Unaltered/.test(verdict)
+    return [ok, `video ${playing}s; filming device: "${aStatus}"; viewer: "${bStatus}"; viewer's copy of A's recording: ${verdict}`]
+  },
+})
+Object.assign(scenarios, {
+  // Off-grid chain: C is out of the filming phone's reach (or the hotspot is
+  // full), so C pairs with viewer B, who passes A's picture on.
+  async 'offline-chain'() {
+    const A = await newPage({})
+    await A.goto(`${APP}/offline`)
+    await A.getByText("I'm filming").click()
+    await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const B = await offlineViewer(A)
+    const b = await videoWithin(B, 20000)
+    await B.locator('[data-testid=share-onward]').click()
+    await B.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const C = await newPage({})
+    await C.goto(`${APP}/offline`)
+    await C.getByText("I'm receiving").click()
+    await pasteCode(C, await codeOf(B))
+    await C.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    await pasteCode(B, await codeOf(C))
+    const c = await videoWithin(C, 25000)
+    // C's picture keeps moving: it is A's live camera, relayed.
+    const moving = await C.evaluate(async () => {
+      const v = document.querySelector('video')
+      const f0 = v.getVideoPlaybackQuality?.().totalVideoFrames ?? 0
+      await new Promise((r) => setTimeout(r, 2000))
+      return (v.getVideoPlaybackQuality?.().totalVideoFrames ?? 0) > f0
+    })
+    const aViewers = await A.locator('text=/\\d+ watching/').first().innerText()
+    const bCard = await B.locator('.card', { has: B.locator('h2', { hasText: 'Watching through you' }) }).innerText().catch(() => '')
+    const ok = b !== null && c !== null && moving && /^1 watching/.test(aViewers) && /connected/.test(bCard)
+    return [ok, `B video ${b}s, C video ${c}s via B, moving ${moving}; A: "${aViewers}"; B: "${bCard.replace(/\s+/g, ' ').slice(0, 80)}"`]
+  },
+})
+Object.assign(scenarios, {
+  // The relay in a chain loses the filming phone and pairs with another one;
+  // the device watching through it must get the new picture, untouched.
+  async 'offline-chain-repair'() {
+    const A = await newPage({})
+    await A.goto(`${APP}/offline`)
+    await A.getByText("I'm filming").click()
+    await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const B = await offlineViewer(A)
+    await videoWithin(B, 20000)
+    await B.locator('[data-testid=share-onward]').click()
+    await B.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const C = await newPage({})
+    await C.goto(`${APP}/offline`)
+    await C.getByText("I'm receiving").click()
+    await pasteCode(C, await codeOf(B))
+    await C.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    await pasteCode(B, await codeOf(C))
+    const first = await videoWithin(C, 25000)
+    // A disappears (battery, arrest, out of range).
+    await A.context().browser().close()
+    const pairAgain = B.getByRole('button', { name: 'Pair again' })
+    const lostSeen = await pairAgain.waitFor({ timeout: 40000 }).then(() => true).catch(() => false)
+    await pairAgain.click().catch(() => {})
+    // A second filming phone; B pairs with it, C does nothing.
+    const A2 = await newPage({})
+    await A2.goto(`${APP}/offline`)
+    await A2.getByText("I'm filming").click()
+    await A2.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    await pasteCode(B, await codeOf(A2))
+    const replyBox = B.locator('[data-testid=pair-code]')
+    await B.waitForFunction(() => document.querySelectorAll('[data-testid=pair-code]').length >= 1, null, { timeout: 15000 })
+    // B shows its reply to A2 (the only code on screen once its invite for C was used).
+    await pasteCode(A2, (await replyBox.last().textContent()).trim())
+    await videoWithin(B, 25000)
+    const moving = await C.evaluate(async () => {
+      const v = document.querySelector('video')
+      if (v.paused) await v.play().catch(() => {})
+      const f0 = v.getVideoPlaybackQuality().totalVideoFrames
+      await new Promise((r) => setTimeout(r, 3000))
+      return v.getVideoPlaybackQuality().totalVideoFrames - f0
+    })
+    const cLinks = await C.locator('text=Pair again').count()
+    const ok = first !== null && lostSeen && moving > 5 && cLinks === 0
+    return [ok, `C first video ${first}s; B saw the loss: ${lostSeen}; after B re-paired with a new filming phone, C decoded ${moving} frames in 3 s without re-pairing`]
+  },
+})
+// Discovery blocked AND the two networks strict: codes go over a messenger
+// (pasted here), the relay on one side carries the video.
+async function messengerPair(replyDelayMs) {
+  const A = await newPage({ ...turn(), undepressable_nostr_relays: JSON.stringify(['ws://127.0.0.1:9']) })
+  await A.goto(`${APP}/offline`)
+  await A.locator('[data-testid=mode-internet]').click()
+  await A.getByText("I'm filming").click()
+  await A.waitForSelector('[data-testid=pair-code]', { timeout: 20000 })
+  const invite = await codeOf(A)
+  // The viewer opens the ordinary face-to-face screen: the code itself says it came over the internet.
+  const B = await newPage({ undepressable_nostr_relays: JSON.stringify(['ws://127.0.0.1:9']) })
+  await B.goto(`${APP}/offline`)
+  await B.getByText("I'm receiving").click()
+  await pasteCode(B, invite)
+  await B.waitForSelector('[data-testid=pair-code]', { timeout: 20000 })
+  const reply = await codeOf(B)
+  if (replyDelayMs) await B.waitForTimeout(replyDelayMs)
+  await pasteCode(A, reply)
+  // Direct UDP between the two is dropped here, so any video came through the relay.
+  const s = await videoWithin(B, 30000)
+  return [s !== null, `invite ${invite.length} chars (${/^UND2/.test(invite) ? 'compact' : 'full'}), reply ${reply.length} chars; reply pasted after ${replyDelayMs / 1000}s; video ${s}s via the relay`]
+}
+Object.assign(scenarios, {
+  'messenger-pair': () => messengerPair(0),
+  'messenger-pair-late': () => messengerPair(90_000),
+})
+// A stand-in broadcast server: WHIP over HTTP in front of a browser page that
+// plays whatever is published (MediaMTX, Owncast, Cloudflare Stream… speak
+// the same protocol).
+async function whipServer(port = 4415) {
+  const { createServer } = await import('node:http')
+  const ingest = await newPage({})
+  await ingest.goto('about:blank')
+  const log = { posts: 0, deletes: 0, auth: [] }
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'POST, DELETE, OPTIONS', 'access-control-expose-headers': 'location' }
+  const server = createServer(async (req, res) => {
+    if (req.method === 'OPTIONS') return res.writeHead(204, cors), res.end()
+    if (req.method === 'DELETE') {
+      log.deletes++
+      return res.writeHead(200, cors), res.end()
+    }
+    let body = ''
+    for await (const chunk of req) body += chunk
+    log.posts++
+    log.auth.push(req.headers.authorization ?? '')
+    if (req.headers.authorization !== 'Bearer good-token') return res.writeHead(401, cors), res.end('bad token')
+    const answer = await ingest.evaluate(async (offer) => {
+      const pc = new RTCPeerConnection()
+      pc.ontrack = (e) => {
+        if (e.track.kind !== 'video') return
+        const v = document.createElement('video')
+        v.muted = true
+        v.autoplay = true
+        v.srcObject = new MediaStream([e.track])
+        document.body.append(v)
+        v.play().catch(() => {})
+      }
+      window.__pcs = [...(window.__pcs ?? []), pc]
+      await pc.setRemoteDescription({ type: 'offer', sdp: offer })
+      await pc.setLocalDescription(await pc.createAnswer())
+      await new Promise((r) => (pc.iceGatheringState === 'complete' ? r() : pc.addEventListener('icegatheringstatechange', () => pc.iceGatheringState === 'complete' && r())))
+      return pc.localDescription.sdp
+    }, body)
+    res.writeHead(201, { ...cors, 'content-type': 'application/sdp', location: `/cam/whip/resource/${log.posts}` })
+    res.end(answer)
+  })
+  await new Promise((r) => server.listen(port, r))
+  const receiving = () =>
+    ingest.waitForFunction(() => [...document.querySelectorAll('video')].some((v) => v.videoWidth > 0 && v.currentTime > 0.5), null, { timeout: 30000 }).then(() => true).catch(() => false)
+  const codec = () =>
+    ingest.evaluate(async () => {
+      for (const pc of window.__pcs ?? []) {
+        const stats = await pc.getStats()
+        for (const s of stats.values()) if (s.type === 'inbound-rtp' && s.kind === 'video' && s.codecId) return stats.get(s.codecId)?.mimeType
+      }
+      return 'unknown'
+    })
+  return { url: `http://localhost:${port}/cam/whip`, log, receiving, codec, close: () => server.close() }
+}
+async function amplifyFrom(page, url, token) {
+  const panel = page.locator('[data-testid=amplify]')
+  if (!(await page.locator('[data-testid=amplify-url]').isVisible().catch(() => false))) await panel.getByText('Amplify — broadcast to a server').click()
+  await page.locator('[data-testid=amplify-url]').fill(url)
+  await page.locator('[data-testid=amplify-token]').fill(token)
+  await page.locator('[data-testid=amplify-start]').click()
+  await page.waitForFunction(() => /live|failed/.test(document.querySelector('[data-testid=amplify-status]')?.textContent ?? ''), null, { timeout: 30000 }).catch(() => {})
+  return (await panel.innerText()).replace(/\s+/g, ' ')
+}
+Object.assign(scenarios, {
+  // The person filming also pushes to a broadcast server, for everyone without the app.
+  async 'amplify-streamer'() {
+    const srv = await whipServer()
+    try {
+      const A = await newPage({})
+      await A.goto(`${APP}/stream`)
+      await A.waitForSelector('text=Share Stream', { timeout: 30000 })
+      const wrong = await amplifyFrom(A, srv.url, 'bad-token')
+      const status = await amplifyFrom(A, srv.url, 'good-token')
+      const got = await srv.receiving()
+      const codec = await srv.codec()
+      await A.locator('[data-testid=amplify-stop]').click()
+      await A.waitForTimeout(500)
+      const ok = /rejected the token/.test(wrong) && /live/.test(status) && got && srv.log.deletes === 1
+      return [ok, `wrong token: "${wrong.match(/The broadcast server[^.]*\./)?.[0]}"; then: ${status.match(/live[^A-Z]*/)?.[0]?.trim()}; server receiving video: ${got} (${codec}); stopped with DELETE: ${srv.log.deletes === 1}`]
+    } finally {
+      srv.close()
+    }
+  },
+  // A viewer re-broadcasts what it watches — e.g. from a country where the
+  // broadcast server isn't blocked, for someone whose network is.
+  async 'amplify-viewer'() {
+    const srv = await whipServer(4416)
+    try {
+      const { code } = await startStream({})
+      const B = await newPage({})
+      await B.goto(`${APP}/collect/${code}`)
+      const watching = await videoWithin(B, 40000)
+      const status = await amplifyFrom(B, srv.url, 'good-token')
+      const got = await srv.receiving()
+      return [watching !== null && /live/.test(status) && got, `viewer video ${watching}s; amplify: ${status.match(/live[^A-Z]*/)?.[0]?.trim()}; broadcast server receiving the streamer's picture via the viewer: ${got}`]
+    } finally {
+      srv.close()
+    }
+  },
+})
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']
-const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'offline-isolated'])
+const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'offline-isolated', 'messenger-pair', 'messenger-pair-late'])
 
 relayProcess = startHelper('nostr-relay.mjs', '7777')
 startHelper('turn-server.mjs', HOST_IP)

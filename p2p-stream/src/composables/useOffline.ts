@@ -1,9 +1,39 @@
 import { ref, onMounted, onUnmounted } from 'vue'
+import { ensurePersistentStorage, persistenceState, type PersistenceState } from '../lib/persistence'
+
+// Chrome/Edge/Android fire this once per page when the app is installable;
+// keep it module-wide so any screen can offer the install button.
+let deferredInstall: any = null
+const canInstall = ref(false)
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault()
+    deferredInstall = e
+    canInstall.value = true
+  })
+  window.addEventListener('appinstalled', () => {
+    deferredInstall = null
+    canInstall.value = false
+    // An installed app is what browsers are most willing to keep.
+    ensurePersistentStorage()
+  })
+}
 
 export function useOffline() {
   const isOffline = ref(!navigator.onLine)
   const isPWAInstalled = ref(false)
   const canWorkOffline = ref(false)
+  const persistence = ref<PersistenceState>('unsupported')
+
+  async function install(): Promise<boolean> {
+    if (!deferredInstall) return false
+    deferredInstall.prompt()
+    const { outcome } = await deferredInstall.userChoice.catch(() => ({ outcome: 'dismissed' }))
+    deferredInstall = null
+    canInstall.value = false
+    if (outcome === 'accepted') persistence.value = await ensurePersistentStorage()
+    return outcome === 'accepted'
+  }
 
   function updateOnlineStatus() {
     isOffline.value = !navigator.onLine
@@ -37,6 +67,7 @@ export function useOffline() {
     updateOnlineStatus()
     checkPWAInstalled()
     checkServiceWorker()
+    persistenceState().then((p) => (persistence.value = p))
 
     window.addEventListener('online', updateOnlineStatus)
     window.addEventListener('offline', updateOnlineStatus)
@@ -54,6 +85,9 @@ export function useOffline() {
   return {
     isOffline,
     isPWAInstalled,
-    canWorkOffline
+    canWorkOffline,
+    canInstall,
+    install,
+    persistence
   }
 }

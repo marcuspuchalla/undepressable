@@ -1,4 +1,6 @@
 import { ref } from 'vue'
+import { ensurePersistentStorage } from '../lib/persistence'
+import { putRecording } from '../lib/recordingDb'
 import { useOPFS } from './useOPFS'
 import { checkStorage, type StorageAssessment } from '../lib/storageGuard'
 import type { Recording, RecordingChunk, VideoQuality } from '../types'
@@ -84,7 +86,7 @@ export function useRecording() {
     campaignId: string
     mimeType: string
     chunks: Blob[]
-    hashes: string[] // full SHA-256 hex per chunk, for the Merkle proof
+    hashes: Map<number, string> // chunk index -> full SHA-256 hex, for the Merkle proof
     chunkIndex: number
     pending: number
   }
@@ -224,6 +226,8 @@ export function useRecording() {
       lastChunkSaveTime = 0
 
       updateStorageWarning(await checkStorage())
+      // Evidence must not be one of the things the browser cleans up.
+      void ensurePersistentStorage()
 
       // Check for orphaned recordings first
       const orphaned = await checkForOrphanedRecordings()
@@ -267,7 +271,7 @@ export function useRecording() {
         campaignId: recCampaignId,
         mimeType,
         chunks: [],
-        hashes: [],
+        hashes: new Map(),
         chunkIndex: 0,
         pending: 0
       }
@@ -288,13 +292,18 @@ export function useRecording() {
         }
 
         s.pending++
+        // Claim the index now, synchronously. Events can overlap — stop()
+        // flushes with requestData() and the final chunk back to back — and
+        // reading the counter after the awaits below gave both the same
+        // index: the second chunk overwrote the first on disk.
+        const index = s.chunkIndex++
 
         // Store in memory for continuous playback/download
         s.chunks.push(event.data)
 
         try {
           // Write to OPFS for persistence
-          const opfsPath = await opfs.writeChunk(s.campaignId, s.recording.id, s.chunkIndex, event.data)
+          const opfsPath = await opfs.writeChunk(s.campaignId, s.recording.id, index, event.data)
 
           if (!opfsPath) {
             console.error('Failed to write chunk to OPFS')
@@ -307,7 +316,7 @@ export function useRecording() {
           }
 
           // Re-assess headroom periodically (~every 30 s of footage).
-          if (s.chunkIndex % 30 === 0) {
+          if (index % 30 === 0) {
             checkStorage().then(updateStorageWarning)
           }
 
@@ -315,9 +324,9 @@ export function useRecording() {
           // Full SHA-256 hex feeds the Merkle proof; the chunk's own `checksum`
           // keeps its short prefix for quick display/back-compat.
           const fullHash = toHex(await sha256(buffer))
-          s.hashes.push(fullHash)
+          s.hashes.set(index, fullHash)
           const chunk: RecordingChunk = {
-            index: s.chunkIndex,
+            index,
             timestamp: new Date(),
             duration: 1000, // 1 second chunks
             size: event.data.size,
@@ -326,7 +335,6 @@ export function useRecording() {
           }
 
           s.recording.chunks.push(chunk)
-          s.chunkIndex++
 
           // Sync state periodically (every 5 chunks or 10 seconds)
           if (s.chunkIndex % 5 === 0 || Date.now() - lastChunkSaveTime > 10000) {
@@ -384,11 +392,14 @@ export function useRecording() {
       s.recording.endedAt = new Date()
       s.recording.status = 'completed'
 
-      // Build the tamper-evidence proof: Merkle root over all chunk hashes,
-      // signed by this device's anonymous key.
+      // Build the tamper-evidence proof: Merkle root over all chunk hashes
+      // in recording order, signed by this device's anonymous key. Writes
+      // can finish out of order; the proof must follow the footage.
+      s.recording.chunks.sort((a, b) => a.index - b.index)
       try {
-        if (s.hashes.length > 0) {
-          s.recording.proof = buildProof(s.recording.id, s.hashes, getIdentity())
+        if (s.recording.chunks.length > 0) {
+          const hashes = s.recording.chunks.map((c) => s.hashes.get(c.index)!)
+          s.recording.proof = buildProof(s.recording.id, hashes, getIdentity())
           console.log('[useRecording] Proof built, merkle root:', s.recording.proof.merkleRoot.slice(0, 16))
         }
       } catch (e) {
@@ -403,6 +414,8 @@ export function useRecording() {
         if (!live) markRecordingComplete()
 
         console.log('[useRecording] Recording saved:', s.recording.id, 'Chunks:', s.chunks.length)
+        // An open Recordings screen shows it without a manual refresh.
+        window.dispatchEvent(new CustomEvent('undepressable:recording-saved', { detail: s.recording.id }))
         return s.recording
       } catch (err: any) {
         console.error('[useRecording] Error saving recording:', err)
@@ -429,57 +442,7 @@ export function useRecording() {
   }
 
   async function saveRecordingMetadata(recording: Recording) {
-    const DB_NAME = 'P2PStreamRecordings'
-    const DB_VERSION = 1
-    const STORE_NAME = 'recordings'
-    
-    return new Promise<void>((resolve, reject) => {
-      const request = indexedDB.open(DB_NAME, DB_VERSION)
-      
-      request.onerror = () => reject(request.error)
-      request.onsuccess = () => {
-        const db = request.result
-        const transaction = db.transaction(STORE_NAME, 'readwrite')
-        const store = transaction.objectStore(STORE_NAME)
-        
-        // Serialize for IndexedDB
-        const serialized: any = {
-          id: recording.id,
-          campaignId: recording.campaignId,
-          recordedBy: recording.recordedBy,
-          startedAt: recording.startedAt.toISOString(),
-          status: recording.status,
-          metadata: recording.metadata,
-          chunks: recording.chunks.map(c => ({
-            index: c.index,
-            timestamp: c.timestamp.toISOString(),
-            duration: c.duration,
-            size: c.size,
-            opfsPath: c.opfsPath,
-            checksum: c.checksum
-          }))
-        }
-        
-        if (recording.endedAt) {
-          serialized.endedAt = recording.endedAt.toISOString()
-        }
-
-        if (recording.proof) {
-          serialized.proof = recording.proof // already a plain JSON object
-        }
-
-        const putRequest = store.put(serialized)
-        putRequest.onsuccess = () => resolve()
-        putRequest.onerror = () => reject(putRequest.error)
-      }
-      
-      request.onupgradeneeded = (event) => {
-        const db = (event.target as IDBOpenDBRequest).result
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME, { keyPath: 'id' })
-        }
-      }
-    })
+    await putRecording(recording)
   }
 
   // Get the continuous Blob for download (properly formatted WebM)

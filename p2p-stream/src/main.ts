@@ -1,18 +1,25 @@
-import { createApp } from 'vue'
+import { createApp, watch } from 'vue'
 import { createPinia } from 'pinia'
 import PrimeVue from 'primevue/config'
 import router from './router'
 import App from './App.vue'
 import { adoptRelayFromUrl } from './lib/net/iceConfig'
 import { adoptDiscoveryFromUrl } from './lib/net/discoveryConfig'
+import { startUpdates, updates } from './composables/useUpdates'
+import { linkSearch } from './lib/appLocation'
+import { capturePristineCopy, keepAppCopy } from './composables/useShareApp'
 
 import './assets/main.css'
+
+// The portable single-file copy shares itself: keep its HTML as loaded,
+// before the app renders into the page.
+capturePristineCopy()
 
 // A share link can carry a relay (?turn=urls|user|pass or ?ice=credentials-url)
 // and custom discovery relays (?relays=wss://…), so an organizer can hand out
 // working NAT traversal and a private meeting point along with the room code.
-adoptRelayFromUrl()
-adoptDiscoveryFromUrl()
+adoptRelayFromUrl(linkSearch())
+adoptDiscoveryFromUrl(linkSearch())
 
 // The dev build ships no service worker, but one registered by an earlier
 // build keeps serving its precached copy forever — silently running stale code
@@ -39,3 +46,14 @@ app.use(PrimeVue, {
 })
 
 app.mount('#app')
+
+// Production web builds: service worker for offline use, and updates only
+// after this copy has checked who signed them.
+startUpdates()
+// A checked copy of the single-file app, so "Share this app" works offline —
+// once this build's published release description is known.
+watch(
+  () => updates.current,
+  (current) => current && void keepAppCopy().catch(() => {}),
+  { immediate: true },
+)

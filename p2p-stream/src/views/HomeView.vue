@@ -45,6 +45,10 @@
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 5.636a9 9 0 010 12.728M5.636 18.364a9 9 0 010-12.728M12 12h.01M3 3l18 18" /></svg>
           No internet? Pair face to face →
         </RouterLink>
+        <RouterLink to="/offline?over=internet" class="inline-flex items-center gap-1.5 text-xs text-glow hover:underline">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+          Servers blocked? Pair by messenger →
+        </RouterLink>
         <RouterLink to="/network" class="inline-flex items-center gap-1.5 text-xs text-slate-300 hover:underline">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" /></svg>
           Can't connect? Check your network →
@@ -61,6 +65,14 @@
           {{ offline.isOffline.value ? 'Offline — ready' : 'Online — works offline too' }}
         </span>
         <button
+          v-if="offline.canInstall.value"
+          class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-moss/15 text-moss hover:bg-moss/25 transition-colors"
+          title="Keeps working with no internet — and even if this website goes away"
+          @click="offline.install()"
+        >
+          Install app
+        </button>
+        <button
           class="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
           @click="shareModal?.open()"
         >
@@ -70,6 +82,11 @@
           Share this app
         </button>
       </div>
+
+      <p v-if="offline.canWorkOffline.value && offline.persistence.value === 'best-effort'" class="mt-3 text-[11px] text-slate-500 max-w-sm mx-auto">
+        This browser may clear the app and its recordings when space runs low. Installing the app (or recording once)
+        asks it to keep them.
+      </p>
 
       <!-- Self-undercutting footnote — the irony the whole project lives with. -->
       <p id="erasable-footnote" class="mt-8 pt-4 border-t border-line/60 text-[11px] leading-relaxed text-slate-500 italic max-w-sm mx-auto text-left">
@@ -139,6 +156,28 @@
         </div>
       </div>
 
+      <!-- The app spreads without any website -->
+      <div class="card space-y-3" data-testid="pass-app-on">
+        <div class="flex items-start gap-3">
+          <div class="w-10 h-10 bg-ember/10 rounded-xl flex items-center justify-center flex-shrink-0">
+            <svg class="w-5 h-5 text-ember" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+          </div>
+          <div>
+            <h3 class="font-semibold text-slate-100 mb-1">Pass the app on</h3>
+            <p class="text-sm text-slate-400 leading-relaxed">
+              The whole app is one file. Send it by AirDrop, Bluetooth, a messenger or a USB stick: it runs straight from
+              the file in Chrome or Edge on a computer, and anyone can put it on any website — or IPFS — as a mirror. No
+              website of ours is needed, so taking one down stops nothing.
+            </p>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn-primary text-sm py-2" :disabled="shareApp.busy.value" data-testid="share-app" @click="shareApp.share()">Share the app…</button>
+          <button class="btn-secondary text-sm py-2" :disabled="shareApp.busy.value" data-testid="save-app" @click="shareApp.download()">Save the file</button>
+        </div>
+        <p v-if="shareApp.note.value" class="text-xs text-yellow-200">{{ shareApp.note.value }}</p>
+      </div>
+
       <!-- How it works -->
       <div class="card">
         <div class="flex items-center justify-between mb-4">
@@ -201,10 +240,12 @@
 </template>
 
 <script setup lang="ts">
+import { useShareApp } from '../composables/useShareApp'
 import { ref } from 'vue'
 import { useOffline } from '../composables/useOffline'
 import ShareModal from '../components/ShareModal.vue'
 
 const offline = useOffline()
+const shareApp = useShareApp()
 const shareModal = ref<InstanceType<typeof ShareModal>>()
 </script>

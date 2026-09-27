@@ -12,23 +12,32 @@
 // channel itself, where size does not matter.
 //
 // Binary layout (then base64url, prefixed "UND2"):
-//   u8  version (2)
+//   u8  version (2: host candidates only; 3: any candidate type)
 //   u8  flags: bit0 = answer, bits1-2 = setup (0 actpass, 1 active, 2 passive)
 //   str ufrag, str pwd            (u8 length + ASCII)
 //   32  sha-256 fingerprint
 //   str mid
 //   u8  candidate count, then per candidate:
+//       v3 only: u8 type (0 host, 1 srflx, 2 relay, 3 prflx)
 //       u8 kind (0 IPv4, 1 IPv6, 2 mDNS UUID, 3 other name), address, u16 port
+//
+// Version 3 exists for pairing across the internet by any messenger: the
+// code then carries the public address STUN saw (srflx) and the relay's
+// address (relay), so two devices connect without any discovery server.
+// Local-only codes stay version 2, readable by older copies of the app.
 //
 // Anything outside that shape (a non-sha-256 certificate, media in the first
 // offer, TCP-only candidates…) returns null and the caller falls back to the
 // full-SDP format.
 
 export type CompactSetup = "actpass" | "active" | "passive";
+export type CompactCandidateType = "host" | "srflx" | "relay" | "prflx";
 
 export interface CompactCandidate {
   address: string;
   port: number;
+  /** Omitted means host. */
+  type?: CompactCandidateType;
 }
 
 export interface CompactDescription {
@@ -43,14 +52,27 @@ export interface CompactDescription {
 }
 
 export const COMPACT_PREFIX = "UND2";
-const VERSION = 2;
+const VERSION_LOCAL = 2;
+const VERSION_ANY = 3;
 const SETUPS: CompactSetup[] = ["actpass", "active", "passive"];
+const TYPES: CompactCandidateType[] = ["host", "srflx", "relay", "prflx"];
 /** Enough for Wi-Fi + hotspot + IPv6 addresses; more only bloats the code. */
 const MAX_CANDIDATES = 8;
+/** Across the internet: a few public and relay addresses on top. */
+const MAX_CANDIDATES_ANY = 12;
+const MAX_PER_REMOTE_TYPE = 4;
 
 // --- SDP → compact ---------------------------------------------------------
 
-export function extractCompact(sdp: string, type: "offer" | "answer"): CompactDescription | null {
+/**
+ * @param opts.internet keep public (srflx) and relay candidates too — for
+ *   codes sent over a messenger rather than shown to a device next to you.
+ */
+export function extractCompact(
+  sdp: string,
+  type: "offer" | "answer",
+  opts: { internet?: boolean } = {},
+): CompactDescription | null {
   if (typeof sdp !== "string") return null;
   const lines = sdp.split(/\r\n|\n/);
   const media = lines.filter((l) => l.startsWith("m="));
@@ -71,21 +93,35 @@ export function extractCompact(sdp: string, type: "offer" | "answer"): CompactDe
   const fingerprint = hexToBytes(hex);
   if (!fingerprint || fingerprint.length !== 32) return null;
 
-  const candidates: CompactCandidate[] = [];
+  const found: CompactCandidate[] = [];
   for (const line of lines) {
     if (!line.startsWith("a=candidate:")) continue;
     const parts = line.slice("a=candidate:".length).split(/\s+/);
     // foundation component transport priority address port typ type
-    if (parts.length < 8 || parts[1] !== "1" || parts[2].toLowerCase() !== "udp" || parts[7] !== "host") continue;
+    if (parts.length < 8 || parts[1] !== "1" || parts[2].toLowerCase() !== "udp") continue;
+    const ctype = parts[7] as CompactCandidateType;
+    if (!TYPES.includes(ctype) || (ctype !== "host" && !opts.internet)) continue;
     const port = Number(parts[5]);
     if (!Number.isInteger(port) || port <= 0 || port > 65535) continue;
     if (encodeAddress(parts[4]) === null) continue;
-    if (!candidates.some((c) => c.address === parts[4] && c.port === port)) candidates.push({ address: parts[4], port });
-    if (candidates.length >= MAX_CANDIDATES) break;
+    // Link-local IPv6 never crosses a router: dead weight in a messenger code.
+    if (opts.internet && /^fe[89ab]/i.test(parts[4])) continue;
+    if (found.some((c) => c.address === parts[4] && c.port === port)) continue;
+    found.push(ctype === "host" ? { address: parts[4], port } : { address: parts[4], port, type: ctype });
   }
+  // Across the internet the relay and public addresses are what connect;
+  // keep them first, then fill up with local ones (same Wi-Fi still wins).
+  const remote = (t: CompactCandidateType) => found.filter((c) => (c.type ?? "host") === t).slice(0, MAX_PER_REMOTE_TYPE);
+  const candidates = opts.internet
+    ? [...remote("relay"), ...remote("srflx"), ...remote("prflx"), ...found.filter((c) => !c.type)].slice(0, MAX_CANDIDATES_ANY)
+    : found.slice(0, MAX_CANDIDATES);
   if (candidates.length === 0) return null;
   return { type, ufrag, pwd, fingerprint, setup, mid, candidates };
 }
+
+// Standard type preferences (RFC 8445 §5.1.2.2), so checks run host first,
+// then public addresses, then the relay.
+const TYPE_PREF: Record<CompactCandidateType, number> = { host: 126, prflx: 110, srflx: 100, relay: 0 };
 
 // --- compact → SDP ---------------------------------------------------------
 
@@ -101,10 +137,13 @@ export function buildSdp(d: CompactDescription, sessionId = randomSessionId()): 
     "a=msid-semantic: WMS",
     "m=application 9 UDP/DTLS/SCTP webrtc-datachannel",
     "c=IN IP4 0.0.0.0",
-    ...d.candidates.map(
-      // Priorities only order the checks; keep the original order.
-      (c, i) => `a=candidate:${i + 1} 1 udp ${2122260223 - i * 256} ${c.address} ${c.port} typ host generation 0`,
-    ),
+    ...d.candidates.map((c, i) => {
+      const t = c.type ?? "host";
+      // Priorities only order the checks; within a type keep the original order.
+      const priority = TYPE_PREF[t] * 2 ** 24 + (65535 - i) * 256 + 255;
+      const related = t === "host" ? "" : " raddr 0.0.0.0 rport 0";
+      return `a=candidate:${i + 1} 1 udp ${priority} ${c.address} ${c.port} typ ${t}${related} generation 0`;
+    }),
     "a=end-of-candidates",
     `a=ice-ufrag:${d.ufrag}`,
     `a=ice-pwd:${d.pwd}`,
@@ -121,7 +160,8 @@ export function buildSdp(d: CompactDescription, sessionId = randomSessionId()): 
 // --- binary packing --------------------------------------------------------
 
 export function packCompact(d: CompactDescription): Uint8Array {
-  const out: number[] = [VERSION, (d.type === "answer" ? 1 : 0) | (SETUPS.indexOf(d.setup) << 1)];
+  const any = d.candidates.some((c) => c.type && c.type !== "host");
+  const out: number[] = [any ? VERSION_ANY : VERSION_LOCAL, (d.type === "answer" ? 1 : 0) | (SETUPS.indexOf(d.setup) << 1)];
   const str = (s: string) => {
     out.push(s.length);
     for (let i = 0; i < s.length; i++) out.push(s.charCodeAt(i) & 0x7f);
@@ -134,6 +174,7 @@ export function packCompact(d: CompactDescription): Uint8Array {
   for (const c of d.candidates) {
     const enc = encodeAddress(c.address);
     if (!enc) throw new Error("unencodable candidate address");
+    if (any) out.push(TYPES.indexOf(c.type ?? "host"));
     out.push(...enc, (c.port >> 8) & 0xff, c.port & 0xff);
   }
   return Uint8Array.from(out);
@@ -155,7 +196,9 @@ export function unpackCompact(bytes: Uint8Array): CompactDescription {
     for (let k = 0; k < len; k++) s += String.fromCharCode(bytes[i++]);
     return s;
   };
-  if (u8() !== VERSION) throw new Error("Unsupported pairing code version");
+  const version = u8();
+  if (version !== VERSION_LOCAL && version !== VERSION_ANY) throw new Error("Unsupported pairing code version");
+  const typed = version === VERSION_ANY;
   const flags = u8();
   const setup = SETUPS[(flags >> 1) & 3];
   if (!setup) throw new Error("Pairing code is damaged");
@@ -166,15 +209,17 @@ export function unpackCompact(bytes: Uint8Array): CompactDescription {
   i += 32;
   const mid = str();
   const count = u8();
-  if (count === 0 || count > MAX_CANDIDATES) throw new Error("Pairing code is damaged");
+  if (count === 0 || count > (typed ? MAX_CANDIDATES_ANY : MAX_CANDIDATES)) throw new Error("Pairing code is damaged");
   const candidates: CompactCandidate[] = [];
   for (let k = 0; k < count; k++) {
+    const ctype = typed ? TYPES[u8()] : "host";
+    if (!ctype) throw new Error("Pairing code is damaged");
     const address = decodeAddress(bytes, i);
     i = address.next;
     need(2);
     const port = (bytes[i] << 8) | bytes[i + 1];
     i += 2;
-    candidates.push({ address: address.value, port });
+    candidates.push(ctype === "host" ? { address: address.value, port } : { address: address.value, port, type: ctype });
   }
   if (i !== bytes.length) throw new Error("Pairing code is damaged");
   return { type: flags & 1 ? "answer" : "offer", ufrag, pwd, fingerprint, setup, mid, candidates };

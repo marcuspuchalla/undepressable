@@ -88,3 +88,11 @@ export const OFFLINE_CONNECT_TIPS = [
   "Turn off any VPN on either device — many block local network traffic.",
   "In the iPhone app, allow Local Network access (Settings → Privacy & Security → Local Network).",
 ];
+
+/** The same, for two devices paired across the internet by codes sent over a messenger. */
+export const INTERNET_CONNECT_TIPS = [
+  "Both devices need a working internet connection (the discovery servers may be blocked — that's fine).",
+  "Strict networks on both sides — a VPN, or mobile data — need a relay. Set one up under Network on either device (the free public ones there are worth a try), then make a new invite.",
+  "Send the reply back within a few minutes. After that, start over with a fresh invite.",
+  "Networks that block UDP completely need a relay reachable on port 443 (turns:…:443).",
+];

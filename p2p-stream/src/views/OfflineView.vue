@@ -1,21 +1,58 @@
 <template>
   <div class="h-full overflow-y-auto">
     <section class="organic-veil px-5 pt-8 pb-4 text-center">
-      <p class="text-xs uppercase tracking-[0.2em] text-moss/80 mb-3">No internet needed</p>
-      <h1 class="font-display font-black text-slate-50 text-3xl mb-3">Pair face to face</h1>
-      <p class="text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
+      <p class="text-xs uppercase tracking-[0.2em] text-moss/80 mb-3">{{ overInternet ? 'No discovery server needed' : 'No internet needed' }}</p>
+      <h1 class="font-display font-black text-slate-50 text-3xl mb-3">{{ overInternet ? 'Pair by messenger' : 'Pair face to face' }}</h1>
+      <p v-if="!overInternet" class="text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
         When the network is cut or jammed, devices can still talk to each other over one Wi-Fi hotspot. Swap two short
         codes — by QR or as text — and the video goes straight between the devices. No server, no relay, no internet.
+      </p>
+      <p v-else class="text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
+        When the servers devices use to find each other are blocked, introduce them yourself: send two short codes
+        over Signal, WhatsApp, SMS or e-mail. The video then goes straight between the devices — or through your
+        relay — and no discovery server is involved at all.
       </p>
     </section>
 
     <div class="px-4 pb-8 space-y-4 max-w-xl mx-auto">
+      <!-- Where is the other device? -->
+      <div v-if="!role" class="grid grid-cols-2 rounded-xl border border-line overflow-hidden text-sm" role="tablist">
+        <button
+          class="px-3 py-2.5 transition-colors"
+          :class="!overInternet ? 'bg-moss/15 text-moss font-medium' : 'text-slate-400 hover:text-slate-200'"
+          role="tab"
+          :aria-selected="!overInternet"
+          @click="overInternet = false"
+        >Next to each other</button>
+        <button
+          class="px-3 py-2.5 transition-colors"
+          :class="overInternet ? 'bg-glow/15 text-glow font-medium' : 'text-slate-400 hover:text-slate-200'"
+          role="tab"
+          :aria-selected="overInternet"
+          data-testid="mode-internet"
+          @click="overInternet = true"
+        >Far apart — via messenger</button>
+      </div>
       <!-- Prerequisite everyone forgets -->
-      <div v-if="!role" class="card bg-glow/5 border-glow/20">
+      <div v-if="!role && !overInternet" class="card bg-glow/5 border-glow/20">
         <p class="text-sm text-slate-300 leading-relaxed">
           <strong class="text-glow">First:</strong> put the devices on the same network. Easiest: turn on the Personal
           Hotspot of one of the phones taking part and have the others join it — a hotspot phone can always reach its
           guests, while some hotspots keep guests apart from each other.
+        </p>
+      </div>
+      <div v-if="!role && overInternet" class="card bg-glow/5 border-glow/20 space-y-2">
+        <p class="text-sm text-slate-300 leading-relaxed">
+          <strong class="text-glow">How it works:</strong> you send an invite code, they send a reply code back — both as
+          ordinary text messages. Use a messenger with end-to-end encryption if you can: the codes contain your network
+          addresses (never the video), and whoever relays them could try to swap them.
+        </p>
+        <p class="text-xs leading-relaxed" :class="relayReady ? 'text-moss' : 'text-yellow-200'">
+          <template v-if="relayReady">✓ A relay is set up, so strict networks (VPN, mobile data) can connect too.</template>
+          <template v-else>
+            No relay set up. Two strict networks — a VPN or mobile data on both sides — can't connect without one.
+            <RouterLink to="/network" class="underline">Set one up (or try free public ones)</RouterLink>.
+          </template>
         </p>
       </div>
 
@@ -50,60 +87,6 @@
           <video ref="localVideo" autoplay playsinline muted class="w-full rounded-xl bg-black max-h-64 object-cover" />
         </div>
 
-        <!-- The invite waiting for its viewer -->
-        <div v-if="invite" class="card space-y-4">
-          <div class="flex items-center gap-2">
-            <span class="font-mono text-[11px] text-slate-500">{{ invite.label.toUpperCase() }} · STEP 1 · LET THEM READ THIS</span>
-            <span class="h-px flex-1 bg-line" />
-          </div>
-          <PairCode :code="invite.code" share-title="Invite to watch" />
-          <p class="text-sm text-slate-400">
-            On their device: <em>Pair face to face</em> → <em>I'm receiving</em>, then scan this code or paste the text.
-          </p>
-
-          <div class="flex items-center gap-2 pt-1">
-            <span class="font-mono text-[11px] text-slate-500">STEP 2 · READ THEIR REPLY</span>
-            <span class="h-px flex-1 bg-line" />
-          </div>
-          <div v-if="scanning" class="relative rounded-xl overflow-hidden bg-black aspect-video">
-            <video ref="scanVideo" autoplay playsinline muted class="w-full h-full object-cover" />
-            <canvas ref="scanCanvas" class="hidden" />
-            <div class="absolute inset-0 grid place-items-center pointer-events-none">
-              <div class="w-40 h-40 border-2 border-glow/80 rounded-lg" />
-            </div>
-            <button class="absolute top-2 right-2 px-2 py-1 rounded bg-black/70 text-xs" @click="stopScan">Cancel</button>
-          </div>
-          <div v-else class="grid gap-2">
-            <button class="btn-primary py-3" @click="scanReply">Scan their reply</button>
-          </div>
-          <CodeInput placeholder="…or paste their reply code" @submit="acceptReply" />
-        </div>
-
-        <!-- Everyone paired so far -->
-        <div v-if="viewerLinks.length" class="card space-y-2">
-          <h2 class="text-sm font-semibold text-slate-100">Viewers</h2>
-          <div v-for="l in viewerLinks" :key="l.id" class="rounded-lg border border-line px-3 py-2">
-            <div class="flex items-center gap-2">
-              <span class="w-2 h-2 rounded-full" :class="PHASE[l.phase].dot" />
-              <span class="text-sm text-slate-200">{{ l.label }}</span>
-              <span class="text-xs" :class="PHASE[l.phase].text">{{ PHASE[l.phase].label }}</span>
-              <span v-if="l.phase === 'connected'" class="text-xs ml-auto" :class="l.peerRecording ? 'text-moss' : 'text-slate-500'">
-                {{ l.peerRecording ? '● recording a copy' : 'not recording yet' }}
-              </span>
-              <button v-else-if="l.phase === 'timed-out' || l.phase === 'lost'" class="ml-auto text-xs text-slate-400 underline" @click="pair.closeLink(l.id)">remove</button>
-            </div>
-            <ul v-if="l.phase === 'timed-out'" class="mt-2 text-xs text-slate-400 list-disc list-inside space-y-1">
-              <li v-for="tip in OFFLINE_CONNECT_TIPS" :key="tip">{{ tip }}</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="flex gap-2">
-          <button v-if="!invite" class="btn-primary flex-1 py-3" :disabled="creatingInvite" @click="newInvite">
-            {{ viewerLinks.length ? 'Add another viewer' : 'Invite a viewer' }}
-          </button>
-          <button class="btn-secondary flex-1 py-3" @click="restart">Stop filming</button>
-        </div>
       </template>
 
       <!-- ============ WATCHER ============ -->
@@ -120,19 +103,25 @@
               <div class="w-40 h-40 border-2 border-glow/80 rounded-lg" />
             </div>
           </div>
-          <button v-else class="btn-primary w-full py-3" @click="scanInvite">Scan their code</button>
-          <p class="text-sm text-slate-400 text-center">Point at the code on the filming device.</p>
+          <template v-if="!overInternet">
+            <button v-if="!scanning" class="btn-primary w-full py-3" @click="scanInvite">Scan their code</button>
+            <p class="text-sm text-slate-400 text-center">Point at the code on the filming device.</p>
+          </template>
+          <p v-else class="text-sm text-slate-400 text-center">Paste the invite code they sent you.</p>
           <CodeInput placeholder="…or paste the code they sent you" @submit="acceptInvite" />
         </div>
 
         <div v-else-if="watchStep === 'show-reply' && reply" class="card space-y-3">
           <div class="flex items-center gap-2">
-            <span class="font-mono text-[11px] text-slate-500">STEP 2 · SHOW THEM THIS</span>
+            <span class="font-mono text-[11px] text-slate-500">STEP 2 · {{ overInternet || watchLink?.internet ? 'SEND THIS BACK' : 'SHOW THEM THIS' }}</span>
             <span class="h-px flex-1 bg-line" />
           </div>
           <PairCode :code="reply" share-title="Reply code" />
-          <p class="text-sm text-slate-400 text-center">
+          <p v-if="!overInternet && !watchLink?.internet" class="text-sm text-slate-400 text-center">
             The filming device reads this to finish the link — scan, or send them the text.
+          </p>
+          <p v-else class="text-sm text-slate-400 text-center">
+            Send this back to them now (<em>Send…</em> or copy it). It works for a few minutes.
           </p>
           <div class="flex items-center justify-center gap-2 text-xs text-slate-500">
             <span class="w-2 h-2 rounded-full bg-glow animate-pulse" /> Waiting for them…
@@ -140,7 +129,7 @@
           <div v-if="replySlow" class="text-xs text-slate-400 border-t border-line pt-3">
             <p class="text-slate-300 mb-1">Taking long? If they already read it:</p>
             <ul class="list-disc list-inside space-y-1">
-              <li v-for="tip in OFFLINE_CONNECT_TIPS" :key="tip">{{ tip }}</li>
+              <li v-for="tip in tipsFor(overInternet || !!watchLink?.internet)" :key="tip">{{ tip }}</li>
             </ul>
           </div>
         </div>
@@ -154,20 +143,109 @@
             </div>
           </div>
           <video ref="remoteVideo" autoplay playsinline muted class="w-full rounded-xl bg-black max-h-72" />
+          <div v-if="watchLink && (watchPhase === 'connected' || watchLink.transfer)" class="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+            <button v-if="watchPhase === 'connected'" class="text-glow underline" data-testid="send-recordings" @click="handOver(watchLink.id)">
+              Hand over my recordings
+            </button>
+            <span class="text-slate-400" data-testid="transfer-status">{{ transferText(watchLink.transfer) }}</span>
+          </div>
           <ul v-if="watchPhase === 'timed-out'" class="mt-3 text-xs text-slate-400 list-disc list-inside space-y-1">
-            <li v-for="tip in OFFLINE_CONNECT_TIPS" :key="tip">{{ tip }}</li>
+            <li v-for="tip in tipsFor(overInternet || !!watchLink?.internet)" :key="tip">{{ tip }}</li>
           </ul>
           <div class="flex gap-2 mt-3">
             <button v-if="watchPhase === 'lost' || watchPhase === 'timed-out'" class="btn-primary flex-1 py-2.5 text-sm" @click="pairAgain">
               Pair again
             </button>
+            <button
+              v-else-if="!relaying && watchPhase === 'connected' && remoteStream"
+              class="btn-primary flex-1 py-2.5 text-sm"
+              data-testid="share-onward"
+              @click="shareOnward"
+            >
+              Share onward
+            </button>
             <button class="btn-secondary flex-1 py-2.5 text-sm" @click="restart">Stop</button>
           </div>
+          <p v-if="!relaying && watchPhase === 'connected'" class="text-[11px] text-slate-500 mt-2 leading-relaxed">
+            Too far from the person filming for others to join them? Share onward: people pair with you instead and
+            you pass the picture on — a chain, no internet needed.
+          </p>
+        </div>
+      </template>
+
+      <!-- ============ INVITES: the camera, or a viewer passing the picture on ============ -->
+      <template v-if="role === 'stream' || relaying">
+        <div v-if="relaying && !viewerLinks.length && !invite" class="card text-sm text-slate-400">Preparing an invite…</div>
+        <!-- The invite waiting for its viewer -->
+        <div v-if="invite" class="card space-y-4">
+          <div class="flex items-center gap-2">
+            <span class="font-mono text-[11px] text-slate-500">{{ invite.label.toUpperCase() }} · STEP 1 · {{ overInternet ? 'SEND THEM THIS' : 'LET THEM READ THIS' }}</span>
+            <span class="h-px flex-1 bg-line" />
+          </div>
+          <PairCode :code="invite.code" share-title="Invite to watch" />
+          <p v-if="!overInternet" class="text-sm text-slate-400">
+            On their device: <em>Pair face to face</em> → <em>I'm receiving</em>, then scan this code or paste the text.
+          </p>
+          <p v-else class="text-sm text-slate-400">
+            Send this code over any messenger (<em>Send…</em> or copy it). On their device: <em>Pair by messenger</em> →
+            <em>I'm receiving</em> → paste it. They send a reply code back — paste it below within a few minutes.
+          </p>
+
+          <div class="flex items-center gap-2 pt-1">
+            <span class="font-mono text-[11px] text-slate-500">STEP 2 · READ THEIR REPLY</span>
+            <span class="h-px flex-1 bg-line" />
+          </div>
+          <div v-if="scanning" class="relative rounded-xl overflow-hidden bg-black aspect-video">
+            <video ref="scanVideo" autoplay playsinline muted class="w-full h-full object-cover" />
+            <canvas ref="scanCanvas" class="hidden" />
+            <div class="absolute inset-0 grid place-items-center pointer-events-none">
+              <div class="w-40 h-40 border-2 border-glow/80 rounded-lg" />
+            </div>
+            <button class="absolute top-2 right-2 px-2 py-1 rounded bg-black/70 text-xs" @click="stopScan">Cancel</button>
+          </div>
+          <div v-else-if="!overInternet" class="grid gap-2">
+            <button class="btn-primary py-3" @click="scanReply">Scan their reply</button>
+          </div>
+          <CodeInput placeholder="…or paste their reply code" @submit="acceptReply" />
+        </div>
+
+        <!-- Everyone paired so far -->
+        <div v-if="viewerLinks.length" class="card space-y-2">
+          <h2 class="text-sm font-semibold text-slate-100">{{ role === 'stream' ? 'Viewers' : 'Watching through you' }}</h2>
+          <div v-for="l in viewerLinks" :key="l.id" class="rounded-lg border border-line px-3 py-2">
+            <div class="flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full" :class="PHASE[l.phase].dot" />
+              <span class="text-sm text-slate-200">{{ l.label }}</span>
+              <span class="text-xs" :class="PHASE[l.phase].text">{{ PHASE[l.phase].label }}</span>
+              <span v-if="l.phase === 'connected'" class="text-xs ml-auto" :class="l.peerRecording ? 'text-moss' : 'text-slate-500'">
+                {{ l.peerRecording ? '● recording a copy' : 'not recording yet' }}
+              </span>
+              <button v-else-if="l.phase === 'timed-out' || l.phase === 'lost'" class="ml-auto text-xs text-slate-400 underline" @click="pair.closeLink(l.id)">remove</button>
+            </div>
+            <ul v-if="l.phase === 'timed-out'" class="mt-2 text-xs text-slate-400 list-disc list-inside space-y-1">
+              <li v-for="tip in tipsFor(l.internet)" :key="tip">{{ tip }}</li>
+            </ul>
+            <div v-if="l.phase === 'connected' || l.transfer" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+              <button v-if="l.phase === 'connected'" class="text-glow underline" data-testid="send-recordings" @click="handOver(l.id)">
+                Hand over my recordings
+              </button>
+              <span class="text-slate-400" data-testid="transfer-status">{{ transferText(l.transfer) }}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="flex gap-2">
+          <button v-if="!invite" class="btn-primary flex-1 py-3" :disabled="creatingInvite" data-testid="add-viewer" @click="newInvite">
+            {{ viewerLinks.length ? 'Add another viewer' : 'Invite a viewer' }}
+          </button>
+          <button v-if="role === 'stream'" class="btn-secondary flex-1 py-3" @click="restart">Stop filming</button>
         </div>
       </template>
 
       <p v-if="role" class="text-xs text-slate-500 text-center px-6 leading-relaxed">
         Recordings made here are hashed and signed exactly like online ones — find them under Recordings.
+        “Hand over” copies every signed recording on this device to the other one, checked second by second on
+        arrival: a way to get footage to someone who is leaving, without any internet.
       </p>
       <div v-else class="text-center">
         <RouterLink to="/guide" class="text-xs text-glow hover:underline">How else can I use this? →</RouterLink>
@@ -178,13 +256,14 @@
 
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted, computed, watch, defineComponent, h } from 'vue'
-import { RouterLink } from 'vue-router'
-import { useOfflinePair } from '../composables/useOfflinePair'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
+import { useOfflinePair, type LinkTransfer } from '../composables/useOfflinePair'
 import { useQRScanner } from '../composables/useQRScanner'
 import { useRecording } from '../composables/useRecording'
 import { useWakeLock } from '../composables/useWakeLock'
 import { isOfflineSignal } from '../lib/net/offlinePair'
-import { OFFLINE_CONNECT_TIPS, type LinkPhase } from '../lib/net/offlineLink'
+import { OFFLINE_CONNECT_TIPS, INTERNET_CONNECT_TIPS, type LinkPhase } from '../lib/net/offlineLink'
+import { hasRelay } from '../lib/net/iceConfig'
 import { createStallMonitor } from '../lib/net/streamHealth'
 import PairCode from '../components/PairCode.vue'
 
@@ -224,6 +303,21 @@ const CodeInput = defineComponent({
 })
 
 const pair = useOfflinePair()
+
+// Next to each other (one hotspot, no internet) or far apart (codes over a
+// messenger, the internet carries the video, no discovery server involved).
+const route = useRoute()
+const router = useRouter()
+const overInternet = ref(route.query.over === 'internet')
+pair.setInternet(overInternet.value)
+watch(overInternet, (v) => {
+  pair.setInternet(v)
+  router.replace({ query: v ? { over: 'internet' } : {} }).catch(() => {})
+})
+const relayReady = ref(hasRelay())
+function tipsFor(internet: boolean) {
+  return internet ? INTERNET_CONNECT_TIPS : OFFLINE_CONNECT_TIPS
+}
 const scanner = useQRScanner()
 const recording = useRecording()
 const wakeLock = useWakeLock()
@@ -316,8 +410,10 @@ function stopScan() {
 let localStream: MediaStream | null = null
 const invite = ref<{ label: string; code: string } | null>(null)
 const creatingInvite = ref(false)
-const viewerLinks = computed(() => pair.links.value.filter((l) => l.phase !== 'awaiting-reply'))
-const liveViewers = computed(() => pair.links.value.filter((l) => l.phase === 'connected').length)
+// Links this device sends the picture on: the camera's viewers, or — for a
+// viewer sharing onward — the devices watching through it.
+const viewerLinks = computed(() => pair.links.value.filter((l) => l.role === 'stream' && l.phase !== 'awaiting-reply'))
+const liveViewers = computed(() => viewerLinks.value.filter((l) => l.phase === 'connected').length)
 
 async function startStreaming() {
   uiError.value = null
@@ -341,11 +437,17 @@ async function startStreaming() {
   }
 }
 
+// What goes out on new links: the camera, or the picture we are relaying.
+function outgoingStream(): MediaStream | null {
+  return role.value === 'stream' ? localStream : remoteStream.value
+}
+
 async function newInvite() {
-  if (!localStream) return
+  const stream = outgoingStream()
+  if (!stream) return
   creatingInvite.value = true
   try {
-    const code = await pair.createInvite(localStream)
+    const code = await pair.createInvite(stream)
     const pendingLink = pair.links.value.find((l) => l.phase === 'awaiting-reply')
     invite.value = { label: pendingLink?.label ?? 'Viewer', code }
   } catch (err) {
@@ -366,8 +468,9 @@ async function acceptReply(text: string) {
 
 function scanReply() {
   // Scan with the camera that is already filming: phones often cannot open a
-  // second one, and the scan must not interrupt the broadcast.
-  scanFor(acceptReply, localStream ?? undefined)
+  // second one, and the scan must not interrupt the broadcast. (A relaying
+  // viewer's outgoing picture is not a camera: it opens its own.)
+  scanFor(acceptReply, role.value === 'stream' ? localStream ?? undefined : undefined)
 }
 
 // Mobile OSes end camera tracks on screen lock. Swap a fresh camera into every
@@ -403,7 +506,15 @@ function onVisibility() {
 const watchStep = ref<'get-invite' | 'show-reply' | 'live'>('get-invite')
 const reply = ref<string | null>(null)
 const remoteStream = computed(() => pair.remoteStream.value)
-const watchPhase = computed<LinkPhase>(() => pair.links.value[0]?.phase ?? 'closed')
+const watchLink = computed(() => pair.links.value.find((l) => l.role === 'watch') ?? null)
+const watchPhase = computed<LinkPhase>(() => watchLink.value?.phase ?? 'closed')
+// A viewer passing the picture on to further devices (off-grid chain).
+const relaying = ref(false)
+
+async function shareOnward() {
+  relaying.value = true
+  await newInvite()
+}
 const interrupted = ref(false)
 const watchTitle = computed(() => {
   if (watchPhase.value === 'connected') return interrupted.value ? 'Picture frozen — waiting for it to resume' : 'Connected — no internet involved'
@@ -447,7 +558,13 @@ function scanInvite() {
 
 async function pairAgain() {
   await queueRecording(stopRecordingNow)
-  pair.reset()
+  // Devices watching through us stay paired: they get the picture back as
+  // soon as we have it again.
+  if (relaying.value) {
+    for (const l of pair.links.value) if (l.role === 'watch') pair.closeLink(l.id)
+  } else {
+    pair.reset()
+  }
   reply.value = null
   interrupted.value = false
   watchStep.value = 'get-invite'
@@ -456,6 +573,8 @@ async function pairAgain() {
 // Show and record the incoming picture as soon as it arrives.
 watch(remoteStream, async (stream) => {
   if (!stream || role.value !== 'watch') return
+  // Pass a new upstream picture straight on to everyone watching through us.
+  if (relaying.value) await pair.replaceLocalStream(stream)
   watchStep.value = 'live'
   await nextTick()
   if (remoteVideo.value) remoteVideo.value.srcObject = stream
@@ -491,6 +610,32 @@ const stallTimer = window.setInterval(async () => {
 
 // --- both --------------------------------------------------------------------
 
+// Hand every signed recording on this device to the other one. The segment
+// being recorded right now is closed (and signed) first so it goes too;
+// recording carries on in a new segment.
+async function handOver(linkId: number) {
+  const stream = role.value === 'stream' ? localStream : remoteStream.value
+  if (recording.isRecording.value && stream) {
+    await queueRecording(async () => {
+      await stopRecordingNow()
+      await startRecordingOf(stream)
+    })
+  }
+  pair.sendRecordings(linkId)
+}
+
+function transferText(t: LinkTransfer | null): string {
+  if (!t) return ''
+  const parts: string[] = []
+  if (t.outgoing) parts.push(`sending ${t.outgoing.done}/${t.outgoing.total} s`)
+  if (t.sent) parts.push(`${t.sent} handed over ✓`)
+  else if (t.sending && !t.outgoing) parts.push(t.offered === 0 ? 'nothing signed to hand over yet' : 'offering…')
+  if (t.incoming) parts.push(`receiving ${t.incoming.done}/${t.incoming.total} s`)
+  if (t.received) parts.push(`${t.received} received ✓ verified`)
+  if (t.refused.length) parts.push(`refused: ${t.refused.join('; ')}`)
+  return parts.join(' · ')
+}
+
 async function restart() {
   stopScan()
   await queueRecording(stopRecordingNow)
@@ -500,6 +645,7 @@ async function restart() {
   invite.value = null
   reply.value = null
   interrupted.value = false
+  relaying.value = false
   wakeLock.release()
   role.value = null
   watchStep.value = 'get-invite'

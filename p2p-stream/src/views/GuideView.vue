@@ -16,8 +16,8 @@
           <span class="h-px flex-1 bg-line" />
           <span
             class="font-mono text-[10px] px-1.5 py-0.5 rounded"
-            :class="uc.status === 'now' ? 'bg-moss/10 text-moss' : 'bg-slate-500/10 text-slate-400'"
-          >{{ uc.status === 'now' ? 'WORKS NOW' : 'PLANNED' }}</span>
+            :class="STATUS[uc.status].class"
+          >{{ STATUS[uc.status].label }}</span>
         </div>
 
         <!-- retro technical topology diagram -->
@@ -131,7 +131,14 @@ function note(x: number, y: number, text: string, color: string, size = 9) {
   return `<text x="${x}" y="${y}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="${size}" fill="${color}">${text}</text>`
 }
 
-const cases = [
+type Status = 'now' | 'partial' | 'planned'
+const STATUS: Record<Status, { label: string; class: string }> = {
+  now: { label: 'WORKS NOW', class: 'bg-moss/10 text-moss' },
+  partial: { label: 'PARTLY NOW', class: 'bg-glow/10 text-glow' },
+  planned: { label: 'PLANNED', class: 'bg-slate-500/10 text-slate-400' },
+}
+
+const cases: { n: string; status: Status; title: string; body: string; svg: string }[] = [
   {
     n: '01',
     status: 'now',
@@ -148,7 +155,7 @@ const cases = [
     n: '02',
     status: 'now',
     title: 'One to many',
-    body: 'Share the room code with a group. Everyone who joins sees the same live stream and keeps their own independent recording, so there is no single copy to seize. You can see how many are watching and recording.',
+    body: 'Share the room code with a group. Everyone who joins sees the same live stream and keeps their own independent recording, so there is no single copy to seize. You can see how many are watching and recording. Past a couple of viewers, watchers pass the stream on to each other, so your phone’s upload stays small however many join.',
     svg: svg(
       person(80, 80, 'You', EMBER) +
         link(110, 66, 300, 42, GLOW) +
@@ -185,7 +192,7 @@ const cases = [
     n: '04',
     status: 'now',
     title: 'Relay to a safe place',
-    body: 'A friend watches nearby while their always-on home computer sits in the same room and archives the recording. If a phone at the scene is taken, the footage is already saved somewhere safe. Any trusted device left running can be the archive.',
+    body: 'A friend watches nearby and their phone forwards the stream to an always-on device at home, which records it. If a phone at the scene is taken, the footage is already saved somewhere safe. What a phone recorded while it could not reach home follows later — and with no internet at all, recordings can be handed to someone leaving the scene, or sent as a file over AirDrop, Quick Share or Bluetooth. Every copy is checked against its signature when it arrives.',
     svg: svg(
       person(70, 62, 'You', EMBER) +
         link(100, 52, 205, 52, GLOW, false, 'live') +
@@ -193,22 +200,63 @@ const cases = [
         link(265, 52, 395, 52, MOSS, false, 'forwarded') +
         home(435, 54, 'Home PC', MOSS) +
         note(235, 118, 'phone can be seized', '#fb7185') +
-        note(435, 100, 'copy is safe here', '#6ee7b7'),
-      132,
+        note(435, 100, 'copy is safe here', '#6ee7b7') +
+        note(335, 140, 'later: recordings, checked on arrival', '#64748b'),
+      152,
     ),
   },
   {
     n: '05',
-    status: 'planned',
-    title: 'Off-grid mesh (planned, native app)',
-    body: 'When Wi-Fi and mobile data are both jammed, a future native build could fall back to a phone-to-phone mesh that pairs over Bluetooth and carries video over device-to-device Wi-Fi (Android Nearby Connections / iOS MultipeerConnectivity). Bluetooth alone is too slow for video, so this needs the native app — not the web version.',
+    status: 'partial',
+    title: 'Off-grid mesh',
+    body: 'No internet and no mobile data at all. Works now: phones on one hotspot pair face to face, and any viewer can “Share onward”, so the picture passes from phone to phone to people out of the filming phone’s reach, while each keeps a signed copy. Recordings can be handed from phone to phone the same way, checked on arrival. Planned for native apps: finding each other over Bluetooth and sending video over direct phone-to-phone Wi-Fi, with no hotspot at all.',
     svg: svg(
-      person(80, 62, 'You', EMBER) +
-        link(108, 52, 222, 52, '#64748b', true, 'BT pair') +
-        person(250, 62, 'F1', GLOW) +
-        link(278, 52, 402, 52, MOSS, true, 'wi-fi direct') +
-        person(430, 62, 'F2', GLOW) +
-        note(255, 118, 'no internet · no access point', '#64748b'),
+      `<rect x="40" y="30" width="440" height="90" rx="10" fill="none" stroke="${GLOW}" stroke-width="1.2" stroke-dasharray="5 4"/>` +
+        note(100, 46, 'one hotspot', GLOW, 10) +
+        person(90, 78, 'You', EMBER) +
+        link(118, 68, 222, 68, GLOW, false, 'code-paired') +
+        person(250, 78, 'F1', GLOW) +
+        link(278, 68, 402, 68, GLOW, false, 'share onward') +
+        person(430, 78, 'F2', GLOW) +
+        note(260, 140, 'planned (native): Bluetooth pairing + Wi-Fi Direct, no hotspot', '#64748b'),
+      152,
+    ),
+  },
+  {
+    n: '06',
+    status: 'now',
+    title: 'When the website is blocked or seized',
+    body: 'The whole app is one file. Pass it on by AirDrop, Bluetooth, a messenger or a USB stick: it opens straight from the file on a computer, and anyone can put it on any website or IPFS as a mirror. Installed copies never update silently — an update must be signed by the developers, and an unsigned one (as a new owner of the domain would publish) raises a warning instead. And if the servers that introduce devices are blocked, pair by messenger: two codes over Signal or SMS, no server at all.',
+    svg: svg(
+      `<rect x="54" y="40" width="30" height="38" rx="3" fill="none" stroke="${EMBER}" stroke-width="1.6"/>` +
+        note(69, 64, 'html', EMBER, 9) +
+        note(69, 104, 'one file', '#9fb0d0', 11) +
+        link(96, 58, 196, 40, GLOW, false, 'AirDrop / USB') +
+        link(96, 62, 196, 96, GLOW, false, 'messenger') +
+        person(226, 50, 'F1', GLOW) +
+        person(226, 106, 'F2', GLOW) +
+        link(256, 40, 386, 58, MOSS, true, 'upload') +
+        home(426, 50, 'mirror', MOSS) +
+        note(300, 150, 'no website needed · updates must be signed', '#64748b'),
+      162,
+    ),
+  },
+  {
+    n: '07',
+    status: 'now',
+    title: 'Reach everyone: amplify',
+    body: 'Peer-to-peer reaches people with the app and the code. To reach everyone, any device can push the stream to a broadcast server (WHIP — your own MediaMTX, Owncast, Cloudflare Stream…), which shows it on the open web, no app needed. It does not have to be you: someone watching from a country where the server is reachable can amplify for you, so your phone uploads one stream.',
+    svg: svg(
+      person(60, 62, 'You', EMBER) +
+        link(88, 52, 186, 52, GLOW, false, 'p2p') +
+        person(214, 62, 'Friend', GLOW) +
+        note(214, 110, 'abroad', '#64748b') +
+        link(242, 52, 330, 52, MOSS, false, 'WHIP') +
+        home(360, 54, 'server', MOSS) +
+        link(384, 48, 470, 30, MOSS, true) +
+        link(384, 56, 470, 56, MOSS, true) +
+        link(384, 64, 470, 82, MOSS, true) +
+        note(440, 110, 'anyone, any browser', '#6ee7b7'),
       132,
     ),
   },
@@ -242,15 +290,17 @@ const openApp: Record<Platform, string[]> = {
     'Open undepressable in Safari on your iPhone.',
     'Tap the Share button, then “Add to Home Screen”, so it opens full-screen like a normal app.',
     'Launch it from your Home Screen. Allow the camera and microphone if it asks.',
+    'Do this while you have internet: afterwards it opens with no connection at all — even if the website is gone.',
   ],
   android: [
     'Open undepressable in Chrome on your Android phone.',
     'Accept Chrome’s “Install app” prompt (or menu → “Add to Home screen”).',
     'Launch it from your app drawer. Allow the camera and microphone if it asks.',
+    'Do this while you have internet: afterwards it opens with no connection at all — even if the website is gone.',
   ],
   desktop: [
     'Open undepressable in Chrome, Edge or Firefox.',
-    'Optional: click the install icon in the address bar to run it in its own window.',
+    'Optional: click the install icon in the address bar to run it in its own window — it then opens with no connection, even if the website is gone. (There is also a browser-extension build that carries its own copy of the app.)',
     'Allow the camera and microphone if it asks (only needed if this device will stream).',
   ],
 }
@@ -283,7 +333,8 @@ const walks: Record<string, Walk> = {
           'Scan your QR, paste your link, or type the room code.',
           'Their device starts watching and automatically records a signed copy.',
           'The copy stays under Recordings, even if the connection drops.',
-          'If it doesn’t connect, the status card says why. A VPN on one side and mobile data on the other usually need a relay: tap “Set up a relay” (one side is enough, and it travels inside your link).',
+          'If it doesn’t connect, the status card says why. A VPN on one side and mobile data on the other usually need a relay: tap “Set up a relay” (one side is enough, and it travels inside your link). No relay of your own? The app can test free public ones on your network and use those that answer.',
+          'If the network blocks the servers that introduce devices, the card offers “Pair by messenger”: swap two codes over any chat app instead of the room code.',
         ],
       },
     ],
@@ -329,6 +380,7 @@ const walks: Record<string, Walk> = {
           'Join the host’s hotspot Wi-Fi first.',
           'Go to Collect and scan the QR or type the code — this still needs a little internet to introduce the two devices.',
           'If the internet is gone completely, use “Pair face to face” instead: scan the filming phone’s code (or paste it if they sent it as text), then let them read your reply. The filming phone can add several viewers this way, and sees who is recording a copy.',
+          'Out of range, or the hotspot is full? Someone already watching taps “Share onward” and you pair with them instead.',
         ],
       },
     ],
@@ -362,22 +414,98 @@ const walks: Record<string, Walk> = {
           'If your phone is taken, the footage is already safe at home.',
         ],
       },
+      {
+        who: 'Afterwards — anything that didn’t make it home',
+        steps: [
+          'Back online: Recordings → “Send to home now” (the home device must have its Home archive screen open). Only what is missing is sent, and each second is checked at home.',
+          'No internet: Recordings → share icon → AirDrop, Quick Share, Bluetooth or a USB stick. On the other device: Recordings → Import checks it.',
+        ],
+      },
     ],
   },
   '05': {
     caveat: {
-      ios: 'Planned for the native iPhone app (MultipeerConnectivity). The web version can’t do this yet.',
-      android: 'Planned for the native Android app (Nearby Connections / Wi-Fi Aware). The web version can’t do this yet.',
-      desktop: 'Not applicable — this is a phone-to-phone mode for when there’s no network at all.',
+      ios: 'Works now in the app over a Personal Hotspot. Pairing over Bluetooth and video over direct phone-to-phone Wi-Fi (no hotspot) are planned for a native iPhone app.',
+      android: 'Works now in the app over a hotspot. Pairing over Bluetooth and video over Wi-Fi Direct (no hotspot) are planned for a native Android app.',
+      desktop: 'A laptop can take part in a chain like a phone — join the same hotspot.',
     },
     roles: [
       {
-        who: 'How it will work (not built yet)',
+        who: 'The person filming',
         steps: [
-          'Install the native app — not the web version.',
-          'Open it near the people you’re streaming to.',
-          'It pairs with nearby phones over Bluetooth, then carries the video over device-to-device Wi-Fi.',
-          'No internet and no Wi-Fi router needed. Bluetooth alone is too slow for video, which is why this needs the native build.',
+          'Turn on your Personal Hotspot and have the people next to you join it (or all join one phone’s hotspot).',
+          'Open “Pair face to face” → I’m filming, and pair with one or two people nearby: they read your code, you read their reply.',
+        ],
+      },
+      {
+        who: 'Someone watching who can pass it on',
+        steps: [
+          'Pair with the filming phone: “Pair face to face” → I’m receiving.',
+          'Tap “Share onward”. People further away pair with you the same way and get the picture through you.',
+          'If you lose the filming phone and pair again, the people watching through you stay paired and get the picture back.',
+        ],
+      },
+      {
+        who: 'Getting footage out',
+        steps: [
+          'On any paired link, “Hand over my recordings” copies every signed recording on this device to the other one — give it to someone who is leaving.',
+          'Or: Recordings → share icon → AirDrop, Quick Share, Bluetooth. The receiver checks it under Recordings → Import.',
+          'Once any phone is back online with a paired home archive: Recordings → “Send to home now”.',
+        ],
+      },
+    ],
+  },
+  '06': {
+    caveat: {
+      ios: 'An iPhone cannot run the app from a file (Files only previews it). Keep the installed app, or open a mirror someone hosts.',
+      android: 'Opening the file from a file manager is unreliable on Android (no camera). Open a mirror, or serve the file with a file-server app.',
+      desktop: 'Chrome and Edge run the file straight from disk — camera, streaming and recording included. (Tor Browser turns WebRTC off, so it can show the app but not stream.)',
+    },
+    roles: [
+      {
+        who: 'Keep and pass on the app',
+        steps: [
+          'Home → “Pass the app on” → Share the app… (AirDrop, Bluetooth, messenger) or Save the file.',
+          'On a computer, open the file in Chrome or Edge. Or upload it anywhere as index.html — a subfolder, IPFS, anyone’s website — and share that address: it is a full mirror.',
+          'The browser extension is another copy the website cannot change.',
+        ],
+      },
+      {
+        who: 'If the app warns about an unsigned update',
+        steps: [
+          'Don’t install it: the website may have been taken over.',
+          'Before closing the app, save or send your recordings, and keep a copy of the app from a source you trust.',
+          'Network → “This copy of the app” shows the build and fingerprint to compare with published releases.',
+        ],
+      },
+      {
+        who: 'If devices can’t find each other (“can’t reach any discovery server”)',
+        steps: [
+          'Open “Pair by messenger” (Home, or the button on the status card).',
+          'Send your invite code over Signal, WhatsApp, SMS or e-mail; paste the reply code they send back within a few minutes.',
+          'The video goes straight between the devices — or through your relay; no discovery server is involved.',
+        ],
+      },
+    ],
+  },
+  '07': {
+    caveat: {
+      desktop: 'A computer on a good connection is the best amplifier: it re-sends the stream once to the server, which serves everyone else.',
+    },
+    roles: [
+      {
+        who: 'Whoever runs the broadcast server',
+        steps: [
+          'Set up a WHIP ingest — e.g. MediaMTX (open source, one binary) or a hosted service — and note its WHIP address and token.',
+          'Give the address and token only to the people who should publish to it.',
+        ],
+      },
+      {
+        who: 'The amplifier (you, or a friend watching)',
+        steps: [
+          'While streaming: open the share sheet → “Amplify — broadcast to a server”. While watching: the same panel under the player.',
+          'Paste the WHIP address and token → Start broadcasting. It reconnects by itself if the connection drops.',
+          'The server sees the video — use one you trust. “Always use the relay” (Network) hides your address from it.',
         ],
       },
     ],

@@ -95,8 +95,16 @@ export type TrysteroStrategy = "torrent" | "nostr" | "mqtt" | "both";
 
 // Trystero's action send/receive tuple. `send(data, targetPeers?)`; `receive`
 // fires per incoming message with the sender's peer id.
-type ActionSend = (data: unknown, targetPeers?: string | string[]) => void;
-type ActionReceive = (cb: (data: unknown, peerId: string) => void) => void;
+// Binary payloads may carry a small JSON `meta` object alongside.
+type ActionSend = (data: unknown, targetPeers?: string | string[], meta?: Record<string, unknown>) => unknown;
+type ActionReceive = (cb: (data: unknown, peerId: string, meta?: unknown) => void) => void;
+
+/** A feature's own data channel over the room (see addChannel). */
+export interface RoomChannel {
+  /** Send to one peer over the transport that carries it; resolves once handed to the connection. */
+  send(data: unknown, peerId: string, meta?: Record<string, unknown>): Promise<boolean>;
+  remove(): void;
+}
 
 export interface TrysteroRoom {
   selfId: string;
@@ -169,6 +177,15 @@ export function useTrystero() {
   const forwardingTo = new Set<string>();
   let remoteStreamForTree: MediaStream | null = null;
   let treeSenders: { send: ActionSend; room: TrysteroRoom }[] = [];
+
+  // Channels added by features built on top of a room (recording sync).
+  // They outlive re-joins: every room opened later is wired up too.
+  interface ExtraChannel {
+    onData: (data: unknown, peerId: string, meta?: unknown) => void;
+    onPeerJoin?: (peerId: string) => void;
+    senders: Map<TrysteroRoom, ActionSend>;
+  }
+  const extraChannels = new Map<string, ExtraChannel>();
   const relayingToCount = computed(() => myTreeChildren.value.length);
 
   const peerCount = computed(() => peers.value.size);
@@ -360,6 +377,8 @@ export function useTrystero() {
       if (!isStale(roomInstance, strategy)) handleTreeMsg(data, peerId);
     });
 
+    for (const [name, ch] of extraChannels) wireChannel(roomInstance, strategy, name, ch);
+
     roomInstance.onPeerJoin((peerId: string) => {
       if (isStale(roomInstance, strategy)) {
         console.log(`[Trystero] Closing late connection to ${peerId} on a room we already left`);
@@ -372,7 +391,8 @@ export function useTrystero() {
       }
       console.log(`[Trystero] Peer joined via ${strategy}: ${peerId}`);
       addMember(routes, strategy, peerId);
-      if (!peers.value.has(peerId)) {
+      const isNewPeer = !peers.value.has(peerId);
+      if (isNewPeer) {
         peers.value.set(peerId, {
           id: peerId,
           displayName: `${role === "streamer" ? "Collector" : "Streamer"} ${peerId.slice(0, 6)}`,
@@ -380,6 +400,13 @@ export function useTrystero() {
           connectionState: "connected",
           joinedAt: new Date(),
         });
+        for (const ch of extraChannels.values()) {
+          try {
+            ch.onPeerJoin?.(peerId);
+          } catch (err) {
+            console.warn("[Trystero] channel peer-join handler failed:", err);
+          }
+        }
       }
 
       // Announce who we are BEFORE issuing any tree instruction: a watcher
@@ -446,6 +473,47 @@ export function useTrystero() {
       }
       onStreamReceived.value?.(receivedStream, peerId);
     });
+  }
+
+  // --- feature channels ---
+
+  function wireChannel(room: TrysteroRoom, strategy: string, name: string, ch: ExtraChannel) {
+    const [send, receive] = room.makeAction(name) as unknown as [ActionSend, ActionReceive];
+    ch.senders.set(room, send);
+    receive((data, peerId, meta) => {
+      if (!isStale(room, strategy) && extraChannels.get(name) === ch) ch.onData(data, peerId, meta);
+    });
+  }
+
+  /**
+   * Open a named data channel (at most 12 bytes) on every room, now and after
+   * re-joins. `onPeerJoin` fires once per newly connected peer — and right
+   * away for peers already connected. A send goes once, over the transport
+   * that carries that peer, and resolves after Trystero's flow control let it
+   * through, so awaiting sends paces a bulk transfer.
+   */
+  function addChannel(
+    name: string,
+    handlers: { onData: (data: unknown, peerId: string, meta?: unknown) => void; onPeerJoin?: (peerId: string) => void },
+  ): RoomChannel {
+    const ch: ExtraChannel = { ...handlers, senders: new Map() };
+    extraChannels.set(name, ch);
+    rooms.value.forEach((room, strategy) => wireChannel(room, strategy, name, ch));
+    for (const peerId of peers.value.keys()) handlers.onPeerJoin?.(peerId);
+    return {
+      async send(data, peerId, meta) {
+        const strategy = transportStrategyFor(peerId);
+        const room = strategy ? rooms.value.get(strategy as TrysteroStrategy) : undefined;
+        const send = room ? ch.senders.get(room) : undefined;
+        if (!send) return false;
+        const result = send(data, peerId, meta);
+        await Promise.all(Array.isArray(result) ? result : [result]);
+        return true;
+      },
+      remove() {
+        if (extraChannels.get(name) === ch) extraChannels.delete(name);
+      },
+    };
   }
 
   // --- stat broadcasting ---
@@ -722,6 +790,7 @@ export function useTrystero() {
     controlGate.clear();
     statSenders = [];
     treeSenders = [];
+    for (const ch of extraChannels.values()) ch.senders.clear();
     tree = createTree();
     myParent.value = null;
     myTreeChildren.value = [];
@@ -832,6 +901,7 @@ export function useTrystero() {
     updateStream,
     setRecording,
     setOnStreamReceived,
+    addChannel,
     sampleInboundVideo,
     getRelayHealth,
     getStrategyStatus,

@@ -18,6 +18,11 @@
           <span class="text-sm font-medium">{{ formatDuration(recordingDuration) }}</span>
         </div>
 
+        <!-- Also going out to a broadcast server -->
+        <div v-if="amplify.state.value === 'live'" class="absolute top-16 left-4 flex items-center gap-1.5 px-2.5 py-1 bg-moss/80 rounded-full text-xs text-ink font-medium">
+          <span class="w-1.5 h-1.5 rounded-full bg-ink" /> Broadcasting to server
+        </div>
+
         <!-- Live swarm counts -->
         <div class="absolute top-4 right-4 flex gap-2">
           <div class="px-3 py-1.5 bg-primary-600/90 rounded-full flex items-center gap-1.5" title="People watching your stream">
@@ -139,7 +144,9 @@
           </button>
         </div>
 
-        <div class="flex-1 flex flex-col items-center justify-center p-6 space-y-6">
+        <!-- Scrolls on small screens: everything below must stay reachable. -->
+        <div class="flex-1 overflow-y-auto">
+        <div class="min-h-full flex flex-col items-center justify-center p-6 space-y-6">
           <!-- QR Code -->
           <div class="bg-white p-6 rounded-xl">
             <canvas ref="qrCanvas" class="w-60 h-60" />
@@ -202,16 +209,20 @@
             Share
           </button>
 
+          <!-- Beyond the app: a broadcast server for everyone else -->
+          <AmplifyPanel :amp="amplify" :stream="localStream" role="streamer" class="w-full max-w-md" />
+
           <!-- Instructions -->
           <div class="text-center text-sm text-gray-400 max-w-sm">
             <p>Share this code or QR with collectors to join your stream.</p>
             <p class="mt-2">BitTorrent, Nostr and MQTT are all used for maximum reliability.</p>
           </div>
         </div>
+        </div>
       </div>
     </Teleport>
 
-    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" @saved="onRelaySaved" @share-changed="settingsTick++" />
+    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" :show-stun="diag.natKind.value === 'blocked'" @saved="onRelaySaved" @share-changed="settingsTick++" />
   </div>
 </template>
 
@@ -225,11 +236,14 @@ import { useWakeLock } from '../composables/useWakeLock'
 import { useConnectionDiagnosis } from '../composables/useConnectionDiagnosis'
 import { generateShortRoomId } from '../utils/roomId'
 import { resolveShareBase, buildCollectUrl, getConfiguredPublicUrl } from '../lib/net/shareLink'
+import { appBase, usesHashRoutes } from '../lib/appLocation'
 import { relayShareParams } from '../lib/net/iceConfig'
 import { discoveryShareParams } from '../lib/net/discoveryConfig'
 import type { DiagnosisAction } from '../lib/net/diagnosis'
 import ConnectionDoctor from '../components/ConnectionDoctor.vue'
 import RelaySetup from '../components/RelaySetup.vue'
+import AmplifyPanel from '../components/AmplifyPanel.vue'
+import { useAmplify } from '../composables/useAmplify'
 import { RouterLink } from 'vue-router'
 import QRCode from 'qrcode'
 
@@ -242,6 +256,7 @@ const localIP = useLocalIP()
 const videoPreview = ref<HTMLVideoElement>()
 const qrCanvas = ref<HTMLCanvasElement>()
 const localStream = ref<MediaStream | null>(null)
+const amplify = useAmplify(localStream)
 const STRATEGY_LABELS: Record<string, string> = {
   torrent: '🌊 BitTorrent',
   nostr: '🐦 Nostr',
@@ -287,6 +302,7 @@ function onDoctorAction(action: DiagnosisAction) {
   else if (action === 'test-relay') openRelay(true)
   else if (action === 'retry') restartRoom()
   else if (action === 'pair-offline') router.push('/offline')
+  else if (action === 'pair-messenger') router.push('/offline?over=internet')
 }
 
 // Relay settings only apply to connections made after them: re-open the
@@ -309,7 +325,8 @@ async function restartRoom() {
 const shareBase = computed(() => {
   void settingsTick.value
   return resolveShareBase({
-    origin: window.location.origin,
+    origin: appBase(),
+    hashRoutes: usesHashRoutes(),
     configured: getConfiguredPublicUrl(),
     envPublicUrl: (import.meta as any).env?.VITE_PUBLIC_URL ?? null,
     lanIp: localIP.localIP.value || null,
@@ -320,7 +337,7 @@ const linkParams = computed(() => {
   return { ...relayShareParams(), ...discoveryShareParams() }
 })
 const relayInLink = computed(() => 'turn' in linkParams.value || 'ice' in linkParams.value)
-const shareUrl = computed(() => (roomCode.value ? buildCollectUrl(shareBase.value.base, roomCode.value, linkParams.value) : ''))
+const shareUrl = computed(() => (roomCode.value ? buildCollectUrl(shareBase.value.base, roomCode.value, linkParams.value, shareBase.value.hash) : ''))
 
 onMounted(async () => {
   // Generate room code

@@ -302,6 +302,9 @@
         <p v-if="remoteStream && !isRecording && !savedRecording" class="text-sm text-center text-gray-500">
           Auto-recording when stream starts
         </p>
+
+        <!-- Pass it on to a broadcast server (e.g. from where the server isn't blocked) -->
+        <AmplifyPanel v-if="remoteStream" :amp="amplify" :stream="remoteStream" role="viewer" />
       </div>
 
       <!-- Saved Recording Info -->
@@ -351,7 +354,7 @@
 
     <!-- Debug Modal -->
     <DebugModal ref="debugModal" />
-    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" @saved="onRelaySaved" />
+    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" :show-stun="diag.natKind.value === 'blocked'" @saved="onRelaySaved" />
   </div>
 </template>
 
@@ -374,6 +377,8 @@ import { useConnectionDiagnosis } from '../composables/useConnectionDiagnosis'
 import DebugModal from '../components/DebugModal.vue'
 import ConnectionDoctor from '../components/ConnectionDoctor.vue'
 import RelaySetup from '../components/RelaySetup.vue'
+import AmplifyPanel from '../components/AmplifyPanel.vue'
+import { useAmplify } from '../composables/useAmplify'
 import { useRouter } from 'vue-router'
 
 const qrScanner = useQRScanner()
@@ -402,6 +407,7 @@ const qrVideo = ref<HTMLVideoElement>()
 const qrCanvas = ref<HTMLCanvasElement>()
 const debugModal = ref<InstanceType<typeof DebugModal>>()
 const remoteStream = ref<MediaStream | null>(null)
+const amplify = useAmplify(remoteStream)
 const inputRoomCode = ref('')
 const isConnected = ref(false)
 const isConnecting = ref(false)
@@ -467,6 +473,8 @@ function onDoctorAction(action: DiagnosisAction) {
     enterAnotherCode()
   } else if (action === 'pair-offline') {
     router.push('/offline')
+  } else if (action === 'pair-messenger') {
+    router.push('/offline?over=internet')
   } else if (action === 'retry') {
     retryConnection()
   }

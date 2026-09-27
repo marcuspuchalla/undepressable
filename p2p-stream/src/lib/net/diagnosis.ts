@@ -10,7 +10,7 @@
 
 import type { AttemptRecord, ConnectionReport, PathKind } from "./connectionMonitor";
 import { PEER_TUNING } from "./peerPolicy";
-import { describeRelayError } from "./natProbe";
+import { describeRelayError, type NatKind } from "./natProbe";
 
 export type DiagnosisCode =
   | "offline"
@@ -24,9 +24,10 @@ export type DiagnosisCode =
   | "blocked-no-relay"
   | "relay-unreachable"
   | "relay-rejected"
-  | "failed-with-relay";
+  | "failed-with-relay"
+  | "strict-network";
 
-export type DiagnosisAction = "setup-relay" | "test-relay" | "check-code" | "retry" | "pair-offline";
+export type DiagnosisAction = "setup-relay" | "test-relay" | "check-code" | "retry" | "pair-offline" | "pair-messenger";
 
 export interface Diagnosis {
   code: DiagnosisCode;
@@ -54,6 +55,8 @@ export interface DiagnosisInput {
   relayConfigured: boolean;
   relayHealth: { open: number; total: number } | null;
   online: boolean;
+  /** This device's network, from a quick STUN check (null: not measured yet). */
+  natKind?: NatKind | null;
 }
 
 export interface AttemptSummary {
@@ -70,6 +73,7 @@ export interface AttemptSummary {
 const SEARCH_PATIENCE_MS = 25_000;
 const SIGNALING_GRACE_MS = 6000;
 const RELAY_GRACE_MS = 8000;
+const STRICT_HINT_AFTER_MS = 10_000;
 
 function isNegotiating(a: AttemptRecord, now: number): boolean {
   return a.outcome === "pending" && a.connectedAt === null && now - a.remoteAt < PEER_TUNING.negotiationWindowMs;
@@ -292,8 +296,8 @@ export function diagnose(input: DiagnosisInput): Diagnosis {
       level: "error",
       title: "Can't reach any discovery server",
       detail:
-        "This network seems to block the servers devices use to find each other. Try another network (or switch the VPN off/on) — or, if you are next to each other, pair face to face.",
-      action: "pair-offline",
+        "This network seems to block the servers devices use to find each other. You don't need them: swap two codes over any messenger and connect directly — or try another network.",
+      action: "pair-messenger",
       blockedPeers: 0,
     };
   }
@@ -305,6 +309,24 @@ export function diagnose(input: DiagnosisInput): Diagnosis {
       title: "Your relay isn't answering",
       detail: "Direct connections still work, but devices behind strict NAT won't reach you. Test the relay settings.",
       action: "test-relay",
+      blockedPeers: 0,
+    };
+  }
+
+  // Seen before anything fails: this network cannot reach other strict
+  // networks without a relay. The streamer hears it while waiting for
+  // viewers; a viewer only once the search is taking a while.
+  const strict = !input.relayConfigured && (input.natKind === "hard" || input.natKind === "blocked");
+  if (strict && (role !== "collector" || elapsed > STRICT_HINT_AFTER_MS)) {
+    const blockedUdp = input.natKind === "blocked";
+    return {
+      code: "strict-network",
+      level: "warn",
+      title: blockedUdp ? "This network blocks direct connections" : "Strict network detected — VPN or mobile data?",
+      detail: blockedUdp
+        ? "No STUN server answered over UDP, so only a relay reachable over TCP/TLS can connect you. Try a free public relay, more STUN servers, or add your own relay."
+        : `Devices on similar networks (VPNs, mobile carriers) can't connect to this one directly. A relay fixes that — try a free public one, or add your own. ${role === "collector" ? "The streamer may still be reachable directly." : "Viewers on ordinary networks can still connect."}`,
+      action: "setup-relay",
       blockedPeers: 0,
     };
   }
