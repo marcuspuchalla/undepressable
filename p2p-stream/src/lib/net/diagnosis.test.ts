@@ -175,10 +175,10 @@ describe("diagnose — collector states", () => {
     expect(long.action).toBe("check-code");
   });
 
-  it("flags dead discovery servers and points to face-to-face pairing", () => {
+  it("flags dead discovery servers and points to pairing by messenger, which needs none", () => {
     const d = diagnose(input({ relayHealth: { open: 0, total: 8 } }));
     expect(d.code).toBe("no-signaling");
-    expect(d.action).toBe("pair-offline");
+    expect(d.action).toBe("pair-messenger");
   });
 
   it("offline beats everything", () => {

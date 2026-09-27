@@ -145,3 +145,73 @@ describe("offline signal envelope", () => {
     await expect(decodeSignal("UND2AAAA")).rejects.toThrow(/damaged|version/);
   });
 });
+
+// A data-channel offer gathered with STUN and TURN configured: host, public
+// (srflx) and relay candidates, as Chrome writes them.
+const DC_OFFER_INTERNET = DC_OFFER.replace(
+  "a=ice-ufrag:x6Ls",
+  [
+    "a=candidate:842163049 1 udp 1686052607 203.0.113.7 61001 typ srflx raddr 192.168.43.12 rport 54107 generation 0 network-id 1",
+    "a=candidate:842163050 1 udp 1686052351 203.0.113.7 61002 typ srflx raddr 192.168.43.12 rport 54111 generation 0 network-id 1",
+    "a=candidate:1908491021 1 udp 41885439 198.51.100.20 49170 typ relay raddr 203.0.113.7 rport 61001 generation 0 network-id 1",
+    "a=ice-ufrag:x6Ls",
+  ].join("\r\n"),
+);
+
+describe("codes for pairing across the internet (v3)", () => {
+  it("local codes ignore public and relay addresses and stay version 2", () => {
+    const d = extractCompact(DC_OFFER_INTERNET, "offer")!;
+    expect(d.candidates.every((c) => !c.type)).toBe(true);
+    expect(packCompact(d)[0]).toBe(2);
+  });
+
+  it("keeps relay and public addresses first, then local ones", () => {
+    const d = extractCompact(DC_OFFER_INTERNET, "offer", { internet: true })!;
+    expect(d.candidates.slice(0, 3)).toEqual([
+      { address: "198.51.100.20", port: 49170, type: "relay" },
+      { address: "203.0.113.7", port: 61001, type: "srflx" },
+      { address: "203.0.113.7", port: 61002, type: "srflx" },
+    ]);
+    // Local ones follow (same Wi-Fi still wins); link-local IPv6 is dropped.
+    expect(d.candidates.filter((c) => !c.type).map((c) => c.address)).toEqual([
+      "192.168.43.12",
+      "2a02:810a:83c0:1::7",
+      "1f4712db-ea17-4bcf-a596-105139dfd8bf.local",
+    ]);
+  });
+
+  it("round-trips as version 3 and stays short enough for a chat message or a QR code", () => {
+    const d = extractCompact(DC_OFFER_INTERNET, "offer", { internet: true })!;
+    const bytes = packCompact(d);
+    expect(bytes[0]).toBe(3);
+    expect(unpackCompact(bytes)).toEqual(d);
+    expect(("UND2" + toBase64Url(bytes)).length).toBeLessThan(200);
+  });
+
+  it("rebuilds candidates with their type, related address and a type-ordered priority", () => {
+    const d = extractCompact(DC_OFFER_INTERNET, "offer", { internet: true })!;
+    const lines = buildSdp(d).split("\r\n").filter((l) => l.startsWith("a=candidate:"))
+    const relay = lines.find((l) => / typ relay /.test(l))!
+    const srflx = lines.find((l) => / typ srflx /.test(l))!
+    const host = lines.find((l) => / typ host /.test(l))!
+    expect(relay).toMatch(/198\.51\.100\.20 49170 typ relay raddr 0\.0\.0\.0 rport 0/)
+    const prio = (l: string) => Number(l.split(" ")[3])
+    expect(prio(host)).toBeGreaterThan(prio(srflx))
+    expect(prio(srflx)).toBeGreaterThan(prio(relay))
+  });
+
+  it("a relay-only offer (\"always use the relay\") still packs", () => {
+    const relayOnly = DC_OFFER_INTERNET.split("\r\n").filter((l) => !l.startsWith("a=candidate:") || / typ relay /.test(l)).join("\r\n");
+    const d = extractCompact(relayOnly, "offer", { internet: true })!;
+    expect(d.candidates).toEqual([{ address: "198.51.100.20", port: 49170, type: "relay" }]);
+    expect(extractCompact(relayOnly, "offer")).toBeNull(); // nothing usable locally
+  });
+
+  it("the envelope carries internet codes and older local ones alike", async () => {
+    const code = await encodeSignal({ v: 2, t: "offer", s: DC_OFFER_INTERNET }, { internet: true });
+    const back = await decodeSignal(code);
+    expect(back.s).toMatch(/typ relay/);
+    const local = await encodeSignal({ v: 2, t: "offer", s: DC_OFFER_INTERNET });
+    expect((await decodeSignal(local)).s).not.toMatch(/typ (relay|srflx)/);
+  });
+});

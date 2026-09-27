@@ -12,7 +12,8 @@
 // Scenarios: open, blocked, relay-link, relay-one-side, relay-rejected,
 // public-relay, relay-added-live, crowd, crowd-large, internet-drops,
 // offline-two-viewers, offline-isolated, archive, evidence-file, home-sync,
-// offline-handover, offline-chain, offline-chain-repair.
+// offline-handover, offline-chain, offline-chain-repair, messenger-pair,
+// messenger-pair-late.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
@@ -519,8 +520,34 @@ Object.assign(scenarios, {
     return [ok, `C first video ${first}s; B saw the loss: ${lostSeen}; after B re-paired with a new filming phone, C decoded ${moving} frames in 3 s without re-pairing`]
   },
 })
+// Discovery blocked AND the two networks strict: codes go over a messenger
+// (pasted here), the relay on one side carries the video.
+async function messengerPair(replyDelayMs) {
+  const A = await newPage({ ...turn(), undepressable_nostr_relays: JSON.stringify(['ws://127.0.0.1:9']) })
+  await A.goto(`${APP}/offline`)
+  await A.locator('[data-testid=mode-internet]').click()
+  await A.getByText("I'm filming").click()
+  await A.waitForSelector('[data-testid=pair-code]', { timeout: 20000 })
+  const invite = await codeOf(A)
+  // The viewer opens the ordinary face-to-face screen: the code itself says it came over the internet.
+  const B = await newPage({ undepressable_nostr_relays: JSON.stringify(['ws://127.0.0.1:9']) })
+  await B.goto(`${APP}/offline`)
+  await B.getByText("I'm receiving").click()
+  await pasteCode(B, invite)
+  await B.waitForSelector('[data-testid=pair-code]', { timeout: 20000 })
+  const reply = await codeOf(B)
+  if (replyDelayMs) await B.waitForTimeout(replyDelayMs)
+  await pasteCode(A, reply)
+  // Direct UDP between the two is dropped here, so any video came through the relay.
+  const s = await videoWithin(B, 30000)
+  return [s !== null, `invite ${invite.length} chars (${/^UND2/.test(invite) ? 'compact' : 'full'}), reply ${reply.length} chars; reply pasted after ${replyDelayMs / 1000}s; video ${s}s via the relay`]
+}
+Object.assign(scenarios, {
+  'messenger-pair': () => messengerPair(0),
+  'messenger-pair-late': () => messengerPair(90_000),
+})
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']
-const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'offline-isolated'])
+const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'offline-isolated', 'messenger-pair', 'messenger-pair-late'])
 
 relayProcess = startHelper('nostr-relay.mjs', '7777')
 startHelper('turn-server.mjs', HOST_IP)

@@ -27,7 +27,7 @@ export type DiagnosisCode =
   | "failed-with-relay"
   | "strict-network";
 
-export type DiagnosisAction = "setup-relay" | "test-relay" | "check-code" | "retry" | "pair-offline";
+export type DiagnosisAction = "setup-relay" | "test-relay" | "check-code" | "retry" | "pair-offline" | "pair-messenger";
 
 export interface Diagnosis {
   code: DiagnosisCode;
@@ -296,8 +296,8 @@ export function diagnose(input: DiagnosisInput): Diagnosis {
       level: "error",
       title: "Can't reach any discovery server",
       detail:
-        "This network seems to block the servers devices use to find each other. Try another network (or switch the VPN off/on) — or, if you are next to each other, pair face to face.",
-      action: "pair-offline",
+        "This network seems to block the servers devices use to find each other. You don't need them: swap two codes over any messenger and connect directly — or try another network.",
+      action: "pair-messenger",
       blockedPeers: 0,
     };
   }

@@ -467,6 +467,8 @@ function onDoctorAction(action: DiagnosisAction) {
     enterAnotherCode()
   } else if (action === 'pair-offline') {
     router.push('/offline')
+  } else if (action === 'pair-messenger') {
+    router.push('/offline?over=internet')
   } else if (action === 'retry') {
     retryConnection()
   }

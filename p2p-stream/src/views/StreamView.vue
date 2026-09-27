@@ -287,6 +287,7 @@ function onDoctorAction(action: DiagnosisAction) {
   else if (action === 'test-relay') openRelay(true)
   else if (action === 'retry') restartRoom()
   else if (action === 'pair-offline') router.push('/offline')
+  else if (action === 'pair-messenger') router.push('/offline?over=internet')
 }
 
 // Relay settings only apply to connections made after them: re-open the

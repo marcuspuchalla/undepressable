@@ -1,5 +1,6 @@
 import { ref, shallowRef, onUnmounted } from "vue";
 import { encodeSignal, decodeSignal } from "../lib/net/offlinePair";
+import { resolveRtcConfig } from "../lib/net/iceConfig";
 import { capVideoSendersWithRetry, markMotionContent } from "../lib/net/senderTuning";
 import { encodeLinkMsg, decodeLinkMsg, linkPhase, type LinkMsg, type LinkPhase } from "../lib/net/offlineLink";
 import { channelWire, type ChannelWire } from "../lib/transfer/channelWire";
@@ -24,12 +25,16 @@ import { makeInbox, makeOutbox } from "../lib/transfer/library";
 
 // Gathering host candidates is near-instant; this is only a stuck-state guard.
 const GATHER_TIMEOUT_MS = 3000;
+/** Across the internet STUN answers and relay allocations take longer; a dead server must not stall the code. */
+const GATHER_TIMEOUT_INTERNET_MS = 6000;
 const HELLO_EVERY_MS = 3000;
 /**
  * The viewer's side starts connectivity checks the moment it shows its reply,
  * but the streamer may take a while to scan it. Only give up after this long.
  */
 const REPLY_WAIT_MS = 3 * 60_000;
+/** A reply sent back over a messenger can take a while. */
+const REPLY_WAIT_INTERNET_MS = 15 * 60_000;
 
 /** Recordings handed over this link (face to face, no internet). */
 export interface LinkTransfer {
@@ -51,6 +56,8 @@ export interface OfflineLinkView {
   label: string;
   /** stream: we send video on this link; watch: we receive it. A relaying viewer has both. */
   role: "stream" | "watch";
+  /** Paired across the internet rather than on one local network. */
+  internet: boolean;
   phase: LinkPhase;
   /** The other side reports it is recording a copy. */
   peerRecording: boolean;
@@ -76,6 +83,8 @@ interface Link {
   negotiating: boolean;
   renegotiateAfter: boolean;
   sync: LinkSync | null;
+  /** Paired across the internet (codes over a messenger) rather than on one network. */
+  internet: boolean;
 }
 
 interface LinkSync {
@@ -96,11 +105,13 @@ export function useOfflinePair() {
   let pending: Link | null = null;
   let localStream: MediaStream | null = null;
   let recording = false;
+  /** New invites go across the internet (codes over a messenger). */
+  let internet = false;
 
   function phaseOf(l: Link, now: number): LinkPhase {
     if (l.role === "watch" && !l.everConnected && !l.closedByUs) {
       // Until the streamer scans our reply there is nothing to connect to.
-      return now - l.createdAt > REPLY_WAIT_MS ? "timed-out" : "awaiting-reply";
+      return now - l.createdAt > (l.internet ? REPLY_WAIT_INTERNET_MS : REPLY_WAIT_MS) ? "timed-out" : "awaiting-reply";
     }
     return linkPhase({
       handshakeAt: l.handshakeAt,
@@ -119,6 +130,7 @@ export function useOfflinePair() {
       id: l.id,
       label: l.label,
       role: l.role,
+      internet: l.internet,
       phase: phaseOf(l, now),
       peerRecording: l.peerRecording,
       connectedAt: l.connectedAt,
@@ -146,8 +158,17 @@ export function useOfflinePair() {
     if (all.size > 0) publish();
   }, HELLO_EVERY_MS);
 
-  function createLink(role: "stream" | "watch", label: string): Link {
-    const pc = new RTCPeerConnection({ iceServers: [], bundlePolicy: "max-bundle" });
+  // Next to each other: host candidates only (STUN/TURN are unreachable
+  // offline and would stall gathering). Across the internet: this device's
+  // STUN servers and relays, exactly as for online rooms — only the
+  // introduction is done by hand instead of by a discovery server.
+  async function linkConfig(internet: boolean): Promise<RTCConfiguration> {
+    if (!internet) return { iceServers: [], bundlePolicy: "max-bundle" };
+    return { ...(await resolveRtcConfig()), bundlePolicy: "max-bundle" };
+  }
+
+  function createLink(role: "stream" | "watch", label: string, config: RTCConfiguration, internet: boolean): Link {
+    const pc = new RTCPeerConnection(config);
     const l: Link = {
       id: nextId++,
       label,
@@ -166,6 +187,7 @@ export function useOfflinePair() {
       negotiating: false,
       renegotiateAfter: false,
       sync: null,
+      internet,
     };
     pc.onconnectionstatechange = () => publish();
     // The viewer's control channel, and — either way — the recording
@@ -254,7 +276,7 @@ export function useOfflinePair() {
   }
 
   /** Resolve once ICE gathering finishes, so the code carries every candidate. */
-  function waitForGathering(conn: RTCPeerConnection): Promise<void> {
+  function waitForGathering(conn: RTCPeerConnection, timeoutMs = GATHER_TIMEOUT_MS): Promise<void> {
     if (conn.iceGatheringState === "complete") return Promise.resolve();
     return new Promise((resolve) => {
       const done = () => {
@@ -266,19 +288,26 @@ export function useOfflinePair() {
         if (conn.iceGatheringState === "complete") done();
       };
       // Encode what we have rather than hanging forever on a stuck gatherer.
-      const timer = setTimeout(done, GATHER_TIMEOUT_MS);
+      const timer = setTimeout(done, timeoutMs);
       conn.addEventListener("icegatheringstatechange", onChange);
     });
   }
 
-  function localSdp(pc: RTCPeerConnection): string {
-    const sdp = pc.localDescription?.sdp ?? "";
+  function localSdp(l: Link): string {
+    const sdp = l.pc.localDescription?.sdp ?? "";
     if (!/a=candidate:/.test(sdp)) {
       throw new Error(
-        "This device isn't on any network. Turn on a hotspot (or join the other device's), then try again.",
+        l.internet
+          ? "No way out to the internet was found. Check the connection — with “Always use the relay” on, the relay must answer (Network → Test)."
+          : "This device isn't on any network. Turn on a hotspot (or join the other device's), then try again.",
       );
     }
     return sdp;
+  }
+
+  async function codeFor(l: Link, t: "offer" | "answer"): Promise<string> {
+    await waitForGathering(l.pc, l.internet ? GATHER_TIMEOUT_INTERNET_MS : GATHER_TIMEOUT_MS);
+    return encodeSignal({ v: 2, t, s: localSdp(l) }, { internet: l.internet });
   }
 
   // --- streamer -------------------------------------------------------------
@@ -296,13 +325,13 @@ export function useOfflinePair() {
       closeLink(pending.id, false);
       viewersInvited--;
     }
-    const l = createLink("stream", `Viewer ${++viewersInvited}`);
+    const l = createLink("stream", `Viewer ${++viewersInvited}`, await linkConfig(internet), internet);
     adoptChannel(l, l.pc.createDataChannel("ctl", { ordered: true }));
     await l.pc.setLocalDescription(await l.pc.createOffer());
-    await waitForGathering(l.pc);
     pending = l;
+    const code = await codeFor(l, "offer");
     publish();
-    return encodeSignal({ v: 2, t: "offer", s: localSdp(l.pc) });
+    return code;
   }
 
   /** Finish the handshake with the viewer's reply code. */
@@ -341,13 +370,16 @@ export function useOfflinePair() {
     // on stay up and get the new picture when it arrives.
     for (const l of Array.from(all.values())) if (l.role === "watch") closeLink(l.id, false);
     remoteStream.value = null;
-    const l = createLink("watch", "Streamer");
+    // An invite that carries public or relay addresses came over a messenger:
+    // answer the same way, whatever mode this screen was opened in.
+    const overInternet = internet || / typ (srflx|relay|prflx)/.test(signal.s);
+    const l = createLink("watch", "Streamer", await linkConfig(overInternet), overInternet);
     await l.pc.setRemoteDescription({ type: "offer", sdp: signal.s });
     await l.pc.setLocalDescription(await l.pc.createAnswer());
-    await waitForGathering(l.pc);
+    const reply = await codeFor(l, "answer");
     l.handshakeAt = Date.now();
     publish();
-    return encodeSignal({ v: 2, t: "answer", s: localSdp(l.pc) });
+    return reply;
   }
 
   /** Inbound video byte/frame counters, for noticing a frozen picture. */
@@ -486,6 +518,9 @@ export function useOfflinePair() {
     acceptOffer,
     sampleInboundVideo,
     setRecording,
+    setInternet(value: boolean) {
+      internet = value;
+    },
     sendRecordings,
     closeLink,
     reset,
