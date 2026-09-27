@@ -753,3 +753,39 @@ is a "simple" one — asserted by the E2E test.
 
 ### Round 6 verification
 
+- **Unit:** 361 tests (was 339). New: sealing (each recipient opens, others
+  and tampered seals do not, chunk encryption round trip and tamper
+  refusal, passphrase lock incl. Unicode normalisation), sealed evidence
+  (intact without the key, refused if the sealed proof is from another
+  device, opened into verified footage, bundles), OpenTimestamps (the
+  project's reference proof parsed and rewritten byte for byte and leading
+  to block 358391's Merkle root, a real calendar answer, stamping with a
+  nonce and without preflight, upgrading, the block-header check), and
+  timestamps only accepted for the proof they stamp.
+- **End to end, one run:** all 26 scenarios pass — the four new ones:
+
+  | New check | Result |
+  |---|---|
+  | sealed-home | phone: no WebM on disk, playback refused, "Intact (sealed — not opened)"; sent home; home: "arrived sealed · opened here", "Unaltered", plain footage on disk |
+  | sealed-passphrase | locked after reload; wrong passphrase refused; unlocked → "Unaltered" and playing |
+  | sealed-blind-carrier | sealed evidence file → friend: imported, intact, cannot open → friend sends home → home: "Unaltered" |
+  | timestamp | requested → still pending → "Existed by Bitcoin block #870123 … ✓ checked"; bundle's root.txt.ots stamps its root.txt; no CORS preflight sent |
+
+  Plus pwa-offline, portable, updates and extension — all passing.
+- **Owed:** real OpenTimestamps calendars end to end (a proof confirmed
+  hours later, then `ots verify` on it); sealing on real phones at a scene,
+  including a phone locked or taken before the recordings reach home.
+
+### Round 6 known limits
+
+- Sealing is off by default, and only applies to recordings started after
+  turning it on.
+- Footage passes through memory in the clear while it is being recorded; a
+  phone taken while unlocked (or with the passphrase unlocked) shows what it
+  can open.
+- Fingerprints of sealed footage stay readable: they reveal nothing about
+  the content, but can confirm that this phone recorded a video someone
+  already has.
+- Timestamps take hours to anchor, prove "existed by", and contacting the
+  calendars is visible to the network; they stay off unless asked for.
+
