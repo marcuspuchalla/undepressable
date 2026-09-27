@@ -18,6 +18,11 @@
           <span class="text-sm font-medium">{{ formatDuration(recordingDuration) }}</span>
         </div>
 
+        <!-- Also going out to a broadcast server -->
+        <div v-if="amplify.state.value === 'live'" class="absolute top-16 left-4 flex items-center gap-1.5 px-2.5 py-1 bg-moss/80 rounded-full text-xs text-ink font-medium">
+          <span class="w-1.5 h-1.5 rounded-full bg-ink" /> Broadcasting to server
+        </div>
+
         <!-- Live swarm counts -->
         <div class="absolute top-4 right-4 flex gap-2">
           <div class="px-3 py-1.5 bg-primary-600/90 rounded-full flex items-center gap-1.5" title="People watching your stream">
@@ -139,7 +144,9 @@
           </button>
         </div>
 
-        <div class="flex-1 flex flex-col items-center justify-center p-6 space-y-6">
+        <!-- Scrolls on small screens: everything below must stay reachable. -->
+        <div class="flex-1 overflow-y-auto">
+        <div class="min-h-full flex flex-col items-center justify-center p-6 space-y-6">
           <!-- QR Code -->
           <div class="bg-white p-6 rounded-xl">
             <canvas ref="qrCanvas" class="w-60 h-60" />
@@ -202,11 +209,15 @@
             Share
           </button>
 
+          <!-- Beyond the app: a broadcast server for everyone else -->
+          <AmplifyPanel :amp="amplify" :stream="localStream" role="streamer" class="w-full max-w-md" />
+
           <!-- Instructions -->
           <div class="text-center text-sm text-gray-400 max-w-sm">
             <p>Share this code or QR with collectors to join your stream.</p>
             <p class="mt-2">BitTorrent, Nostr and MQTT are all used for maximum reliability.</p>
           </div>
+        </div>
         </div>
       </div>
     </Teleport>
@@ -231,6 +242,8 @@ import { discoveryShareParams } from '../lib/net/discoveryConfig'
 import type { DiagnosisAction } from '../lib/net/diagnosis'
 import ConnectionDoctor from '../components/ConnectionDoctor.vue'
 import RelaySetup from '../components/RelaySetup.vue'
+import AmplifyPanel from '../components/AmplifyPanel.vue'
+import { useAmplify } from '../composables/useAmplify'
 import { RouterLink } from 'vue-router'
 import QRCode from 'qrcode'
 
@@ -243,6 +256,7 @@ const localIP = useLocalIP()
 const videoPreview = ref<HTMLVideoElement>()
 const qrCanvas = ref<HTMLCanvasElement>()
 const localStream = ref<MediaStream | null>(null)
+const amplify = useAmplify(localStream)
 const STRATEGY_LABELS: Record<string, string> = {
   torrent: '🌊 BitTorrent',
   nostr: '🐦 Nostr',

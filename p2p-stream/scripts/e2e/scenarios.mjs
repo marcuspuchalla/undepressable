@@ -13,7 +13,7 @@
 // public-relay, relay-added-live, crowd, crowd-large, internet-drops,
 // offline-two-viewers, offline-isolated, archive, evidence-file, home-sync,
 // offline-handover, offline-chain, offline-chain-repair, messenger-pair,
-// messenger-pair-late.
+// messenger-pair-late, amplify-streamer, amplify-viewer.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
@@ -545,6 +545,105 @@ async function messengerPair(replyDelayMs) {
 Object.assign(scenarios, {
   'messenger-pair': () => messengerPair(0),
   'messenger-pair-late': () => messengerPair(90_000),
+})
+// A stand-in broadcast server: WHIP over HTTP in front of a browser page that
+// plays whatever is published (MediaMTX, Owncast, Cloudflare Stream… speak
+// the same protocol).
+async function whipServer(port = 4415) {
+  const { createServer } = await import('node:http')
+  const ingest = await newPage({})
+  await ingest.goto('about:blank')
+  const log = { posts: 0, deletes: 0, auth: [] }
+  const cors = { 'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type', 'access-control-allow-methods': 'POST, DELETE, OPTIONS', 'access-control-expose-headers': 'location' }
+  const server = createServer(async (req, res) => {
+    if (req.method === 'OPTIONS') return res.writeHead(204, cors), res.end()
+    if (req.method === 'DELETE') {
+      log.deletes++
+      return res.writeHead(200, cors), res.end()
+    }
+    let body = ''
+    for await (const chunk of req) body += chunk
+    log.posts++
+    log.auth.push(req.headers.authorization ?? '')
+    if (req.headers.authorization !== 'Bearer good-token') return res.writeHead(401, cors), res.end('bad token')
+    const answer = await ingest.evaluate(async (offer) => {
+      const pc = new RTCPeerConnection()
+      pc.ontrack = (e) => {
+        if (e.track.kind !== 'video') return
+        const v = document.createElement('video')
+        v.muted = true
+        v.autoplay = true
+        v.srcObject = new MediaStream([e.track])
+        document.body.append(v)
+        v.play().catch(() => {})
+      }
+      window.__pcs = [...(window.__pcs ?? []), pc]
+      await pc.setRemoteDescription({ type: 'offer', sdp: offer })
+      await pc.setLocalDescription(await pc.createAnswer())
+      await new Promise((r) => (pc.iceGatheringState === 'complete' ? r() : pc.addEventListener('icegatheringstatechange', () => pc.iceGatheringState === 'complete' && r())))
+      return pc.localDescription.sdp
+    }, body)
+    res.writeHead(201, { ...cors, 'content-type': 'application/sdp', location: `/cam/whip/resource/${log.posts}` })
+    res.end(answer)
+  })
+  await new Promise((r) => server.listen(port, r))
+  const receiving = () =>
+    ingest.waitForFunction(() => [...document.querySelectorAll('video')].some((v) => v.videoWidth > 0 && v.currentTime > 0.5), null, { timeout: 30000 }).then(() => true).catch(() => false)
+  const codec = () =>
+    ingest.evaluate(async () => {
+      for (const pc of window.__pcs ?? []) {
+        const stats = await pc.getStats()
+        for (const s of stats.values()) if (s.type === 'inbound-rtp' && s.kind === 'video' && s.codecId) return stats.get(s.codecId)?.mimeType
+      }
+      return 'unknown'
+    })
+  return { url: `http://localhost:${port}/cam/whip`, log, receiving, codec, close: () => server.close() }
+}
+async function amplifyFrom(page, url, token) {
+  const panel = page.locator('[data-testid=amplify]')
+  if (!(await page.locator('[data-testid=amplify-url]').isVisible().catch(() => false))) await panel.getByText('Amplify — broadcast to a server').click()
+  await page.locator('[data-testid=amplify-url]').fill(url)
+  await page.locator('[data-testid=amplify-token]').fill(token)
+  await page.locator('[data-testid=amplify-start]').click()
+  await page.waitForFunction(() => /live|failed/.test(document.querySelector('[data-testid=amplify-status]')?.textContent ?? ''), null, { timeout: 30000 }).catch(() => {})
+  return (await panel.innerText()).replace(/\s+/g, ' ')
+}
+Object.assign(scenarios, {
+  // The person filming also pushes to a broadcast server, for everyone without the app.
+  async 'amplify-streamer'() {
+    const srv = await whipServer()
+    try {
+      const A = await newPage({})
+      await A.goto(`${APP}/stream`)
+      await A.waitForSelector('text=Share Stream', { timeout: 30000 })
+      const wrong = await amplifyFrom(A, srv.url, 'bad-token')
+      const status = await amplifyFrom(A, srv.url, 'good-token')
+      const got = await srv.receiving()
+      const codec = await srv.codec()
+      await A.locator('[data-testid=amplify-stop]').click()
+      await A.waitForTimeout(500)
+      const ok = /rejected the token/.test(wrong) && /live/.test(status) && got && srv.log.deletes === 1
+      return [ok, `wrong token: "${wrong.match(/The broadcast server[^.]*\./)?.[0]}"; then: ${status.match(/live[^A-Z]*/)?.[0]?.trim()}; server receiving video: ${got} (${codec}); stopped with DELETE: ${srv.log.deletes === 1}`]
+    } finally {
+      srv.close()
+    }
+  },
+  // A viewer re-broadcasts what it watches — e.g. from a country where the
+  // broadcast server isn't blocked, for someone whose network is.
+  async 'amplify-viewer'() {
+    const srv = await whipServer(4416)
+    try {
+      const { code } = await startStream({})
+      const B = await newPage({})
+      await B.goto(`${APP}/collect/${code}`)
+      const watching = await videoWithin(B, 40000)
+      const status = await amplifyFrom(B, srv.url, 'good-token')
+      const got = await srv.receiving()
+      return [watching !== null && /live/.test(status) && got, `viewer video ${watching}s; amplify: ${status.match(/live[^A-Z]*/)?.[0]?.trim()}; broadcast server receiving the streamer's picture via the viewer: ${got}`]
+    } finally {
+      srv.close()
+    }
+  },
 })
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']
 const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'offline-isolated', 'messenger-pair', 'messenger-pair-late'])
