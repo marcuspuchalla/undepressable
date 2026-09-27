@@ -661,3 +661,41 @@ scroll, so on a phone everything below the QR code was out of reach.
 
 ### Round 5 verification
 
+- **Unit:** 339 tests (was 312). New: pairing-code v3 (typed candidates,
+  priorities, relay-only codes, v2 unchanged for local codes), release
+  manifests and signatures (signed, forged, changed after signing, unsigned,
+  key rotation), hash-routed links and link parameters, WHIP (headers,
+  resource, DELETE, every error kind, source replacement).
+- **End to end, one run:** all 22 scenarios in `scenarios.mjs` pass, plus:
+
+  | New check | Result |
+  |---|---|
+  | messenger-pair: discovery dead, direct UDP dropped, relay on one side | 115-char invite, 103-char reply; video 1.0 s via the relay |
+  | messenger-pair-late: reply sent back after 90 s | video 1.0 s |
+  | updates.mjs: signed update / intruder-signed update | offered and installed / warning, no install button, reload keeps the trusted copy |
+  | portable.mjs: file from the web app | byte-identical to the release (0.96 MB) |
+  | two copies opened from disk | pair and stream; the viewer's recording verifies (IndexedDB) |
+  | a copy of the copy | runs, no errors |
+  | mirror under an arbitrary path | share link `…/mirror/any/path/#/collect/CODE?relays=…`; a fresh viewer joins and watches |
+  | amplify-streamer / amplify-viewer | wrong token refused; live; stand-in server decodes the video; stop sends DELETE / viewer re-broadcasts the room's stream |
+  | extension.mjs | now also hands out the single-file app |
+  | pwa-offline.mjs | still passes with updates on "prompt" |
+
+- **Owed on real devices and servers:** messenger pairing between a real VPN
+  and a real carrier; the single file in Firefox and Safari; a real IPFS
+  gateway; MediaMTX and Cloudflare Stream as WHIP targets with an
+  H.264-capable browser (the test browser sent VP8); the update warning in an
+  installed home-screen app on Android and iOS.
+
+### Round 5 known limits
+
+- Signed releases need a developer key to be set up before they protect
+  anyone (THREAT_MODEL §2); until then updates show as "cannot check".
+- A browser applies a waiting update when every window is closed. The
+  warning comes first; it cannot stop that.
+- Pairing codes sent over a messenger are good for a few minutes and reveal
+  network addresses to whoever carries them.
+- Recordings are still not encrypted on the device.
+- WebRTC and TURN traffic is not disguised; deep packet inspection can
+  recognise and block it (a relay on 443 raises the bar, no more).
+

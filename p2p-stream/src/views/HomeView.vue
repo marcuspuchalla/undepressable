@@ -166,8 +166,8 @@
             <h3 class="font-semibold text-slate-100 mb-1">Pass the app on</h3>
             <p class="text-sm text-slate-400 leading-relaxed">
               The whole app is one file. Send it by AirDrop, Bluetooth, a messenger or a USB stick: it runs straight from
-              the file in Chrome, Edge or Firefox on a computer, and anyone can put it on any website — or IPFS — as a
-              mirror. No website of ours is needed, so taking one down stops nothing.
+              the file in Chrome or Edge on a computer, and anyone can put it on any website — or IPFS — as a mirror. No
+              website of ours is needed, so taking one down stops nothing.
             </p>
           </div>
         </div>

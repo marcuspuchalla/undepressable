@@ -3,8 +3,8 @@
 // The app normally runs at the root of its own website with ordinary paths
 // (/collect/CODE). Copies that do not depend on that website — the browser
 // extension, the single-file portable app opened from disk, or a mirror
-// served under any path (an IPFS gateway's /ipfs/<cid>/, an onion service,
-// a subfolder) — cannot rely on the server answering /collect/CODE, so they
+// served under any path (an IPFS gateway's /ipfs/<cid>/, a subfolder of
+// someone's site) — cannot rely on the server answering /collect/CODE, so they
 // keep routes in the hash: …/undepressable.html#/collect/CODE.
 
 declare const __HASH_ROUTES__: boolean

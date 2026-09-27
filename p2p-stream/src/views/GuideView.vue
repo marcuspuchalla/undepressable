@@ -459,14 +459,14 @@ const walks: Record<string, Walk> = {
     caveat: {
       ios: 'An iPhone cannot run the app from a file (Files only previews it). Keep the installed app, or open a mirror someone hosts.',
       android: 'Opening the file from a file manager is unreliable on Android (no camera). Open a mirror, or serve the file with a file-server app.',
-      desktop: 'Chrome, Edge and Firefox run the file straight from disk — camera, streaming and recording included.',
+      desktop: 'Chrome and Edge run the file straight from disk — camera, streaming and recording included. (Tor Browser turns WebRTC off, so it can show the app but not stream.)',
     },
     roles: [
       {
         who: 'Keep and pass on the app',
         steps: [
           'Home → “Pass the app on” → Share the app… (AirDrop, Bluetooth, messenger) or Save the file.',
-          'On a computer, open the file in Chrome, Edge or Firefox. Or upload it anywhere as index.html — a subfolder, IPFS, an onion service — and share that address: it is a full mirror.',
+          'On a computer, open the file in Chrome or Edge. Or upload it anywhere as index.html — a subfolder, IPFS, anyone’s website — and share that address: it is a full mirror.',
           'The browser extension is another copy the website cannot change.',
         ],
       },

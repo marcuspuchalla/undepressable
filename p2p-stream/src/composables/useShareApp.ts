@@ -92,7 +92,7 @@ export function useShareApp() {
       const files = [got.file]
       if (typeof navigator.canShare === 'function' && navigator.canShare({ files })) {
         try {
-          await navigator.share({ files, title: 'Undepressable', text: 'Open this file in Chrome, Edge or Firefox on a computer — or put it on any website as index.html.' })
+          await navigator.share({ files, title: 'Undepressable', text: 'Open this file in Chrome or Edge on a computer — or put it on any website as index.html.' })
           return
         } catch (e: any) {
           if (e?.name === 'AbortError') return
