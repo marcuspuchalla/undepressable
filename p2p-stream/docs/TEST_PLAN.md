@@ -65,9 +65,13 @@ Scenarios: `open`, `blocked`, `relay-link`, `relay-one-side`,
 03: discovery dies mid-stream, video must keep flowing), `offline-two-viewers`,
 `offline-isolated`, `archive` (use case 04: streamer → phone → home archive),
 `evidence-file`, `home-sync`, `offline-handover`, `offline-chain`,
-`offline-chain-repair`. Also
-`scripts/e2e/pwa-offline.mjs` (needs `npm run build`) and
-`scripts/e2e/extension.mjs` (needs `npm run build:extension`). Results and what each proves:
+`offline-chain-repair`, `messenger-pair` and `messenger-pair-late` (discovery
+dead, direct UDP dropped, codes pasted like messages — also 90 s late),
+`amplify-streamer` and `amplify-viewer` (WHIP to a stand-in broadcast
+server). Also `scripts/e2e/pwa-offline.mjs` and `scripts/e2e/portable.mjs`
+(need `npm run build`), `scripts/e2e/updates.mjs` (builds three signed
+versions itself) and `scripts/e2e/extension.mjs` (needs
+`npm run build:extension`). Results and what each proves:
 [`RELIABILITY_AUDIT_3.md`](RELIABILITY_AUDIT_3.md). This proves the app's
 logic under a faithful ICE-level simulation; it is **not** a substitute for
 the real-network pass below (E4).
@@ -308,6 +312,24 @@ be on the same local network for the *video*.
 hotspot — 🔒 not implemented; design in [`NATIVE_MESH.md`](NATIVE_MESH.md).
 
 ---
+
+## Scenario 6 — Blocked or seized website (round 5)
+
+**Guide:** Use case 06.
+
+1. Home → *Pass the app on* → *Save the file* on the web app. Pass: the file's SHA-256 equals `undepressable.html` in the site's `release.json`. ✅ (E2 `portable.mjs`)
+2. Open the file from disk on two computers; pair face to face; stream; the viewer's recording verifies. ✅ (E2, Chromium) · ⬜ Firefox, Edge, macOS Safari (not run)
+3. Upload the file anywhere as `index.html` (a subfolder, an IPFS gateway). Stream from it; a viewer opens its share link. ✅ (E2, arbitrary path) · ⬜ a real IPFS gateway
+4. Updates: signed update offered and installed; an update signed by another key warned about, no install button, reload keeps the trusted copy. ✅ (E2 `updates.mjs`) · ⬜ on an installed Android/iOS home-screen app
+5. Discovery blocked: *Pair by messenger* across two strict networks with a relay on one side, codes pasted immediately and 90 s late. ✅ (E2 `messenger-pair*`) · ⬜ over a real messenger between a VPN and a mobile carrier
+
+## Scenario 7 — Amplify to a broadcast server
+
+**Guide:** Use case 07.
+
+1. Streamer → share sheet → *Amplify*: wrong token → "rejected the token"; right token → live; server decodes the video; *Stop* sends DELETE. ✅ (E2 `amplify-streamer`, stand-in server)
+2. A viewer amplifies what it watches. ✅ (E2 `amplify-viewer`)
+3. Against real servers: MediaMTX (WHIP → HLS in a browser), Cloudflare Stream; with an H.264-capable browser. ⬜
 
 ## Cross-cutting checks (run once per platform)
 

@@ -605,3 +605,59 @@ in [`NATIVE_MESH.md`](NATIVE_MESH.md).
 - **Bluetooth discovery and Wi-Fi Direct video are not built** — design in
   [`NATIVE_MESH.md`](NATIVE_MESH.md).
 
+
+---
+
+## Part 4 — round 5: censorship resistance
+
+Asked for: evolve this into the most censorship-resistant way to record and
+distribute live streams. The weak points found, in order of how completely
+they could stop someone:
+
+### 27. Discovery servers were a single thing to block
+
+Every connection over the internet started at public Nostr relays, BitTorrent
+trackers or MQTT brokers. A firewall that blocks those stops two devices from
+ever meeting, even when direct traffic or a relay would work. **Pair by
+messenger** removes discovery entirely: the face-to-face codes now also carry
+public (STUN) and relay (TURN) addresses (pairing-code format v3, local codes
+stay v2 for older copies), so two codes sent over any chat app connect the
+devices across the internet. The "can't reach any discovery server" verdict
+now offers exactly that. Verified with discovery pointed at a dead server and
+direct UDP between the devices dropped: ~115-character invite, video in ~1 s,
+also with the reply sent back 90 s later.
+
+### 28. Whoever held the domain could silently replace the app
+
+The PWA used `autoUpdate` + `skipWaiting`: any new build on the site took over
+every installed copy at once, mid-stream included. After a seizure that is the
+most dangerous path of all. Now nothing updates silently; the installed copy
+checks a waiting update's Ed25519-signed release manifest against keys it
+carries, offers signed updates, and warns — without an install button — about
+anything else. A browser still applies a waiting update once all windows are
+closed, which the warning says. Signing keys are not set up yet
+(THREAT_MODEL §2 lists the steps). Verified with three real builds served in
+turn from one origin.
+
+### 29. The app could not outlive its website — and the "standalone" build was broken
+
+`build:standalone` inlined only the entry script; the lazily loaded streaming
+code still pointed at `/assets/…`, so the file could never stream on its own
+(its docs also claimed `file://` could not work at all — in Chromium it does).
+The portable build now inlines everything, uses hash routes and relative
+links, and produces one file that runs from disk and from any mirror path;
+share and pairing links point back at whichever copy made them. From
+`file://` the private file system (OPFS) is unavailable, so recordings would
+have lived in memory only: recording storage now falls back to IndexedDB.
+*Pass the app on* hands the file around; the web app only hands out a copy
+that matches its signed release.
+
+### 30. Distribution stopped at people who have the app
+
+*Amplify* pushes the stream over WHIP to any broadcast server, from the phone
+filming or from any viewer — so a viewer abroad can put a stream from a
+blocked network onto the open web. Found on the way: the share sheet did not
+scroll, so on a phone everything below the QR code was out of reach.
+
+### Round 5 verification
+

@@ -5,10 +5,10 @@
  * Runs after `vite build --mode portable` (relative paths, hash routes, a
  * single bundle) and inlines script, stylesheet and icon into
  * dist-portable/undepressable.html. That file:
- *   - runs straight from disk in Chrome, Edge and Firefox on a computer
+ *   - runs straight from disk in Chrome and Edge on a computer
  *     (file:// counts as a secure context there: camera and WebRTC work);
- *   - runs from ANY web address or path: an IPFS gateway, an onion service,
- *     a subfolder of someone's site, a phone's file-server app — upload it as
+ *   - runs from ANY web address or path: an IPFS gateway, a subfolder of
+ *     someone's site, a phone's file-server app — upload it as
  *     index.html and it is a full mirror;
  *   - is what "Share this app" hands on, so the app spreads by AirDrop,
  *     Bluetooth, messenger or USB stick without any website.

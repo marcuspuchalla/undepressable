@@ -30,6 +30,20 @@ to delete in one place.
   visit it opens with no network and even with the web server gone (verified
   by `scripts/e2e/pwa-offline.mjs`). Also packaged as a **browser extension**
   that carries its own copy of the app (`npm run build:extension`).
+- **The app spreads without any website.** The whole app is one HTML file
+  (Home → *Pass the app on*): it runs from disk on a computer (Chrome/Edge) and as a mirror
+  under any path — IPFS, a subfolder, anyone's website. See
+  [STANDALONE.md](./STANDALONE.md).
+- **A seized domain cannot silently swap the code.** Updates are never
+  installed silently; an installed copy checks that a new version is signed
+  by the developers' key and warns loudly if it is not
+  ([docs/THREAT_MODEL.md](./docs/THREAT_MODEL.md) §2).
+- **No discovery server needed.** If the servers that introduce devices are
+  blocked, *Pair by messenger*: two short codes over Signal, SMS or e-mail, and
+  the devices connect directly (or through your relay).
+- **Reach everyone.** *Amplify* pushes the stream — from the phone filming or
+  from any viewer, e.g. one abroad — to a WHIP broadcast server (MediaMTX,
+  Owncast, Cloudflare Stream…) that serves it on the open web.
 - **No internet at all.** Devices on one hotspot pair face to face by
   swapping two short codes (QR, or text via AirDrop / Nearby Share); one
   filming phone can serve several viewers, any viewer can **share onward**
@@ -82,9 +96,11 @@ npm run dev -- --host      # open the printed LAN URL on your phone
 - **Verify later:** open **Recordings** → **Verify integrity**.
 
 ```bash
-npm run build            # production PWA build
+npm run build            # production PWA build (+ the single-file app and release.json, signed if a key is set)
+npm run build:portable   # just the single-file app: dist-portable/undepressable.html
 npm run build:extension  # browser extension: dist-extension/{chrome,firefox}/ + zips
-npm run test:unit        # 312 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes, evidence transfer)
+npm run release:keygen   # a release signing key pair (see docs/THREAT_MODEL.md §2)
+npm run test:unit        # 339 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes, evidence transfer, releases, WHIP)
 npm run tauri:build      # optional native desktop app
 ```
 
@@ -135,6 +151,10 @@ first — full guide in [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md)):
 Prefer `turns:` on port 443 — it survives networks that block UDP/plain TURN.
 
 ## Notes & honest limitations
+
+**Read [docs/THREAT_MODEL.md](./docs/THREAT_MODEL.md)** before relying on the
+app: what it resists, and what it does not (recordings are not encrypted on
+the device yet; signed releases are built but no developer key is set yet).
 
 - **Privacy-first fonts.** The UI does **not** load web fonts from a CDN (that
   would leak every viewer's IP and break offline); it uses a system font stack.

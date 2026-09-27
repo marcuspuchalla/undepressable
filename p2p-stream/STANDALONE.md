@@ -14,8 +14,9 @@ the portable copy hands out itself.
 
 | How it is opened | Works? |
 |---|---|
-| From disk in Chrome, Edge or Firefox on a computer (`file://…`) | **Yes** — camera, streaming, face-to-face and messenger pairing, recording (IndexedDB; `file://` has no OPFS) |
-| Uploaded anywhere as `index.html` — a subfolder, an IPFS gateway, an onion service, a phone's file-server app | **Yes** — a full mirror; routes live in the hash, so any path works, and its share links point at the mirror |
+| From disk in Chrome or Edge on a computer (`file://…`) | **Yes** (verified in Chromium) — camera, streaming, face-to-face and messenger pairing, recording (IndexedDB; `file://` has no OPFS) |
+| From disk in Firefox or Safari | Not tested yet |
+| Uploaded anywhere as `index.html` — a subfolder, an IPFS gateway, a phone's file-server app | **Yes** — a full mirror; routes live in the hash, so any path works, and its share links point at the mirror |
 | Opened from the Files app on iPhone | No — iOS shows a preview, not a browser |
 | Opened from a file manager on Android | Unreliable — Chrome often gets a `content://` address, which is not a secure context (no camera). Serve it instead (a file-server app, or any website) |
 
@@ -33,6 +34,10 @@ from someone should still be checked: compare its SHA-256 with the
 `docs/THREAT_MODEL.md`).
 
 ## Limits
+
+- Tor Browser turns WebRTC off, so a copy opened in it shows the app but cannot
+  stream. An onion site can still hand out the file for download; open it in
+  a normal browser.
 
 - No service worker: a mirror does not install as an app or cache itself;
   keep the file.

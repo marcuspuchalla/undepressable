@@ -222,6 +222,44 @@ const cases: { n: string; status: Status; title: string; body: string; svg: stri
       152,
     ),
   },
+  {
+    n: '06',
+    status: 'now',
+    title: 'When the website is blocked or seized',
+    body: 'The whole app is one file. Pass it on by AirDrop, Bluetooth, a messenger or a USB stick: it opens straight from the file on a computer, and anyone can put it on any website or IPFS as a mirror. Installed copies never update silently — an update must be signed by the developers, and an unsigned one (as a new owner of the domain would publish) raises a warning instead. And if the servers that introduce devices are blocked, pair by messenger: two codes over Signal or SMS, no server at all.',
+    svg: svg(
+      `<rect x="54" y="40" width="30" height="38" rx="3" fill="none" stroke="${EMBER}" stroke-width="1.6"/>` +
+        note(69, 64, 'html', EMBER, 9) +
+        note(69, 104, 'one file', '#9fb0d0', 11) +
+        link(96, 58, 196, 40, GLOW, false, 'AirDrop / USB') +
+        link(96, 62, 196, 96, GLOW, false, 'messenger') +
+        person(226, 50, 'F1', GLOW) +
+        person(226, 106, 'F2', GLOW) +
+        link(256, 40, 386, 58, MOSS, true, 'upload') +
+        home(426, 50, 'mirror', MOSS) +
+        note(300, 150, 'no website needed · updates must be signed', '#64748b'),
+      162,
+    ),
+  },
+  {
+    n: '07',
+    status: 'now',
+    title: 'Reach everyone: amplify',
+    body: 'Peer-to-peer reaches people with the app and the code. To reach everyone, any device can push the stream to a broadcast server (WHIP — your own MediaMTX, Owncast, Cloudflare Stream…), which shows it on the open web, no app needed. It does not have to be you: someone watching from a country where the server is reachable can amplify for you, so your phone uploads one stream.',
+    svg: svg(
+      person(60, 62, 'You', EMBER) +
+        link(88, 52, 186, 52, GLOW, false, 'p2p') +
+        person(214, 62, 'Friend', GLOW) +
+        note(214, 110, 'abroad', '#64748b') +
+        link(242, 52, 330, 52, MOSS, false, 'WHIP') +
+        home(360, 54, 'server', MOSS) +
+        link(384, 48, 470, 30, MOSS, true) +
+        link(384, 56, 470, 56, MOSS, true) +
+        link(384, 64, 470, 82, MOSS, true) +
+        note(440, 110, 'anyone, any browser', '#6ee7b7'),
+      132,
+    ),
+  },
 ]
 
 // --- per-use-case walkthroughs, tailored to the reader's platform ---
@@ -296,6 +334,7 @@ const walks: Record<string, Walk> = {
           'Their device starts watching and automatically records a signed copy.',
           'The copy stays under Recordings, even if the connection drops.',
           'If it doesn’t connect, the status card says why. A VPN on one side and mobile data on the other usually need a relay: tap “Set up a relay” (one side is enough, and it travels inside your link). No relay of your own? The app can test free public ones on your network and use those that answer.',
+          'If the network blocks the servers that introduce devices, the card offers “Pair by messenger”: swap two codes over any chat app instead of the room code.',
         ],
       },
     ],
@@ -412,6 +451,61 @@ const walks: Record<string, Walk> = {
           'On any paired link, “Hand over my recordings” copies every signed recording on this device to the other one — give it to someone who is leaving.',
           'Or: Recordings → share icon → AirDrop, Quick Share, Bluetooth. The receiver checks it under Recordings → Import.',
           'Once any phone is back online with a paired home archive: Recordings → “Send to home now”.',
+        ],
+      },
+    ],
+  },
+  '06': {
+    caveat: {
+      ios: 'An iPhone cannot run the app from a file (Files only previews it). Keep the installed app, or open a mirror someone hosts.',
+      android: 'Opening the file from a file manager is unreliable on Android (no camera). Open a mirror, or serve the file with a file-server app.',
+      desktop: 'Chrome, Edge and Firefox run the file straight from disk — camera, streaming and recording included.',
+    },
+    roles: [
+      {
+        who: 'Keep and pass on the app',
+        steps: [
+          'Home → “Pass the app on” → Share the app… (AirDrop, Bluetooth, messenger) or Save the file.',
+          'On a computer, open the file in Chrome, Edge or Firefox. Or upload it anywhere as index.html — a subfolder, IPFS, an onion service — and share that address: it is a full mirror.',
+          'The browser extension is another copy the website cannot change.',
+        ],
+      },
+      {
+        who: 'If the app warns about an unsigned update',
+        steps: [
+          'Don’t install it: the website may have been taken over.',
+          'Before closing the app, save or send your recordings, and keep a copy of the app from a source you trust.',
+          'Network → “This copy of the app” shows the build and fingerprint to compare with published releases.',
+        ],
+      },
+      {
+        who: 'If devices can’t find each other (“can’t reach any discovery server”)',
+        steps: [
+          'Open “Pair by messenger” (Home, or the button on the status card).',
+          'Send your invite code over Signal, WhatsApp, SMS or e-mail; paste the reply code they send back within a few minutes.',
+          'The video goes straight between the devices — or through your relay; no discovery server is involved.',
+        ],
+      },
+    ],
+  },
+  '07': {
+    caveat: {
+      desktop: 'A computer on a good connection is the best amplifier: it re-sends the stream once to the server, which serves everyone else.',
+    },
+    roles: [
+      {
+        who: 'Whoever runs the broadcast server',
+        steps: [
+          'Set up a WHIP ingest — e.g. MediaMTX (open source, one binary) or a hosted service — and note its WHIP address and token.',
+          'Give the address and token only to the people who should publish to it.',
+        ],
+      },
+      {
+        who: 'The amplifier (you, or a friend watching)',
+        steps: [
+          'While streaming: open the share sheet → “Amplify — broadcast to a server”. While watching: the same panel under the player.',
+          'Paste the WHIP address and token → Start broadcasting. It reconnects by itself if the connection drops.',
+          'The server sees the video — use one you trust. “Always use the relay” (Network) hides your address from it.',
         ],
       },
     ],

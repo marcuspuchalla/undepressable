@@ -19,6 +19,7 @@ differently in each, so they are worth separating.
 | A | App already open, connection already live, then internet dies | **Yes** — media is peer-to-peer; an established link survives. Discovery is already done. |
 | B | Both devices on one hotspot, no internet, starting fresh | **Yes, via `/offline`** (QR pairing). Normal room codes cannot work — see below. |
 | C | Devices on different networks, internet cut on one side | **No.** Nothing local connects them; that is what the internet was for. |
+| C′ | Both online, but the discovery servers are blocked | **Yes, via Pair by messenger** (`/offline?over=internet`): the same two codes, sent over Signal/SMS/e-mail, carrying public and relay addresses. No discovery server involved. |
 | D | App not installed yet, no internet | **No.** The app has to reach the device somehow — install the PWA or APK beforehand. |
 
 ### Why normal room codes cannot work offline

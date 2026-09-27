@@ -113,6 +113,32 @@ of them):
 Verify it works: chrome://webrtc-internals while connecting should show
 `relay` candidate pairs when direct paths are blocked.
 
+## Broadcast server (WHIP) for everyone without the app
+
+*Amplify* (share sheet while streaming, or under the player while watching)
+pushes the live stream to any server that accepts WHIP, the standard
+WebRTC-ingest protocol. The server then serves it to anyone — HLS in a
+browser or a video player, RTMP onward to other platforms — with no app and
+no room code.
+
+- **Self-hosted:** [MediaMTX](https://github.com/bluenviron/mediamtx) (one
+  binary) accepts WHIP at `https://<host>:8889/<path>/whip` and serves HLS at
+  `https://<host>:8888/<path>/`. Put it behind TLS: the app only sends to
+  `https://` (plain `http://` only to localhost), and it must answer browser
+  requests (CORS — MediaMTX does by default; set `webrtcAllowOrigin` to narrow
+  it). Owncast and others offer WHIP too.
+- **Hosted:** e.g. Cloudflare Stream gives a WHIP URL with the secret built in
+  — paste it, leave the token empty.
+- **Authentication:** the app sends the token as `Authorization: Bearer …`,
+  which is what the WHIP standard specifies; check how your server maps it
+  (some accept credentials in the URL instead).
+- **Codecs:** the app prefers H.264, which most servers repackage without
+  transcoding. Browsers without an H.264 encoder send VP8; configure the
+  server to accept or transcode it.
+- The server sees the video. Run your own, or use one you trust — and several
+  in different places, since a single broadcast server is easy to block. A
+  viewer abroad can amplify when the server is blocked where you are.
+
 ## Nostr relay (discovery) for censored networks
 
 Any Nostr relay that accepts ephemeral events works (e.g.
