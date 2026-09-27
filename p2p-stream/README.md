@@ -41,6 +41,12 @@ to delete in one place.
 - **No discovery server needed.** If the servers that introduce devices are
   blocked, *Pair by messenger*: two short codes over Signal, SMS or e-mail, and
   the devices connect directly (or through your relay).
+- **A seized phone gives nothing away.** Recordings can be *sealed*:
+  encrypted as they are recorded, to the home archive's key (the phone itself
+  cannot open them) and/or a passphrase. Sealed copies can still be checked
+  and carried by anyone.
+- **Proof of when.** OpenTimestamps anchors a recording's proof in Bitcoin;
+  evidence files include `root.txt.ots` for the standard `ots verify`.
 - **Reach everyone.** *Amplify* pushes the stream — from the phone filming or
   from any viewer, e.g. one abroad — to a WHIP broadcast server (MediaMTX,
   Owncast, Cloudflare Stream…) that serves it on the open web.
@@ -100,7 +106,7 @@ npm run build            # production PWA build (+ the single-file app and relea
 npm run build:portable   # just the single-file app: dist-portable/undepressable.html
 npm run build:extension  # browser extension: dist-extension/{chrome,firefox}/ + zips
 npm run release:keygen   # a release signing key pair (see docs/THREAT_MODEL.md §2)
-npm run test:unit        # 339 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes, evidence transfer, releases, WHIP)
+npm run test:unit        # 361 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes, evidence transfer, releases, WHIP, sealing, timestamps)
 npm run tauri:build      # optional native desktop app
 ```
 
@@ -153,8 +159,8 @@ Prefer `turns:` on port 443 — it survives networks that block UDP/plain TURN.
 ## Notes & honest limitations
 
 **Read [docs/THREAT_MODEL.md](./docs/THREAT_MODEL.md)** before relying on the
-app: what it resists, and what it does not (recordings are not encrypted on
-the device yet; signed releases are built but no developer key is set yet).
+app: what it resists, and what it does not (sealing recordings is off by
+default; signed releases are built but no developer key is set yet).
 
 - **Privacy-first fonts.** The UI does **not** load web fonts from a CDN (that
   would leak every viewer's IP and break offline); it uses a system font stack.

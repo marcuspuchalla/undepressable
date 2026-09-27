@@ -68,7 +68,8 @@ Scenarios: `open`, `blocked`, `relay-link`, `relay-one-side`,
 `offline-chain-repair`, `messenger-pair` and `messenger-pair-late` (discovery
 dead, direct UDP dropped, codes pasted like messages — also 90 s late),
 `amplify-streamer` and `amplify-viewer` (WHIP to a stand-in broadcast
-server). Also `scripts/e2e/pwa-offline.mjs` and `scripts/e2e/portable.mjs`
+server), `sealed-home`, `sealed-passphrase`, `sealed-blind-carrier` and
+`timestamp`. Also `scripts/e2e/pwa-offline.mjs` and `scripts/e2e/portable.mjs`
 (need `npm run build`), `scripts/e2e/updates.mjs` (builds three signed
 versions itself) and `scripts/e2e/extension.mjs` (needs
 `npm run build:extension`). Results and what each proves:
@@ -330,6 +331,16 @@ hotspot — 🔒 not implemented; design in [`NATIVE_MESH.md`](NATIVE_MESH.md).
 1. Streamer → share sheet → *Amplify*: wrong token → "rejected the token"; right token → live; server decodes the video; *Stop* sends DELETE. ✅ (E2 `amplify-streamer`, stand-in server)
 2. A viewer amplifies what it watches. ✅ (E2 `amplify-viewer`)
 3. Against real servers: MediaMTX (WHIP → HLS in a browser), Cloudflare Stream; with an H.264-capable browser. ⬜
+
+## Scenario 8 — Evidence that holds up (round 6)
+
+**Guide:** Use case 08.
+
+1. Pair a phone with a home archive by scanning its QR; Recordings → Protect recordings → *Seal to my home archive*; record. Pass: the recording shows "🔒 sealed for home"; no WebM on disk; *Play* explains it is sealed for home; *Verify* → "Intact (sealed — not opened)"; *Send to home now* → at home "arrived sealed · opened here" and "Unaltered". ✅ (E2E `sealed-home`)
+2. *Lock with a passphrase*: set it, record, reload. Pass: locked until unlocked; wrong passphrase refused; after unlocking it verifies "Unaltered" and plays. ✅ (E2E `sealed-passphrase`)
+3. Blind carrier: a sealed evidence file imported by a friend verifies as intact but cannot be opened there; the friend sends it home, where it opens and verifies. ✅ (E2E `sealed-blind-carrier`)
+4. ⏱ *Timestamp*: requested → still pending → anchored and checked against the block; the evidence bundle contains `root.txt` and `root.txt.ots` whose digest matches. ✅ (E2E `timestamp`, stand-in calendar and explorer) · ⬜ against the real OpenTimestamps calendars and `ots verify` on a real, confirmed proof (hours later).
+5. On real phones: sealed recording at a scene, phone locked/taken, recording still arrives home and opens there. ⬜
 
 ## Cross-cutting checks (run once per platform)
 
