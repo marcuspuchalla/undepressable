@@ -50,6 +50,25 @@ export interface Recording {
   // Set when the stored chunks are encrypted (lib/seal): only the holders of
   // the recipients' private keys can open them.
   sealed?: RecordingSeal
+  // OpenTimestamps proof that the recording's signed proof existed by a given
+  // time (lib/timestamp).
+  timestamp?: RecordingTimestamp
+}
+
+export interface RecordingTimestamp {
+  /** The .ots proof (base64) for root.txt = the proof's Merkle root + newline. */
+  ots: string
+  requestedAt: string
+  /** Calendars still to confirm. */
+  calendars: string[]
+  /** Set once the proof reaches a Bitcoin block. */
+  bitcoin?: {
+    height: number
+    merkleRoot: string
+    /** When the block header was checked against a block explorer, and the block's time. */
+    checkedAt?: string
+    blockTime?: number
+  }
 }
 
 export interface RecordingSeal {

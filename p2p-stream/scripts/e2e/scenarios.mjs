@@ -14,7 +14,7 @@
 // offline-two-viewers, offline-isolated, archive, evidence-file, home-sync,
 // offline-handover, offline-chain, offline-chain-repair, messenger-pair,
 // messenger-pair-late, amplify-streamer, amplify-viewer, sealed-home,
-// sealed-passphrase, sealed-blind-carrier.
+// sealed-passphrase, sealed-blind-carrier, timestamp.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
@@ -775,6 +775,101 @@ Object.assign(scenarios, {
     const homeVerdict = await verifyFirst(home)
     const ok = /\.zip$/.test(file) && /Verified and imported/.test(imported) && /Intact \(sealed/.test(intact) && /someone else/.test(cannot) && sent && /Unaltered/.test(homeVerdict)
     return [ok, `sealed file ${download.suggestedFilename()}; friend: "${imported.slice(0, 40)}", ${intact}, play → "${cannot.slice(0, 40)}"; sent home: ${sent}; home: ${homeVerdict}`]
+  },
+})
+// A stand-in OpenTimestamps calendar and block explorer (same wire format as
+// the real ones; they answer with Access-Control-Allow-Origin: * and do not
+// answer preflights — so any preflight is logged as a failure).
+async function otsServer(port = 4417) {
+  const { createServer } = await import('node:http')
+  const { createHash } = await import('node:crypto')
+  const sha = (b) => createHash('sha256').update(b).digest()
+  const HEIGHT = 870123
+  const state = { confirmed: false, preflights: 0, posts: 0, merkleRoot: null }
+  const base = `http://localhost:${port}`
+  const server = createServer(async (req, res) => {
+    const cors = { 'access-control-allow-origin': '*' }
+    if (req.method === 'OPTIONS') {
+      state.preflights++
+      return res.writeHead(404), res.end()
+    }
+    const url = new URL(req.url, base)
+    if (req.method === 'POST' && url.pathname === '/digest') {
+      for await (const _ of req);
+      state.posts++
+      const uri = Buffer.from(base)
+      // append 0x01, sha256, pending attestation at this calendar
+      const body = Buffer.concat([Buffer.from([0xf0, 1, 1, 0x08, 0x00]), Buffer.from('83dfe30d2ef90c8e', 'hex'), Buffer.from([uri.length + 1, uri.length]), uri])
+      return res.writeHead(200, { ...cors, 'content-type': 'application/vnd.opentimestamps.v1' }), res.end(body)
+    }
+    const m = /^\/timestamp\/([0-9a-f]{64})$/.exec(url.pathname)
+    if (m) {
+      if (!state.confirmed) return res.writeHead(404, cors), res.end('Pending confirmation in Bitcoin blockchain')
+      // prepend 0x02, sha256, Bitcoin attestation at HEIGHT
+      const msg = sha(Buffer.concat([Buffer.from([2]), Buffer.from(m[1], 'hex')]))
+      state.merkleRoot = Buffer.from(msg).reverse().toString('hex')
+      const h = []
+      let n = HEIGHT
+      do {
+        let b = n % 128
+        n = Math.floor(n / 128)
+        if (n > 0) b |= 0x80
+        h.push(b)
+      } while (n > 0)
+      const body = Buffer.concat([Buffer.from([0xf1, 1, 2, 0x08, 0x00]), Buffer.from('0588960d73d71901', 'hex'), Buffer.from([h.length, ...h])])
+      return res.writeHead(200, cors), res.end(body)
+    }
+    if (url.pathname === `/api/block-height/${HEIGHT}`) return res.writeHead(200, cors), res.end('00'.repeat(32))
+    if (url.pathname === `/api/block/${'00'.repeat(32)}`) return res.writeHead(200, { ...cors, 'content-type': 'application/json' }), res.end(JSON.stringify({ merkle_root: state.merkleRoot, timestamp: 1790000000 }))
+    res.writeHead(404, cors)
+    res.end()
+  })
+  await new Promise((r) => server.listen(port, r))
+  return { base, state, HEIGHT, close: () => server.close() }
+}
+Object.assign(scenarios, {
+  // Proof of when: the recording's proof is anchored in (a stand-in for) Bitcoin.
+  async timestamp() {
+    const { readFileSync, mkdtempSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const { createHash } = await import('node:crypto')
+    const cal = await otsServer()
+    try {
+      const phone = await newPage({ undepressable_ots_calendars: JSON.stringify([cal.base]), undepressable_ots_explorer: JSON.stringify(`${cal.base}/api`) })
+      await phone.goto(`${APP}/recordings`)
+      await recordOnDevice(phone, 3)
+      await phone.reload()
+      const status = () => phone.locator('[data-testid=timestamp-status]').first().innerText().catch(() => '')
+      await phone.locator('[data-testid=timestamp]').first().click()
+      const appeared = await phone.locator('[data-testid=timestamp-status]').first().waitFor({ timeout: 15000 }).then(() => true).catch(() => false)
+      if (!appeared) return [false, `no timestamp: "${(await phone.locator('[data-testid=timestamp-row]').first().innerText().catch(() => '?')).replace(/\s+/g, ' ')}"; calendar posts ${cal.state.posts}, preflights ${cal.state.preflights}`]
+      const requested = await status()
+      await phone.locator('[data-testid=timestamp-check]').first().click()
+      await phone.waitForTimeout(1500)
+      const stillPending = await status()
+      cal.state.confirmed = true
+      await phone.locator('[data-testid=timestamp-check]').first().click()
+      await phone.waitForFunction(() => /checked/.test(document.querySelector('[data-testid=timestamp-status]')?.textContent ?? ''), null, { timeout: 15000 }).catch(() => {})
+      const anchored = await status()
+      // The evidence file now carries root.txt and its .ots proof.
+      await phone.locator('[data-testid=send-evidence]').first().click()
+      const [download] = await Promise.all([phone.waitForEvent('download'), phone.locator('[data-testid=save-evidence]').first().click()])
+      const dir = mkdtempSync(join(tmpdir(), 'und-ots-'))
+      const zip = join(dir, download.suggestedFilename())
+      await download.saveAs(zip)
+      execFileSync('unzip', ['-q', zip, '-d', dir])
+      const root = readFileSync(join(dir, 'root.txt'))
+      const ots = readFileSync(join(dir, 'root.txt.ots'))
+      const evidence = JSON.parse(readFileSync(join(dir, 'evidence.json'), 'utf8'))
+      const digestMatches = ots.subarray(33, 65).equals(createHash('sha256').update(root).digest())
+      const ok =
+        /requested/.test(requested) && /requested/.test(stillPending) && new RegExp(`block #${cal.HEIGHT}.*checked`).test(anchored) &&
+        root.toString() === `${evidence.proof.merkleRoot}\n` && ots.subarray(0, 16).toString('latin1').includes('OpenTimestamps') && digestMatches &&
+        cal.state.preflights === 0
+      return [ok, `"${requested.slice(0, 40)}" → still "${stillPending.slice(2, 22)}" → "${anchored}"; bundle: root.txt = proof root ${root.toString().trim() === evidence.proof.merkleRoot}, .ots digest matches ${digestMatches}; CORS preflights: ${cal.state.preflights}`]
+    } finally {
+      cal.close()
+    }
   },
 })
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']

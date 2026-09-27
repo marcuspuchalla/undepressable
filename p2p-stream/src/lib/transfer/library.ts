@@ -11,6 +11,18 @@ import type { Recording, RecordingOrigin } from '../../types'
 import { manifestFor, verifyEvidence, openSealedEvidence, type EvidenceManifest, type EvidenceCheck } from './evidence'
 import type { Inbox, Outbox, OfferItem } from './syncProtocol'
 import { openWithAvailableKeys } from '../seal/keys'
+import { timestampFits } from '../timestamp/recordingStamp'
+
+/** Drop a timestamp that does not belong to this recording's proof. */
+async function keepFittingTimestamp(m: EvidenceManifest): Promise<EvidenceManifest> {
+  if (!m.timestamp || (await timestampFits(m.proof, m.timestamp))) return m
+  const { timestamp: _dropped, ...rest } = m
+  return rest
+}
+
+function announceSaved(id: string) {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('undepressable:recording-saved', { detail: id }))
+}
 
 const opfs = useOPFS()
 
@@ -105,6 +117,7 @@ export function recordingFromManifest(
     metadata: { resolution: r.resolution, bitrate: r.bitrate, codec: r.mimeType },
     proof: m.proof,
     ...(m.sealed ? { sealed: { v: 1 as const, keys: m.sealed.keys, proof: m.sealed.proof } } : {}),
+    ...(m.timestamp ? { timestamp: m.timestamp } : {}),
     origin,
   }
 }
@@ -142,10 +155,11 @@ export type ImportResult = 'imported' | 'exists'
 export async function importEvidence(m: EvidenceManifest, video: Blob): Promise<ImportResult> {
   const existing = await getRecording(m.recording.id)
   if (existing?.status === 'completed') return 'exists'
-  const o = await openIfPossible(m, video)
+  const o = await openIfPossible(await keepFittingTimestamp(m), video)
   await writeAll(o.manifest, o.video)
   const origin: RecordingOrigin = { kind: 'imported', at: new Date().toISOString(), verified: true, ...(o.opened ? { opened: true } : {}) }
   await putRecording(recordingFromManifest(o.manifest, origin, 'completed'))
+  announceSaved(m.recording.id)
   return 'imported'
 }
 
@@ -243,7 +257,7 @@ export function makeInbox(): Inbox {
       // sealed proof). The home archive holds the key: open it here, check
       // the footage against its own proof, and keep it opened. A device
       // without a key keeps it sealed — a blind carrier.
-      let final = m
+      let final = await keepFittingTimestamp(m)
       let opened = false
       if (m.sealed) {
         const parts: Blob[] = []
@@ -252,7 +266,7 @@ export function makeInbox(): Inbox {
           if (!blob) throw new Error('a received chunk went missing')
           parts.push(blob)
         }
-        const o = await openIfPossible(m, new Blob(parts))
+        const o = await openIfPossible(final, new Blob(parts))
         if (o.opened) {
           await writeAll(o.manifest, o.video)
           final = o.manifest
@@ -261,6 +275,7 @@ export function makeInbox(): Inbox {
       }
       const origin: RecordingOrigin = { kind: 'synced', at: new Date().toISOString(), verified: true, ...(opened ? { opened: true } : {}) }
       await putRecording(recordingFromManifest(final, origin, 'completed'))
+      announceSaved(m.recording.id)
     },
   }
 }

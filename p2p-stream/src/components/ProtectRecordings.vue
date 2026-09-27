@@ -54,6 +54,20 @@
 
       <p v-if="note" class="text-xs" :class="noteOk ? 'text-moss' : 'text-red-300'">{{ note }}</p>
       <p class="text-[11px] text-slate-500">Applies to recordings started from now on. Earlier ones stay as they are.</p>
+
+      <div class="border-t border-line pt-3">
+        <label class="flex items-start gap-2">
+          <input type="checkbox" class="mt-0.5" :checked="autoStamp" data-testid="auto-timestamp" @change="setAuto(($event.target as HTMLInputElement).checked)" />
+          <span>
+            <span class="text-slate-200">Timestamp recordings automatically</span>
+            <span class="block text-xs text-slate-500">
+              Proves each recording existed by a given time: a fingerprint of its proof (never the footage) goes to
+              public OpenTimestamps servers, which anchor it in Bitcoin within hours. It is a request to those servers
+              from this device — leave it off where that could draw attention, and timestamp later, or from home.
+            </span>
+          </span>
+        </label>
+      </div>
     </div>
   </div>
 </template>
@@ -71,8 +85,15 @@ import {
   lockDevice,
   type SealPolicy,
 } from '../lib/seal/keys'
+import { autoTimestamp, setAutoTimestamp } from '../lib/timestamp/recordingStamp'
 
 const emit = defineEmits<{ (e: 'changed'): void }>()
+
+const autoStamp = ref(autoTimestamp())
+function setAuto(on: boolean) {
+  setAutoTimestamp(on)
+  autoStamp.value = on
+}
 
 const policy = ref<SealPolicy>(getSealPolicy())
 const homeKey = ref(getPairedHomeSealKey())

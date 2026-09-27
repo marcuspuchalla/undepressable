@@ -14,7 +14,7 @@
  * each one against the proof — no trust in whoever carried the file.
  */
 
-import type { Recording } from '../../types'
+import type { Recording, RecordingTimestamp } from '../../types'
 import { sha256, toHex, verifyProof, type RecordingProof } from '../integrity'
 import { decryptChunk, type SealedKey } from '../seal/crypto'
 
@@ -45,6 +45,8 @@ export interface EvidenceManifest {
    * needs a private key matching one of `keys`.
    */
   sealed?: { v: 1; keys: SealedKey[]; proof: RecordingProof }
+  /** OpenTimestamps proof for root.txt (the footage proof's Merkle root), if one was made. */
+  timestamp?: RecordingTimestamp
 }
 
 export interface EvidenceCheck {
@@ -76,6 +78,7 @@ export function manifestFor(recording: Recording): EvidenceManifest | null {
     chunkSizes: chunks.map((c) => c.size),
     proof: recording.proof,
     ...(recording.sealed?.proof ? { sealed: { v: 1 as const, keys: recording.sealed.keys, proof: recording.sealed.proof } } : {}),
+    ...(recording.timestamp ? { timestamp: recording.timestamp } : {}),
   }
 }
 
@@ -96,6 +99,7 @@ export function parseManifest(text: string): EvidenceManifest | null {
   if (typeof r.mimeType !== 'string' || !r.resolution || typeof r.bitrate !== 'number') return null
   if (!Array.isArray(m.chunkSizes) || !m.chunkSizes.every((n: unknown) => Number.isInteger(n) && (n as number) > 0)) return null
   if (!isProofShape(p)) return null
+  if (m.timestamp !== undefined && (!m.timestamp || typeof m.timestamp.ots !== 'string')) return null
   if (m.sealed !== undefined) {
     const sd = m.sealed
     if (!sd || sd.v !== 1 || !Array.isArray(sd.keys) || sd.keys.length === 0 || !isProofShape(sd.proof)) return null
@@ -215,6 +219,12 @@ on the device that made it ("sealed"): only the holder of one of the keys
 in evidence.json → sealed.keys can open it. Anyone can still check that the
 sealed copy is intact — sealed.proof covers the encrypted chunks and is
 signed by the same device as proof.
+
+If root.txt and root.txt.ots are present, the recording has a trusted
+timestamp: root.txt holds proof.merkleRoot, and root.txt.ots is an
+OpenTimestamps proof that it existed by the time of a Bitcoin block. Check it
+with the OpenTimestamps client: "ots verify root.txt.ots" (and "ots upgrade"
+first if it was still pending when the bundle was made).
 
 To check it: open Undepressable → Recordings → Import, and choose this
 .zip (or the .webm together with its evidence file). Every chunk is
@@ -364,10 +374,18 @@ export async function readZip(zip: Blob): Promise<ZipFileEntry[] | null> {
 /** The bundle for a recording, given its chunk blobs in order. */
 export function buildBundle(manifest: EvidenceManifest, chunks: Blob[]): Promise<Blob> {
   const json = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' })
+  // With a timestamp: root.txt and its .ots proof, checkable with `ots verify root.txt.ots`.
+  const stamped = manifest.timestamp
+    ? [
+        { name: 'root.txt', parts: [new Blob([`${manifest.proof.merkleRoot}\n`])] },
+        { name: 'root.txt.ots', parts: [new Blob([Uint8Array.from(atob(manifest.timestamp.ots), (c) => c.charCodeAt(0)) as BlobPart])] },
+      ]
+    : []
   return buildZip(
     [
       { name: videoName(manifest), parts: chunks },
       { name: 'evidence.json', parts: [json] },
+      ...stamped,
       { name: 'README.txt', parts: [new Blob([README])] },
     ],
     new Date(manifest.recording.startedAt),

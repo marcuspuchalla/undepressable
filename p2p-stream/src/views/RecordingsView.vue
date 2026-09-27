@@ -131,6 +131,29 @@
               <span class="text-gray-600 font-mono" title="Anonymous signing key">signer {{ recording.proof.pubKey.slice(0, 8) }}…</span>
             </div>
 
+            <!-- Trusted timestamp: proof it existed by a given time -->
+            <div v-if="recording.proof && recording.status === 'completed'" class="mt-1.5 flex flex-wrap items-center gap-2 text-xs" data-testid="timestamp-row">
+              <button
+                v-if="!recording.timestamp"
+                class="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 transition-colors"
+                :disabled="!!stamping[recording.id]"
+                title="Sends only a fingerprint of the proof to public OpenTimestamps servers"
+                data-testid="timestamp"
+                @click="timestampNow(recording)"
+              >⏱ {{ stamping[recording.id] ? 'Requesting…' : 'Timestamp' }}</button>
+              <template v-else>
+                <span :class="recording.timestamp.bitcoin ? 'text-moss' : 'text-slate-400'" data-testid="timestamp-status">{{ stampText(recording) }}</span>
+                <button
+                  v-if="!recording.timestamp.bitcoin?.checkedAt"
+                  class="text-slate-400 underline"
+                  :disabled="!!stamping[recording.id]"
+                  data-testid="timestamp-check"
+                  @click="checkStamp(recording)"
+                >{{ stamping[recording.id] ? 'Checking…' : 'Check now' }}</button>
+              </template>
+              <span v-if="stampError[recording.id]" class="text-red-300">{{ stampError[recording.id] }}</span>
+            </div>
+
           </div>
 
           <!-- Actions -->
@@ -227,6 +250,7 @@ import {
 } from '../lib/transfer/evidence'
 import { chunkBlobs, verifyStored, importEvidence, deliveredTo, makeOutbox, footage } from '../lib/transfer/library'
 import { sealAudience, type SealAudience } from '../lib/seal/keys'
+import { stampRecording, refreshTimestamp, autoTimestamp } from '../lib/timestamp/recordingStamp'
 import ProtectRecordings from '../components/ProtectRecordings.vue'
 
 const recordingStore = useRecordingStore()
@@ -248,6 +272,31 @@ const playingRecording = ref<Recording | null>(null)
 const playerVideo = ref<HTMLVideoElement>()
 const verifyResults = ref<Record<string, { valid: boolean; reason?: string; sealed?: boolean }>>({})
 const notice = ref<Record<string, string>>({})
+
+// --- trusted timestamps ---
+const stamping = ref<Record<string, boolean>>({})
+const stampError = ref<Record<string, string>>({})
+function stampText(rec: Recording): string {
+  const t = rec.timestamp!
+  if (!t.bitcoin) return '⏱ Timestamp requested — anchoring it in Bitcoin takes a few hours'
+  const when = t.bitcoin.blockTime ? ` (${formatDate(new Date(t.bitcoin.blockTime * 1000))})` : ''
+  return `⏱ Existed by Bitcoin block #${t.bitcoin.height}${when}${t.bitcoin.checkedAt ? ' ✓ checked' : ''}`
+}
+async function withStamp(rec: Recording, fn: (r: Recording) => Promise<Recording>) {
+  stamping.value = { ...stamping.value, [rec.id]: true }
+  const { [rec.id]: _e, ...rest } = stampError.value
+  stampError.value = rest
+  try {
+    await fn(rec)
+    await recordingStore.loadRecordings()
+  } catch (e: any) {
+    stampError.value = { ...stampError.value, [rec.id]: e?.message ?? String(e) }
+  } finally {
+    stamping.value = { ...stamping.value, [rec.id]: false }
+  }
+}
+const timestampNow = (rec: Recording) => withStamp(rec, stampRecording)
+const checkStamp = (rec: Recording) => withStamp(rec, refreshTimestamp)
 const SEAL_LABEL: Record<SealAudience, string> = { home: ' for home', passphrase: ' · passphrase', both: ' · home + passphrase', other: '' }
 const verifying = ref<Record<string, number>>({})
 
@@ -548,8 +597,26 @@ function formatBytes(bytes: number): string {
 }
 
 const onRecordingSaved = () => void refreshRecordings()
-onMounted(() => {
-  refreshRecordings()
+
+// With automatic timestamps on: stamp what has none yet, and look in on
+// pending ones (each at most once per visit).
+async function catchUpTimestamps() {
+  if (!autoTimestamp() || !navigator.onLine) return
+  for (const rec of recordingStore.recordings) {
+    if (!rec.proof || rec.status !== 'completed') continue
+    try {
+      if (!rec.timestamp) await stampRecording(rec)
+      else if (!rec.timestamp.bitcoin?.checkedAt) await refreshTimestamp(rec)
+    } catch {
+      /* offline or servers unreachable: next visit */
+    }
+  }
+  await recordingStore.loadRecordings()
+}
+
+onMounted(async () => {
+  await refreshRecordings()
+  void catchUpTimestamps()
   window.addEventListener('undepressable:recording-saved', onRecordingSaved)
 })
 onUnmounted(() => {
