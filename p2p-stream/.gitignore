@@ -36,3 +36,4 @@ coverage
 .env.*.local
 dist-extension
 dist-updates
+dist-portable

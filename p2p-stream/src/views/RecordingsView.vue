@@ -512,10 +512,13 @@ function formatBytes(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }
 
+const onRecordingSaved = () => void refreshRecordings()
 onMounted(() => {
   refreshRecordings()
+  window.addEventListener('undepressable:recording-saved', onRecordingSaved)
 })
 onUnmounted(() => {
+  window.removeEventListener('undepressable:recording-saved', onRecordingSaved)
   if (syncState.value !== 'idle') stopSync()
 })
 </script>

@@ -156,6 +156,28 @@
         </div>
       </div>
 
+      <!-- The app spreads without any website -->
+      <div class="card space-y-3" data-testid="pass-app-on">
+        <div class="flex items-start gap-3">
+          <div class="w-10 h-10 bg-ember/10 rounded-xl flex items-center justify-center flex-shrink-0">
+            <svg class="w-5 h-5 text-ember" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" /></svg>
+          </div>
+          <div>
+            <h3 class="font-semibold text-slate-100 mb-1">Pass the app on</h3>
+            <p class="text-sm text-slate-400 leading-relaxed">
+              The whole app is one file. Send it by AirDrop, Bluetooth, a messenger or a USB stick: it runs straight from
+              the file in Chrome, Edge or Firefox on a computer, and anyone can put it on any website — or IPFS — as a
+              mirror. No website of ours is needed, so taking one down stops nothing.
+            </p>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn-primary text-sm py-2" :disabled="shareApp.busy.value" data-testid="share-app" @click="shareApp.share()">Share the app…</button>
+          <button class="btn-secondary text-sm py-2" :disabled="shareApp.busy.value" data-testid="save-app" @click="shareApp.download()">Save the file</button>
+        </div>
+        <p v-if="shareApp.note.value" class="text-xs text-yellow-200">{{ shareApp.note.value }}</p>
+      </div>
+
       <!-- How it works -->
       <div class="card">
         <div class="flex items-center justify-between mb-4">
@@ -218,10 +240,12 @@
 </template>
 
 <script setup lang="ts">
+import { useShareApp } from '../composables/useShareApp'
 import { ref } from 'vue'
 import { useOffline } from '../composables/useOffline'
 import ShareModal from '../components/ShareModal.vue'
 
 const offline = useOffline()
+const shareApp = useShareApp()
 const shareModal = ref<InstanceType<typeof ShareModal>>()
 </script>

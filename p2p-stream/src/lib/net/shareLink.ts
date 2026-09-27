@@ -88,6 +88,11 @@ export interface ShareBase {
   reachability: Reachability;
   source: "configured" | "build" | "origin" | "lan-ip";
   /**
+   * Links must carry the route in the hash (#/collect/CODE): the base is this
+   * copy itself — a file, an extension page, or a mirror under some path.
+   */
+  hash: boolean;
+  /**
    * Opens as a secure context. Over plain http (other than localhost)
    * browsers withhold the camera and WebCrypto — which the signaling
    * encryption needs — so the app cannot work there at all.
@@ -115,9 +120,12 @@ export function resolveShareBase(opts: {
   configured?: string | null;
   envPublicUrl?: string | null;
   lanIp?: string | null;
+  /** This copy uses hash routes (lib/appLocation.ts); `origin` is then its full base URL. */
+  hashRoutes?: boolean;
 }): ShareBase {
   const r = pickShareBase(opts);
-  return { ...r, secure: isSecureBase(r.base) };
+  const hash = !!opts.hashRoutes && (r.source === "origin" || r.source === "lan-ip");
+  return { ...r, hash, secure: isSecureBase(r.base) };
 }
 
 function pickShareBase(opts: {
@@ -125,7 +133,7 @@ function pickShareBase(opts: {
   configured?: string | null;
   envPublicUrl?: string | null;
   lanIp?: string | null;
-}): Omit<ShareBase, "secure"> {
+}): Omit<ShareBase, "secure" | "hash"> {
   const configured = opts.configured ? normalizePublicUrl(opts.configured) : null;
   if (configured) return { base: configured, reachability: classifyOrigin(configured), source: "configured" };
   const env = opts.envPublicUrl ? normalizePublicUrl(opts.envPublicUrl) : null;
@@ -147,16 +155,20 @@ function pickShareBase(opts: {
   return { base: opts.origin, reachability: "device", source: "origin" };
 }
 
-/** `${base}/collect/CODE?turn=…&ice=…` */
-export function buildCollectUrl(base: string, code: string, params: Record<string, string> = {}): string {
+function appLink(base: string, route: string, params: Record<string, string>, hash: boolean): string {
   const qs = new URLSearchParams(params).toString();
-  return `${base.replace(/\/+$/, "")}/collect/${code}${qs ? `?${qs}` : ""}`;
+  const path = `${route}${qs ? `?${qs}` : ""}`;
+  return hash ? `${base}#${path}` : `${base.replace(/\/+$/, "")}${path}`;
+}
+
+/** `${base}/collect/CODE?turn=…&ice=…` — or `${base}#/collect/CODE?…` for hash-routed copies. */
+export function buildCollectUrl(base: string, code: string, params: Record<string, string> = {}, hash = false): string {
+  return appLink(base, `/collect/${code}`, params, hash);
 }
 
 /** `${base}/pair-home/KEY?turn=…` — pairs a phone with a home archive. */
-export function buildPairHomeUrl(base: string, key: string, params: Record<string, string> = {}): string {
-  const qs = new URLSearchParams(params).toString();
-  return `${base.replace(/\/+$/, "")}/pair-home/${key}${qs ? `?${qs}` : ""}`;
+export function buildPairHomeUrl(base: string, key: string, params: Record<string, string> = {}, hash = false): string {
+  return appLink(base, `/pair-home/${key}`, params, hash);
 }
 
 /** The home-archive key in a pairing link, if that is what was scanned. */

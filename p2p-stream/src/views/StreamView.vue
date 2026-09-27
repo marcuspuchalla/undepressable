@@ -225,6 +225,7 @@ import { useWakeLock } from '../composables/useWakeLock'
 import { useConnectionDiagnosis } from '../composables/useConnectionDiagnosis'
 import { generateShortRoomId } from '../utils/roomId'
 import { resolveShareBase, buildCollectUrl, getConfiguredPublicUrl } from '../lib/net/shareLink'
+import { appBase, usesHashRoutes } from '../lib/appLocation'
 import { relayShareParams } from '../lib/net/iceConfig'
 import { discoveryShareParams } from '../lib/net/discoveryConfig'
 import type { DiagnosisAction } from '../lib/net/diagnosis'
@@ -310,7 +311,8 @@ async function restartRoom() {
 const shareBase = computed(() => {
   void settingsTick.value
   return resolveShareBase({
-    origin: window.location.origin,
+    origin: appBase(),
+    hashRoutes: usesHashRoutes(),
     configured: getConfiguredPublicUrl(),
     envPublicUrl: (import.meta as any).env?.VITE_PUBLIC_URL ?? null,
     lanIp: localIP.localIP.value || null,
@@ -321,7 +323,7 @@ const linkParams = computed(() => {
   return { ...relayShareParams(), ...discoveryShareParams() }
 })
 const relayInLink = computed(() => 'turn' in linkParams.value || 'ice' in linkParams.value)
-const shareUrl = computed(() => (roomCode.value ? buildCollectUrl(shareBase.value.base, roomCode.value, linkParams.value) : ''))
+const shareUrl = computed(() => (roomCode.value ? buildCollectUrl(shareBase.value.base, roomCode.value, linkParams.value, shareBase.value.hash) : ''))
 
 onMounted(async () => {
   // Generate room code

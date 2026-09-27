@@ -21,7 +21,13 @@ function buildId(): string {
 // `vite build --mode extension` packages the app as a browser extension
 // (scripts/build-extension.js): same code, no service worker — the installed
 // extension is itself the offline copy — and its own output folder.
-export default defineConfig(({ mode }) => ({
+// `vite build --mode portable` makes the self-contained single-file app
+// (scripts/build-portable.js): relative paths, hash routes, one inlined bundle,
+// so it runs from a file or from any mirror under any path.
+export default defineConfig(({ mode }) => {
+  const portable = mode === 'portable'
+  const noServiceWorker = mode === 'extension' || portable
+  return {
   plugins: [
     nodePolyfills({
       include: ['process', 'util', 'buffer', 'stream'],
@@ -32,7 +38,7 @@ export default defineConfig(({ mode }) => ({
       },
     }),
     vue(),
-    mode !== 'extension' && VitePWA({
+    !noServiceWorker && VitePWA({
       // Never swap the app's code silently: a waiting version is checked
       // against the release keys and offered (composables/useUpdates.ts).
       registerType: 'prompt',
@@ -47,7 +53,9 @@ export default defineConfig(({ mode }) => ({
         
         // Cache navigation requests (all routes)
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api/, /^\/__/],
+        // The single-file app sits next to the site (scripts/build-portable.js);
+        // opening it directly must not be answered with index.html.
+        navigateFallbackDenylist: [/^\/api/, /^\/__/, /^\/undepressable\.html$/, /^\/release\.(json|sig)$/],
         
         // Clean up old caches
         cleanupOutdatedCaches: true,
@@ -149,14 +157,17 @@ export default defineConfig(({ mode }) => ({
       }
     })
   ],
+  base: portable ? './' : '/',
   define: {
     __APP_BUILD__: JSON.stringify(buildId()),
+    __HASH_ROUTES__: JSON.stringify(portable),
+    __PORTABLE__: JSON.stringify(portable),
   },
   resolve: {
     alias: {
       '@': resolve(__dirname, 'src'),
       // No service worker in the extension (it updates via its store or by hand).
-      ...(mode === 'extension' ? { 'virtual:pwa-register': resolve(__dirname, 'src/lib/update/pwaRegisterStub.ts') } : {}),
+      ...(noServiceWorker ? { 'virtual:pwa-register': resolve(__dirname, 'src/lib/update/pwaRegisterStub.ts') } : {}),
     }
   },
   server: {
@@ -167,20 +178,25 @@ export default defineConfig(({ mode }) => ({
     allowedHosts: true
   },
   build: {
-    outDir: mode === 'extension' ? 'dist-extension/app' : 'dist',
+    outDir: mode === 'extension' ? 'dist-extension/app' : portable ? 'dist-portable/app' : 'dist',
+    // One file: no lazily loaded chunks a file:// page could not fetch.
+    ...(portable ? { cssCodeSplit: false, assetsInlineLimit: 1024 * 1024 } : {}),
     target: 'esnext',
     sourcemap: true,
     // Ensure all assets are self-contained
     rollupOptions: {
-      output: {
-        manualChunks: {
-          'trystero-torrent': ['trystero/torrent'],
-          'trystero-nostr': ['trystero/nostr']
-        }
-      }
+      output: portable
+        ? { inlineDynamicImports: true }
+        : {
+            manualChunks: {
+              'trystero-torrent': ['trystero/torrent'],
+              'trystero-nostr': ['trystero/nostr']
+            }
+          }
     }
   },
   optimizeDeps: {
     include: ['simple-peer', 'qrcode', 'jsqr', 'trystero/torrent', 'trystero/nostr']
   }
-}))
+}
+})

@@ -142,6 +142,7 @@ import RelaySetup from '../components/RelaySetup.vue'
 import { probeNat, testRelay, describeRelayError, type NatProbeResult, type NatKind, type RelayTestResult } from '../lib/net/natProbe'
 import { STUN_SERVERS, hasRelay, resolveRtcConfig, relayServersOf } from '../lib/net/iceConfig'
 import { resolveShareBase, getConfiguredPublicUrl, setConfiguredPublicUrl, type Reachability } from '../lib/net/shareLink'
+import { appBase, usesHashRoutes } from '../lib/appLocation'
 import { getCustomRelays, setCustomRelays, isCustomRelaysOnly, setCustomRelaysOnly, parseRelayList } from '../lib/net/discoveryConfig'
 import { NOSTR_RELAYS, TORRENT_TRACKERS } from '../types'
 import { updates, checkForUpdate, APP_BUILD } from '../composables/useUpdates'
@@ -240,7 +241,8 @@ const configuredTick = ref(0)
 const shareBase = computed(() => {
   void configuredTick.value
   return resolveShareBase({
-    origin: location.origin,
+    origin: appBase(),
+    hashRoutes: usesHashRoutes(),
     configured: getConfiguredPublicUrl(),
     envPublicUrl: (import.meta as any).env?.VITE_PUBLIC_URL ?? null,
   })

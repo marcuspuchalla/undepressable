@@ -414,6 +414,8 @@ export function useRecording() {
         if (!live) markRecordingComplete()
 
         console.log('[useRecording] Recording saved:', s.recording.id, 'Chunks:', s.chunks.length)
+        // An open Recordings screen shows it without a manual refresh.
+        window.dispatchEvent(new CustomEvent('undepressable:recording-saved', { detail: s.recording.id }))
         return s.recording
       } catch (err: any) {
         console.error('[useRecording] Error saving recording:', err)

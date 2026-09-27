@@ -144,6 +144,7 @@ import { getHomeKey, archiveRoomId } from '../lib/archive'
 import type { Recording } from '../types'
 import { useConnectionDiagnosis } from '../composables/useConnectionDiagnosis'
 import { resolveShareBase, buildPairHomeUrl, getConfiguredPublicUrl } from '../lib/net/shareLink'
+import { appBase, usesHashRoutes } from '../lib/appLocation'
 import { relayShareParams } from '../lib/net/iceConfig'
 import { discoveryShareParams } from '../lib/net/discoveryConfig'
 import type { DiagnosisAction } from '../lib/net/diagnosis'
@@ -167,7 +168,8 @@ const linkTick = ref(0)
 const pairBase = computed(() => {
   void linkTick.value
   return resolveShareBase({
-    origin: location.origin,
+    origin: appBase(),
+    hashRoutes: usesHashRoutes(),
     configured: getConfiguredPublicUrl(),
     envPublicUrl: (import.meta as any).env?.VITE_PUBLIC_URL ?? null,
   })
@@ -177,7 +179,7 @@ const linkParams = computed(() => {
   return { ...relayShareParams(), ...discoveryShareParams() }
 })
 const relayInLink = computed(() => 'turn' in linkParams.value || 'ice' in linkParams.value)
-const pairUrl = computed(() => (homeKey.value ? buildPairHomeUrl(pairBase.value.base, homeKey.value, linkParams.value) : ''))
+const pairUrl = computed(() => (homeKey.value ? buildPairHomeUrl(pairBase.value.base, homeKey.value, linkParams.value, pairBase.value.hash) : ''))
 const qrCanvas = ref<HTMLCanvasElement>()
 const videoEl = ref<HTMLVideoElement>()
 const remoteStream = ref<MediaStream | null>(null)

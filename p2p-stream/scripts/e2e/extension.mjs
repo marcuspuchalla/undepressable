@@ -82,6 +82,13 @@ try {
     const ok = await A.locator(`text=${text}`).first().waitFor({ timeout: 8000 }).then(() => true).catch(() => false)
     check(`route ${hash} renders`, ok)
   }
+  // The extension carries the single-file app and can hand it on.
+  await A.goto(base + '#/')
+  const [dl] = await Promise.all([A.waitForEvent('download', { timeout: 15000 }).catch(() => null), A.getByTestId('save-app').click()])
+  const dlPath = dl ? await dl.path() : null
+  const { statSync } = await import('node:fs')
+  check('the extension hands out the single-file app', !!dlPath && statSync(dlPath).size > 500_000, dl?.suggestedFilename())
+
   // An in-app link must stay inside the hash router (not navigate to chrome-extension://id/offline).
   await A.goto(base)
   await A.locator('a[href="#/offline"]').first().click().catch(() => {})

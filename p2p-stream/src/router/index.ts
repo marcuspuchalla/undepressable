@@ -8,14 +8,15 @@ import ArchiveView from '../views/ArchiveView.vue'
 import OfflineView from '../views/OfflineView.vue'
 import PairHomeView from '../views/PairHomeView.vue'
 import NetworkView from '../views/NetworkView.vue'
+import { usesHashRoutes } from '../lib/appLocation'
 
-// Inside the browser extension there is no server to answer /collect/CODE, so
-// routes live in the hash (#/collect/CODE). Everywhere else: normal paths.
-const inExtension =
-  typeof location !== 'undefined' && /^(chrome|moz|safari-web)-extension:$/.test(location.protocol)
+// Copies that don't live at the root of their own website (the extension, the
+// portable single file, mirrors under any path) keep routes in the hash:
+// no server answers /collect/CODE for them. See lib/appLocation.ts.
+const hashRoutes = usesHashRoutes()
 
 const router = createRouter({
-  history: inExtension ? createWebHashHistory() : createWebHistory(),
+  history: hashRoutes ? createWebHashHistory() : createWebHistory(),
   routes: [
     {
       path: '/',
