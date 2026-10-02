@@ -164,16 +164,16 @@
                   data-testid="corroborate"
                   @click="checkFilmer(recording)"
                 >{{ corroborating[recording.id] !== undefined ? `Comparing… ${corroborating[recording.id]}%` : '🎥 Check against the filmer' }}</button>
-                <span class="text-slate-500">{{ attestationCount(recording) }} s signed by the filming phone</span>
+                <span class="text-slate-500">{{ attestationNote(recording) }}</span>
               </div>
-              <template v-if="recording.corroboration && corroborating[recording.id] === undefined">
+              <template v-if="checkOf(recording) && corroborating[recording.id] === undefined">
                 <p
-                  v-for="r in recording.corroboration.results"
+                  v-for="r in checkOf(recording)!.results"
                   :key="r.signer"
                   :class="CORR_CLASS[r.verdict]"
                   data-testid="corroborate-result"
                 >{{ corroborationText(r) }}</p>
-                <p v-if="!recording.corroboration.results.length" class="text-red-300" data-testid="corroborate-result">✗ None of the signatures check out.</p>
+                <p v-if="!checkOf(recording)!.results.length" class="text-red-300" data-testid="corroborate-result">✗ None of the signatures check out.</p>
               </template>
               <p v-if="corrError[recording.id]" class="text-red-300">{{ corrError[recording.id] }}</p>
             </div>
@@ -279,6 +279,7 @@ import ProtectRecordings from '../components/ProtectRecordings.vue'
 import { hasAttestations, checkAgainstFilmer } from '../lib/corroborate/check'
 import { entryCount } from '../lib/corroborate/log'
 import type { Corroboration } from '../lib/corroborate/match'
+import type { CorroborationCheck } from '../types'
 
 const recordingStore = useRecordingStore()
 const opfs = useOPFS()
@@ -332,7 +333,11 @@ const CORR_CLASS: Record<Corroboration['verdict'], string> = {
   'not-corroborated': 'text-red-300',
   'too-short': 'text-slate-400',
 }
-const attestationCount = (rec: Recording) => entryCount(rec.attestations ?? [])
+const attestationNote = (rec: Recording) =>
+  rec.attestations?.length ? `${entryCount(rec.attestations)} s signed by the filming phone` : 'signed by the filming phone — sealed with the footage'
+// Results for sealed recordings are shown, not stored (see checkAgainstFilmer).
+const checks = ref<Record<string, CorroborationCheck>>({})
+const checkOf = (rec: Recording) => checks.value[rec.id] ?? rec.corroboration
 const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
 /** "0:04–0:08, 0:15": unmatched moments, consecutive seconds joined. */
 function stretches(ms: number[]): string {
@@ -362,11 +367,12 @@ async function checkFilmer(rec: Recording) {
   const { [rec.id]: _e, ...rest } = corrError.value
   corrError.value = rest
   try {
-    await checkAgainstFilmer(rec, {
+    const check = await checkAgainstFilmer(rec, {
       onProgress: (done, total) => {
         corroborating.value = { ...corroborating.value, [rec.id]: Math.min(99, Math.round((100 * done) / Math.max(total, 1))) }
       },
     })
+    checks.value = { ...checks.value, [rec.id]: check }
     await recordingStore.loadRecordings()
   } catch (e: any) {
     corrError.value = { ...corrError.value, [rec.id]: e?.message ?? String(e) }

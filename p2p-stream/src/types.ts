@@ -97,6 +97,11 @@ export interface RecordingSeal {
    * without being able to open it.
    */
   proof?: RecordingProof
+  /**
+   * The filmer's attestations (lib/corroborate), encrypted with the content
+   * key: in the clear they would tie this device to a stream others watched.
+   */
+  attestations?: string
 }
 
 export interface RecordingOrigin {

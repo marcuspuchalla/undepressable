@@ -16,7 +16,7 @@
 
 import type { Recording, RecordingTimestamp } from '../../types'
 import { sha256, toHex, verifyProof, type RecordingProof } from '../integrity'
-import { decryptChunk, type SealedKey } from '../seal/crypto'
+import { decryptChunk, openJson, type SealedKey } from '../seal/crypto'
 import { isLogsShape, type AttestationLog } from '../corroborate/log'
 
 export const EVIDENCE_FORMAT = 'undepressable-evidence'
@@ -45,7 +45,7 @@ export interface EvidenceManifest {
    * encrypted chunks, so anyone can check the copy is intact; opening it
    * needs a private key matching one of `keys`.
    */
-  sealed?: { v: 1; keys: SealedKey[]; proof: RecordingProof }
+  sealed?: { v: 1; keys: SealedKey[]; proof: RecordingProof; attestations?: string }
   /** OpenTimestamps proof for root.txt (the footage proof's Merkle root), if one was made. */
   timestamp?: RecordingTimestamp
   /**
@@ -83,7 +83,9 @@ export function manifestFor(recording: Recording): EvidenceManifest | null {
     },
     chunkSizes: chunks.map((c) => c.size),
     proof: recording.proof,
-    ...(recording.sealed?.proof ? { sealed: { v: 1 as const, keys: recording.sealed.keys, proof: recording.sealed.proof } } : {}),
+    ...(recording.sealed?.proof
+      ? { sealed: { v: 1 as const, keys: recording.sealed.keys, proof: recording.sealed.proof, ...(recording.sealed.attestations ? { attestations: recording.sealed.attestations } : {}) } }
+      : {}),
     ...(recording.timestamp ? { timestamp: recording.timestamp } : {}),
     ...(recording.attestations?.length ? { attestations: recording.attestations } : {}),
   }
@@ -113,6 +115,7 @@ export function parseManifest(text: string): EvidenceManifest | null {
     if (!sd || sd.v !== 1 || !Array.isArray(sd.keys) || sd.keys.length === 0 || !isProofShape(sd.proof)) return null
     const hex = (x: unknown) => typeof x === 'string' && /^[0-9a-f]+$/i.test(x)
     if (!sd.keys.every((k: any) => k && hex(k.to) && hex(k.eph) && hex(k.iv) && hex(k.wrapped))) return null
+    if (sd.attestations !== undefined && (typeof sd.attestations !== 'string' || sd.attestations.length > 16_000_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(sd.attestations))) return null
   }
   return m as EvidenceManifest
 }
@@ -194,8 +197,19 @@ export async function openSealedEvidence(
     parts.push(plain)
     sizes.push(plain.length)
   }
-  const { sealed: _sealed, ...rest } = manifest
-  return { manifest: { ...rest, chunkSizes: sizes }, video: new Blob(parts as BlobPart[], { type: manifest.recording.mimeType }) }
+  const { sealed, ...rest } = manifest
+  // The filmer's attestations were sealed with the footage. They are not part
+  // of the signed proof (each is signed by the filmer), so a blob that will
+  // not open is left out rather than failing the footage.
+  let attestations = rest.attestations
+  if (sealed.attestations) {
+    const opened = await openJson(contentKey, sealed.attestations).catch(() => null)
+    if (isLogsShape(opened) && opened.length) attestations = opened
+  }
+  return {
+    manifest: { ...rest, chunkSizes: sizes, ...(attestations?.length ? { attestations } : {}) },
+    video: new Blob(parts as BlobPart[], { type: manifest.recording.mimeType }),
+  }
 }
 
 // --- names ---

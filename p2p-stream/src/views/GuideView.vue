@@ -278,6 +278,44 @@ const cases: { n: string; status: Status; title: string; body: string; svg: stri
       132,
     ),
   },
+  {
+    n: '09',
+    status: 'now',
+    title: 'Every copy checks back to the camera',
+    body: 'While you stream, your phone signs a small fingerprint of its picture every second, with a key made for this stream only — the share link carries it. Every viewer keeps those signatures with their copy. Later, anyone holding a copy can check it against them: does it show what your camera showed, second by second, and where does it not (a cut, a swap)? It works even when your phone and your own recording are gone.',
+    svg: svg(
+      person(60, 62, 'You', EMBER) +
+        note(60, 110, 'signs each second', '#fbbf24', 9) +
+        link(88, 40, 196, 28, GLOW, false) +
+        link(88, 62, 196, 84, GLOW, false) +
+        person(224, 38, 'Viewer', GLOW) +
+        person(224, 96, 'Viewer', GLOW) +
+        link(252, 30, 360, 54, MOSS, true) +
+        link(252, 88, 360, 58, MOSS, true) +
+        note(410, 50, 'copy ✓ matches', '#6ee7b7') +
+        note(410, 70, 'the camera', '#6ee7b7'),
+      132,
+    ),
+  },
+  {
+    n: '10',
+    status: 'now',
+    title: 'When the network is throttled',
+    body: 'Slowing mobile data to a crawl is a quieter way to stop a stream than cutting it. Each viewer’s connection is measured all the time: when it gets slow, that viewer gets a smaller picture; when it is too slow for any picture, sound only — and their copy keeps recording. The picture comes back by itself when the connection recovers. Viewers on good connections keep the full picture.',
+    svg: svg(
+      person(60, 84, 'You', EMBER) +
+        link(88, 76, 222, 28, MOSS, false) +
+        link(88, 80, 222, 80, GLOW, true) +
+        link(88, 84, 222, 130, '#fbbf24', true) +
+        person(250, 32, 'Wi-Fi', MOSS) +
+        person(250, 84, '3G', GLOW) +
+        person(250, 136, 'throttled', '#fbbf24') +
+        note(390, 30, 'full picture · recording', MOSS, 10) +
+        note(390, 82, 'small picture · recording', GLOW, 10) +
+        note(390, 134, 'sound only · recording', '#fbbf24', 10),
+      176,
+    ),
+  },
 ]
 
 // --- per-use-case walkthroughs, tailored to the reader's platform ---
@@ -544,6 +582,50 @@ const walks: Record<string, Walk> = {
           'Send recordings home (Recordings → Send to home now), hand them to a friend, or share them as files. Sealed copies stay sealed on the way; everyone can check they are intact.',
           'At home they open automatically and are checked second by second.',
           'Timestamp them if you haven’t (the ⏱ button); after a few hours “Check now” shows the Bitcoin block. Evidence files then include root.txt and root.txt.ots for the standard “ots verify”.',
+        ],
+      },
+    ],
+  },
+  '09': {
+    roles: [
+      {
+        who: 'The person filming',
+        steps: [
+          'Nothing to switch on: the share sheet says “Every second this phone signs a fingerprint of its picture” and shows the start of the key.',
+          'Share the link (not just the code) where you can: it carries the key, so viewers only accept signatures made with it. Posting the link publicly also shows later which key was yours.',
+        ],
+      },
+      {
+        who: 'Viewers',
+        steps: [
+          'Join through the link. Under the player: “✓ The filming phone signs its picture every second — N kept with your copy”.',
+          'Your copy carries the signatures wherever it goes: to your home archive, to friends, in evidence files.',
+        ],
+      },
+      {
+        who: 'Anyone checking a copy later',
+        steps: [
+          'Recordings → “🎥 Check against the filmer”. The copy is played through quickly and compared with every signed second.',
+          '“✓ Shows what the filming phone’s camera showed: 58 of 60 signed moments match (key 3fa2…)” — and, if some do not, at which times. Compare the key with the one in the stream’s link.',
+          'A match means the same picture, not the same bytes: it survives re-encoding, and a picture that hardly changed says less (the result says so).',
+        ],
+      },
+    ],
+  },
+  '10': {
+    roles: [
+      {
+        who: 'The person filming',
+        steps: [
+          'Nothing to do. On the camera screen “🐢 1 slow link: 1 sound only” shows who is getting less, and why.',
+          'If everyone is slow, your own upload is the bottleneck: fewer direct viewers help — let viewers relay to each other (they do by default).',
+        ],
+      },
+      {
+        who: 'Watching on a slow connection',
+        steps: [
+          'A smaller picture, or “🔊 Sound only — the connection is too slow for the picture right now”. Your copy keeps recording either way.',
+          'Don’t reconnect: the picture comes back by itself when the connection allows.',
         ],
       },
     ],

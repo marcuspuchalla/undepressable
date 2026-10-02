@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { ensurePersistentStorage } from '../lib/persistence'
 import { putRecording } from '../lib/recordingDb'
-import { newContentKey, sealContentKey, encryptChunk } from '../lib/seal/crypto'
+import { newContentKey, sealContentKey, encryptChunk, sealJson } from '../lib/seal/crypto'
 import { sealRecipients } from '../lib/seal/keys'
 import { useOPFS } from './useOPFS'
 import { checkStorage, type StorageAssessment } from '../lib/storageGuard'
@@ -404,6 +404,12 @@ export function useRecording() {
             const cipherHashes = s.recording.chunks.map((c) => s.seal!.cipherHashes.get(c.index)!)
             s.recording.sealed.proof = buildProof(s.recording.id, cipherHashes, getIdentity())
           }
+        }
+        // A sealed recording's attestations are sealed with it: in the clear
+        // they would tie this phone to a stream other people watched.
+        if (s.seal && s.recording.sealed && s.recording.attestations?.length) {
+          s.recording.sealed.attestations = await sealJson(s.seal.contentKey, s.recording.attestations)
+          delete s.recording.attestations
         }
         // The content key goes out of reach with the session.
         if (s.seal) s.seal.contentKey.fill(0)

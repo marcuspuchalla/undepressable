@@ -15,7 +15,7 @@
 // offline-handover, offline-chain, offline-chain-repair, messenger-pair,
 // messenger-pair-late, amplify-streamer, amplify-viewer, sealed-home,
 // sealed-passphrase, sealed-blind-carrier, timestamp, corroborate,
-// corroborate-offline, throttled.
+// corroborate-offline, corroborate-sealed, throttled.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
@@ -1153,6 +1153,50 @@ Object.assign(scenarios, {
     } finally {
       if (rule) block(false, rule)
     }
+  },
+})
+
+Object.assign(scenarios, {
+  // A viewer whose recordings are sealed to home: on the phone the filmer's
+  // attestations are sealed with the footage (nothing readable ties the phone
+  // to the stream); sent home, they open with it, and the copy checks out.
+  async 'corroborate-sealed'() {
+    const cams = await cameraFiles()
+    const home = await newPage({ undepressable_home_key: 'HQMRT7XQ' })
+    const phone = await newPage({})
+    await pairPhoneWithHome(home, phone)
+    await phone.goto(`${APP}/recordings`)
+    await openProtect(phone)
+    await phone.locator('[data-testid=seal-home]').check()
+    await home.goto(`${APP}/archive`)
+    const A = await startStream({}, camera(cams.a))
+    await phone.goto(A.shareUrl)
+    if ((await videoWithin(phone, 40000)) === null) return [false, 'phone got no video']
+    await phone.waitForSelector('text=Stop Recording', { timeout: 20000 })
+    await phone.waitForTimeout(10000)
+    await phone.getByText('Stop Recording').click()
+    await phone.waitForTimeout(1500)
+    await phone.goto(`${APP}/recordings`)
+    const onPhone = await phone.evaluate(async () => {
+      const { getAllRecordings } = await import('/src/lib/recordingDb.ts')
+      const r = (await getAllRecordings()).find((x) => x.sealed)
+      return r && { id: r.id, clear: (r.attestations ?? []).length, sealed: typeof r.sealed.attestations === 'string', raw: JSON.stringify(r) }
+    })
+    const fk = new URL(A.shareUrl).searchParams.get('fk')
+    const keyHidden = !!onPhone && !onPhone.raw.includes(fk)
+    const phoneCard = phone.locator('[data-testid=recording]', { has: phone.locator('[data-testid=sealed-badge]') }).first()
+    const phoneCheck = await checkCard(phone, phoneCard)
+    await phone.locator('[data-testid=send-home]').click()
+    const sent = await phone
+      .waitForFunction(() => /Everything is at home/.test(document.querySelector('[data-testid=home-sync-status]')?.textContent ?? ''), null, { timeout: 90000 })
+      .then(() => true)
+      .catch(() => false)
+    await home.goto(`${APP}/recordings`)
+    await home.locator('[data-testid=recording]').first().waitFor({ timeout: 10000 }).catch(() => {})
+    const homeCard = home.locator('[data-testid=recording]', { hasText: 'arrived sealed · opened here' }).first()
+    const atHome = await checkCard(home, homeCard)
+    const ok = onPhone?.clear === 0 && onPhone?.sealed && keyHidden && /could not be opened|sealed/.test(phoneCheck) && sent && /✓ Shows what the filming phone/.test(atHome)
+    return [ok, `phone: ${onPhone?.clear} in the clear, sealed blob ${onPhone?.sealed}, stream key absent from the record ${keyHidden}, check → "${phoneCheck.slice(0, 110)}"; sent home ${sent}; home: ${atHome.slice(0, 150)}`]
   },
 })
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']

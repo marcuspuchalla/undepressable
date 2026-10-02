@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildProof, generateIdentity, sha256, toHex } from '../integrity'
 import type { Recording } from '../../types'
-import { generateSealKeyPair, newContentKey, sealContentKey, encryptChunk, openContentKey } from '../seal/crypto'
+import { generateSealKeyPair, newContentKey, sealContentKey, encryptChunk, openContentKey, sealJson } from '../seal/crypto'
 import {
   manifestFor,
   parseManifest,
@@ -188,8 +188,28 @@ describe('sealed evidence', () => {
       sealed: { v: 1, keys: await sealContentKey(ck, [home.publicKey]), proof: sealedProof },
     }
     const manifest = manifestFor(sealedRec)!
-    return { manifest, video: new Blob(cipher as BlobPart[]), home, plainChunks: chunks }
+    return { manifest, video: new Blob(cipher as BlobPart[]), home, plainChunks: chunks, ck, sealedRec }
   }
+
+  it("keeps the filmer's attestations sealed, and opens them with the footage", async () => {
+    const { video, home, ck, sealedRec } = await sealedFixture()
+    const logs: AttestationLog[] = []
+    const filmer = generateIdentity()
+    const s = newStreamId()
+    for (let n = 0; n < 3; n++) addToLogs(logs, signAttestation({ s, n, t: n * 1000, f: '0123456789abcdef0123456789abcdef' }, filmer))
+    const manifest = manifestFor({ ...sealedRec, sealed: { ...sealedRec.sealed!, attestations: await sealJson(ck, logs) } })!
+    // Nothing readable about the stream in the sealed evidence.
+    const text = JSON.stringify(manifest)
+    expect(text).not.toContain(logs[0].pk)
+    expect(manifest.attestations).toBeUndefined()
+    expect(parseManifest(text)).toEqual(manifest)
+    const opened = await openSealedEvidence(manifest, video, (await openContentKey(manifest.sealed!.keys, home.privateKey))!)
+    expect(opened.manifest.attestations).toEqual(logs)
+    // A blob that will not open is left out; the footage still opens.
+    const garbled = { ...manifest, sealed: { ...manifest.sealed!, attestations: btoa('not sealed by anyone') } }
+    expect((await openSealedEvidence(garbled, video, ck)).manifest.attestations).toBeUndefined()
+    expect(parseManifest(JSON.stringify({ ...manifest, sealed: { ...manifest.sealed!, attestations: 'not base64!' } }))).toBeNull()
+  })
 
   it('describes the encrypted chunks and carries both proofs', async () => {
     const { manifest } = await sealedFixture()

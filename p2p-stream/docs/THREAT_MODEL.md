@@ -4,7 +4,7 @@ Who might try to stop a live stream or erase its record, what the app does
 about each of them, and what it does **not** protect against. Written to be
 relied on, so where something is weak it says so.
 
-Status as of 2026-09 (round 6). Verification: `docs/TEST_PLAN.md`,
+Status as of 2026-10 (round 7). Verification: `docs/TEST_PLAN.md`,
 `docs/RELIABILITY_AUDIT_3.md`.
 
 ---
@@ -17,6 +17,7 @@ Status as of 2026-09 (round 6). Verification: `docs/TEST_PLAN.md`,
 | **The discovery servers** (Nostr relays, BitTorrent trackers, MQTT brokers) | Your own Nostr relay on port 443, handed out inside share links. **Pair by messenger**: two short codes over Signal, SMS, e-mail — no discovery server at all; the status card offers it when discovery is blocked. | Codes need some channel between the two people, and are good for a few minutes. |
 | **Direct peer-to-peer traffic** (UDP, strict NAT, VPNs) | A TURN relay, ideally `turns:` on port 443 (looks like HTTPS), carried inside share links; volunteer public relays as an opt-in stopgap. | Someone has to run a relay somewhere reachable. WebRTC and TURN traffic can be recognised by deep packet inspection; the app does no traffic obfuscation (nothing like Tor's pluggable transports). |
 | **A broadcast server** | Amplify from anyone who can reach it — e.g. a viewer abroad; any number of servers. | The server itself is a single point: run more than one. |
+| **Bandwidth** (throttling mobile data to a crawl) | Each viewer's link is measured continuously and steps down — smaller picture, then **sound only** — and back up when it recovers; viewers keep recording throughout and are not told the stream is lost. Verified against a real policer (~320 kbit/s: picture keeps moving; ~56 kbit/s: sound only; lifted: picture back). | Below ~50 kbit/s even sound breaks up. The filming phone's own upload is shared by its direct viewers: on a throttled uplink, viewers relaying to each other (the default) matters more. |
 | **The whole internet** (shutdown, jamming) | Face-to-face pairing over one hotspot; chains (*Share onward*); *Hand over my recordings*; evidence files over AirDrop / Quick Share / Bluetooth. | Devices must share a hotspot. Finding nearby devices by radio, and Wi-Fi Direct without a hotspot, need native apps (`NATIVE_MESH.md`). |
 
 ## 2. Whoever takes over the website (domain seizure, hacked hosting)
@@ -60,7 +61,7 @@ copy cannot check who made it". To turn it on, maintainers:
 |---|---|---|
 | The footage is lost with the phone | Every viewer records its own copy; a paired home archive records what a phone watches, and later receives what the phone recorded on its own (store and forward); *Hand over my recordings*; evidence files | Nothing leaves the phone that was never connected to anyone |
 | The footage is deleted or altered | Other copies exist; every recording is hashed chunk by chunk and signed, so any change is detectable; copies arriving from elsewhere are verified chunk by chunk | — |
-| **The footage is watched** — to identify people in it | **Sealed recordings** (Recordings → Protect recordings, off by default): encrypted while recording, only ciphertext is stored. *Sealed to the home archive*, the phone cannot open them at all — nothing to unlock, nothing to hand over. *Locked with a passphrase*, the phone opens them only after unlocking. Verified: no WebM on disk, playback refused, the home archive opens and verifies them. | Off by default. Recordings made before turning it on stay readable. While recording, footage passes through memory in the clear. A passphrase-locked recording is only as strong as the passphrase, and a phone taken *while unlocked* shows everything. Fingerprints (hashes) of the footage stay readable: they reveal nothing about what was filmed, but can confirm that this phone recorded a video the adversary already has. The home archive keeps opened copies in the clear — it is the safe place. |
+| **The footage is watched** — to identify people in it | **Sealed recordings** (Recordings → Protect recordings, off by default): encrypted while recording, only ciphertext is stored. *Sealed to the home archive*, the phone cannot open them at all — nothing to unlock, nothing to hand over. *Locked with a passphrase*, the phone opens them only after unlocking. Verified: no WebM on disk, playback refused, the home archive opens and verifies them. | Off by default. Recordings made before turning it on stay readable. While recording, footage passes through memory in the clear. A passphrase-locked recording is only as strong as the passphrase, and a phone taken *while unlocked* shows everything. Fingerprints (hashes) of the footage stay readable: they reveal nothing about what was filmed, but can confirm that this phone recorded a video the adversary already has. The home archive keeps opened copies in the clear — it is the safe place. The filmer's attestations kept with a sealed recording (§4) are sealed with it: in the clear, their key would tie the phone to a stream others watched. |
 | The phone reveals who else was involved | No accounts, no contact list. Stored: pairing keys (home archive), relay credentials, discovery settings | A paired home-archive key lets its holder join that archive room |
 
 ## 4. People in the room, and on the path
@@ -72,8 +73,29 @@ copy cannot check who made it". To turn it on, maintainers:
 - **A relaying viewer passes on a re-encoded picture.** Every copy is signed by
   the device that recorded it: the signature proves that *this device* recorded
   *these bytes* and nothing changed since — not that the picture is what the
-  person filming saw. Only the filming phone's own recording carries its
-  signature. Linking a viewer's copy back to the source is not solved.
+  person filming saw.
+- **Linking a copy back to the source (round 7).** While streaming, the filming
+  phone signs a perceptual fingerprint of its picture every second (Ed25519,
+  with a key made for that stream and never stored; the share link carries it
+  as `fk=`). Viewers keep these attestations with their copies — through relay
+  trees, home archives, face-to-face chains and evidence files — and *Check
+  against the filmer* compares a copy with them second by second, naming the
+  moments that do not match. What it shows: the copy's picture is what that
+  key signed, at those moments. What it does not:
+  - **Whose key it is.** Anyone can sign fingerprints of any video with a key
+    of their own. Viewers who joined through the link accept only its key;
+    joined by code alone, they accept what the peer sending the stream sends
+    (which a participant could imitate). The check reports per key: compare it
+    with the key in the link the filmer shared.
+  - **Bytes.** A fingerprint is two 64-bit hashes of a 64×64 grayscale
+    thumbnail: it survives re-encoding, and so a deliberately crafted video
+    with the same coarse picture would also pass. A still scene (the result
+    says "hardly changed") matches easily.
+  - Moments between two signatures (one a second), and copies whose
+    attestations were dropped on the way (they can be removed, not forged).
+  - A per-stream key means two streams of the same phone cannot be linked
+    through it; the stream's attestations are not linked to the phone's own
+    recordings either, except by sitting in them.
 - In transit, video is encrypted end to end (DTLS-SRTP) on every hop; relays
   (TURN) and discovery servers cannot see it. A **broadcast server** (Amplify)
   necessarily can.
@@ -102,6 +124,11 @@ copy cannot check who made it". To turn it on, maintainers:
   calendar servers (they see your IP address and a random-looking hash);
   automatic timestamps are off by default for that reason — a home archive
   can timestamp what it receives instead.
+- **"This copy was edited before it was signed"** — a viewer's copy is signed
+  by the viewer's device, so its signature cannot rule that out. The filmer's
+  attestations can: *Check against the filmer* matches the copy, second by
+  second, against what the filming phone signed live, and lists where it
+  does not match (see §4 for what that does and does not prove).
 - **What a signature does not show:** who held the device, or where. And a
   timestamp proves *existed by*, not *recorded at*: stamping late only makes
   the proven time later.
