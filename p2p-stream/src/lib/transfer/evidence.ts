@@ -14,8 +14,9 @@
  * each one against the proof — no trust in whoever carried the file.
  */
 
-import type { Recording } from '../../types'
+import type { Recording, RecordingTimestamp } from '../../types'
 import { sha256, toHex, verifyProof, type RecordingProof } from '../integrity'
+import { decryptChunk, type SealedKey } from '../seal/crypto'
 
 export const EVIDENCE_FORMAT = 'undepressable-evidence'
 
@@ -31,9 +32,21 @@ export interface EvidenceManifest {
     resolution: { width: number; height: number }
     bitrate: number
   }
-  /** Byte length of each recorded chunk, in order: the video is their concatenation. */
+  /**
+   * Byte length of each stored chunk, in order: the file is their
+   * concatenation. For a sealed recording these are the encrypted chunks.
+   */
   chunkSizes: number[]
+  /** Proof over the footage itself (plaintext chunks). */
   proof: RecordingProof
+  /**
+   * Present when the chunks are encrypted (lib/seal). `proof` here covers the
+   * encrypted chunks, so anyone can check the copy is intact; opening it
+   * needs a private key matching one of `keys`.
+   */
+  sealed?: { v: 1; keys: SealedKey[]; proof: RecordingProof }
+  /** OpenTimestamps proof for root.txt (the footage proof's Merkle root), if one was made. */
+  timestamp?: RecordingTimestamp
 }
 
 export interface EvidenceCheck {
@@ -41,6 +54,8 @@ export interface EvidenceCheck {
   reason?: string
   /** Chunks whose bytes matched the signed hashes. */
   checkedChunks: number
+  /** Checked as sealed (encrypted) chunks: intact, but the footage itself was not seen. */
+  sealed?: boolean
 }
 
 /** The evidence for a finished, signed recording (null when it has no proof). */
@@ -62,6 +77,8 @@ export function manifestFor(recording: Recording): EvidenceManifest | null {
     },
     chunkSizes: chunks.map((c) => c.size),
     proof: recording.proof,
+    ...(recording.sealed?.proof ? { sealed: { v: 1 as const, keys: recording.sealed.keys, proof: recording.sealed.proof } } : {}),
+    ...(recording.timestamp ? { timestamp: recording.timestamp } : {}),
   }
 }
 
@@ -81,9 +98,26 @@ export function parseManifest(text: string): EvidenceManifest | null {
   if (!r || typeof r.id !== 'string' || typeof r.campaignId !== 'string' || typeof r.startedAt !== 'string') return null
   if (typeof r.mimeType !== 'string' || !r.resolution || typeof r.bitrate !== 'number') return null
   if (!Array.isArray(m.chunkSizes) || !m.chunkSizes.every((n: unknown) => Number.isInteger(n) && (n as number) > 0)) return null
-  if (!p || !Array.isArray(p.chunkHashes) || !p.chunkHashes.every((h: unknown) => typeof h === 'string' && HEX64.test(h))) return null
-  if (typeof p.merkleRoot !== 'string' || typeof p.pubKey !== 'string' || typeof p.signature !== 'string') return null
+  if (!isProofShape(p)) return null
+  if (m.timestamp !== undefined && (!m.timestamp || typeof m.timestamp.ots !== 'string')) return null
+  if (m.sealed !== undefined) {
+    const sd = m.sealed
+    if (!sd || sd.v !== 1 || !Array.isArray(sd.keys) || sd.keys.length === 0 || !isProofShape(sd.proof)) return null
+    const hex = (x: unknown) => typeof x === 'string' && /^[0-9a-f]+$/i.test(x)
+    if (!sd.keys.every((k: any) => k && hex(k.to) && hex(k.eph) && hex(k.iv) && hex(k.wrapped))) return null
+  }
   return m as EvidenceManifest
+}
+
+function isProofShape(p: any): boolean {
+  return (
+    !!p &&
+    Array.isArray(p.chunkHashes) &&
+    p.chunkHashes.every((h: unknown) => typeof h === 'string' && HEX64.test(h)) &&
+    typeof p.merkleRoot === 'string' &&
+    typeof p.pubKey === 'string' &&
+    typeof p.signature === 'string'
+  )
 }
 
 /** Check a video against its evidence, chunk by chunk. */
@@ -92,12 +126,22 @@ export async function verifyEvidence(
   video: Blob,
   onProgress?: (done: number, total: number) => void,
 ): Promise<EvidenceCheck> {
-  const { proof, chunkSizes } = manifest
-  const fail = (reason: string, checkedChunks = 0): EvidenceCheck => ({ valid: false, reason, checkedChunks })
-  if (proof.recordingId !== manifest.recording.id) return fail('The proof belongs to a different recording')
-  if (chunkSizes.length !== proof.chunkHashes.length) return fail('The evidence lists a different number of chunks than the proof')
-  const signed = verifyProof(proof)
+  const { chunkSizes } = manifest
+  const fail = (reason: string, checkedChunks = 0): EvidenceCheck => ({ valid: false, reason, checkedChunks, sealed: !!manifest.sealed })
+  if (manifest.proof.recordingId !== manifest.recording.id) return fail('The proof belongs to a different recording')
+  const signed = verifyProof(manifest.proof)
   if (!signed.valid) return fail(signed.reason ?? 'Invalid proof')
+  // A sealed copy is checked against the proof over its encrypted chunks,
+  // made by the same device that signed the footage.
+  const proof = manifest.sealed?.proof ?? manifest.proof
+  if (manifest.sealed) {
+    if (proof.recordingId !== manifest.recording.id) return fail('The sealed proof belongs to a different recording')
+    if (proof.pubKey !== manifest.proof.pubKey) return fail('The sealed copy was signed by a different device than the footage')
+    if (proof.chunkCount !== manifest.proof.chunkCount) return fail('The sealed copy has a different number of chunks than the footage')
+    const sealedSigned = verifyProof(proof)
+    if (!sealedSigned.valid) return fail(sealedSigned.reason ?? 'Invalid sealed proof')
+  }
+  if (chunkSizes.length !== proof.chunkHashes.length) return fail('The evidence lists a different number of chunks than the proof')
   const total = chunkSizes.reduce((a, b) => a + b, 0)
   if (total !== video.size) {
     return fail(video.size < total ? 'The video is shorter than what was signed — incomplete or cut' : 'The video has more data than what was signed')
@@ -111,7 +155,39 @@ export async function verifyEvidence(
     offset += chunkSizes[i]
     onProgress?.(i + 1, chunkSizes.length)
   }
-  return { valid: true, checkedChunks: chunkSizes.length }
+  return { valid: true, checkedChunks: chunkSizes.length, sealed: !!manifest.sealed }
+}
+
+/**
+ * Open a sealed copy with its content key: decrypt every chunk and check it
+ * against the proof over the footage. Returns the plaintext evidence.
+ */
+export async function openSealedEvidence(
+  manifest: EvidenceManifest,
+  sealedVideo: Blob,
+  contentKey: Uint8Array,
+): Promise<{ manifest: EvidenceManifest; video: Blob }> {
+  if (!manifest.sealed) return { manifest, video: sealedVideo }
+  const parts: Uint8Array[] = []
+  const sizes: number[] = []
+  let offset = 0
+  for (let i = 0; i < manifest.chunkSizes.length; i++) {
+    const cipher = new Uint8Array(await sealedVideo.slice(offset, offset + manifest.chunkSizes[i]).arrayBuffer())
+    offset += manifest.chunkSizes[i]
+    let plain: Uint8Array
+    try {
+      plain = await decryptChunk(contentKey, cipher)
+    } catch {
+      throw new Error(`Second ${i + 1} could not be opened — wrong key, or the sealed copy was changed`)
+    }
+    if (toHex(await sha256(plain)) !== manifest.proof.chunkHashes[i]) {
+      throw new Error(`Second ${i + 1} of the opened footage does not match what was signed`)
+    }
+    parts.push(plain)
+    sizes.push(plain.length)
+  }
+  const { sealed: _sealed, ...rest } = manifest
+  return { manifest: { ...rest, chunkSizes: sizes }, video: new Blob(parts as BlobPart[], { type: manifest.recording.mimeType }) }
 }
 
 // --- names ---
@@ -124,7 +200,7 @@ function stamp(iso: string): string {
 export function baseName(manifest: EvidenceManifest): string {
   return `undepressable_${stamp(manifest.recording.startedAt)}_${manifest.recording.id.slice(0, 8)}`
 }
-export const videoName = (m: EvidenceManifest) => `${baseName(m)}.webm`
+export const videoName = (m: EvidenceManifest) => `${baseName(m)}${m.sealed ? '.sealed' : '.webm'}`
 export const evidenceTxtName = (m: EvidenceManifest) => `${baseName(m)}.evidence.txt`
 export const bundleName = (m: EvidenceManifest) => `${baseName(m)}.zip`
 
@@ -137,6 +213,18 @@ the video was saved as a sequence of chunks (sizes in "chunkSizes"), each
 chunk's SHA-256 hash is in proof.chunkHashes, the Merkle root over those
 hashes is proof.merkleRoot, and proof.signature is an Ed25519 signature of
 that root by the recording device's anonymous key (proof.pubKey).
+
+If the video file ends in .sealed instead, the recording was encrypted
+on the device that made it ("sealed"): only the holder of one of the keys
+in evidence.json → sealed.keys can open it. Anyone can still check that the
+sealed copy is intact — sealed.proof covers the encrypted chunks and is
+signed by the same device as proof.
+
+If root.txt and root.txt.ots are present, the recording has a trusted
+timestamp: root.txt holds proof.merkleRoot, and root.txt.ots is an
+OpenTimestamps proof that it existed by the time of a Bitcoin block. Check it
+with the OpenTimestamps client: "ots verify root.txt.ots" (and "ots upgrade"
+first if it was still pending when the bundle was made).
 
 To check it: open Undepressable → Recordings → Import, and choose this
 .zip (or the .webm together with its evidence file). Every chunk is
@@ -286,10 +374,18 @@ export async function readZip(zip: Blob): Promise<ZipFileEntry[] | null> {
 /** The bundle for a recording, given its chunk blobs in order. */
 export function buildBundle(manifest: EvidenceManifest, chunks: Blob[]): Promise<Blob> {
   const json = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' })
+  // With a timestamp: root.txt and its .ots proof, checkable with `ots verify root.txt.ots`.
+  const stamped = manifest.timestamp
+    ? [
+        { name: 'root.txt', parts: [new Blob([`${manifest.proof.merkleRoot}\n`])] },
+        { name: 'root.txt.ots', parts: [new Blob([Uint8Array.from(atob(manifest.timestamp.ots), (c) => c.charCodeAt(0)) as BlobPart])] },
+      ]
+    : []
   return buildZip(
     [
       { name: videoName(manifest), parts: chunks },
       { name: 'evidence.json', parts: [json] },
+      ...stamped,
       { name: 'README.txt', parts: [new Blob([README])] },
     ],
     new Date(manifest.recording.startedAt),
@@ -324,7 +420,7 @@ export async function readEvidenceInput(files: Blob[]): Promise<EvidenceInput> {
       const entries = await readZip(file)
       if (!entries) return { ok: false, reason: 'This .zip file is damaged' }
       const ev = entries.find((e) => /(^|\/)evidence\.json$/.test(e.name))
-      const vid = entries.find((e) => /\.webm$/i.test(e.name))
+      const vid = entries.find((e) => /\.(webm|sealed)$/i.test(e.name))
       if (!ev || !vid) return { ok: false, reason: 'This .zip is not an evidence bundle' }
       if (!ev.stored || !vid.stored) {
         return { ok: false, reason: 'This .zip was re-compressed. Unzip it and import the video and evidence.json together.' }

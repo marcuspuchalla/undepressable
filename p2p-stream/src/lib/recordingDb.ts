@@ -22,6 +22,10 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
+// Plain JSON copies: records often come from reactive state (Vue proxies),
+// which IndexedDB's structured clone refuses ("could not be cloned").
+const plain = <T>(x: T): T => JSON.parse(JSON.stringify(x))
+
 export function serializeRecording(recording: Recording): Record<string, unknown> {
   const out: Record<string, unknown> = {
     id: recording.id,
@@ -29,7 +33,7 @@ export function serializeRecording(recording: Recording): Record<string, unknown
     recordedBy: recording.recordedBy,
     startedAt: recording.startedAt.toISOString(),
     status: recording.status,
-    metadata: recording.metadata,
+    metadata: plain(recording.metadata),
     chunks: recording.chunks.map((c) => ({
       index: c.index,
       timestamp: c.timestamp.toISOString(),
@@ -40,8 +44,10 @@ export function serializeRecording(recording: Recording): Record<string, unknown
     })),
   };
   if (recording.endedAt) out.endedAt = recording.endedAt.toISOString();
-  if (recording.proof) out.proof = recording.proof; // already plain JSON
-  if (recording.origin) out.origin = recording.origin;
+  if (recording.proof) out.proof = plain(recording.proof);
+  if (recording.origin) out.origin = plain(recording.origin);
+  if (recording.sealed) out.sealed = plain(recording.sealed);
+  if (recording.timestamp) out.timestamp = plain(recording.timestamp);
   return out;
 }
 

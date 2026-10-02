@@ -699,3 +699,93 @@ scroll, so on a phone everything below the QR code was out of reach.
 - WebRTC and TURN traffic is not disguised; deep packet inspection can
   recognise and block it (a relay on 443 raises the bar, no more).
 
+
+---
+
+## Part 5 — round 6: what a taken phone shows, and proof of when
+
+### 31. A seized phone showed everything it had filmed
+
+Recordings were stored in the clear: whoever unlocked the phone could watch
+them and identify the people in them — often the greater danger than losing
+the footage. **Sealed recordings** (off by default) are encrypted while they
+are recorded: a random AES-256-GCM key per recording, a fresh IV per chunk,
+the key wrapped per recipient with ephemeral X25519 + HKDF-SHA256 + AES-GCM
+(`lib/seal/crypto.ts`, on @noble/curves, @noble/hashes and WebCrypto). Two
+recipients are possible: the **home archive** (its public key travels in the
+pairing link; the phone itself can then never open the recording) and a
+**passphrase key** on the device (kept encrypted, PBKDF2-SHA256 600 000
+rounds, unlocked for the session only). Recording needs no secret at all.
+
+Sealing must not cost the evidence chain: the recorder signs a second Merkle
+proof over the *encrypted* chunks with the same key, so anyone can check a
+sealed copy is intact without opening it. Transfers and evidence files carry
+sealed copies as they are; a friend can carry one to safety without seeing
+it (blind carrier); the home archive opens arrivals with its key and checks
+the footage against the footage proof.
+
+### 32. Proof of *when* was missing
+
+A signature shows a recording is unaltered since signing — not when it was
+made. Recordings can now be **timestamped with OpenTimestamps**: a nonce'd
+fingerprint of `root.txt` (the proof's Merkle root) goes to public
+calendars, which anchor it in Bitcoin within hours; the app upgrades pending
+proofs and checks the block header against a block explorer. The `.ots`
+format is implemented from the specification and checked against the
+OpenTimestamps project's own example (byte-identical round trip; it reaches
+the real Merkle root of block 358391). Evidence bundles include `root.txt`
+and `root.txt.ots` for `ots verify`; timestamps travel with transfers and are
+dropped unless they stamp that very proof. The calendars answer browsers
+(`Access-Control-Allow-Origin: *`) but not CORS preflights, so every request
+is a "simple" one — asserted by the E2E test.
+
+### 33. Found on the way
+
+- **Saving a recording taken from the list failed** ("could not be cloned"):
+  the list holds reactive proxies, which IndexedDB refuses. The database
+  layer now stores plain copies. (Hit by the first feature that re-saved a
+  listed recording — timestamps; sealing and sync save fresh objects.)
+- **Verify showed the previous verdict while re-checking** — misleading right
+  after unlocking a sealed recording. It now clears first.
+- A device holding a recording sealed for someone else was told to "unlock
+  with your passphrase"; it now says the recording is sealed for someone
+  else, and can still be checked and passed on.
+
+### Round 6 verification
+
+- **Unit:** 361 tests (was 339). New: sealing (each recipient opens, others
+  and tampered seals do not, chunk encryption round trip and tamper
+  refusal, passphrase lock incl. Unicode normalisation), sealed evidence
+  (intact without the key, refused if the sealed proof is from another
+  device, opened into verified footage, bundles), OpenTimestamps (the
+  project's reference proof parsed and rewritten byte for byte and leading
+  to block 358391's Merkle root, a real calendar answer, stamping with a
+  nonce and without preflight, upgrading, the block-header check), and
+  timestamps only accepted for the proof they stamp.
+- **End to end, one run:** all 26 scenarios pass — the four new ones:
+
+  | New check | Result |
+  |---|---|
+  | sealed-home | phone: no WebM on disk, playback refused, "Intact (sealed — not opened)"; sent home; home: "arrived sealed · opened here", "Unaltered", plain footage on disk |
+  | sealed-passphrase | locked after reload; wrong passphrase refused; unlocked → "Unaltered" and playing |
+  | sealed-blind-carrier | sealed evidence file → friend: imported, intact, cannot open → friend sends home → home: "Unaltered" |
+  | timestamp | requested → still pending → "Existed by Bitcoin block #870123 … ✓ checked"; bundle's root.txt.ots stamps its root.txt; no CORS preflight sent |
+
+  Plus pwa-offline, portable, updates and extension — all passing.
+- **Owed:** real OpenTimestamps calendars end to end (a proof confirmed
+  hours later, then `ots verify` on it); sealing on real phones at a scene,
+  including a phone locked or taken before the recordings reach home.
+
+### Round 6 known limits
+
+- Sealing is off by default, and only applies to recordings started after
+  turning it on.
+- Footage passes through memory in the clear while it is being recorded; a
+  phone taken while unlocked (or with the passphrase unlocked) shows what it
+  can open.
+- Fingerprints of sealed footage stay readable: they reveal nothing about
+  the content, but can confirm that this phone recorded a video someone
+  already has.
+- Timestamps take hours to anchor, prove "existed by", and contacting the
+  calendars is visible to the network; they stay off unless asked for.
+

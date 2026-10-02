@@ -215,7 +215,7 @@
           class="input flex-1 text-center font-mono uppercase text-sm"
           @input="pairInput = pairInput.toUpperCase().replace(/[^A-Z0-9]/g, '')"
         />
-        <button class="btn-secondary px-4 text-sm" @click="pairHome">Pair</button>
+        <button class="btn-secondary px-4 text-sm" @click="pairHome()">Pair</button>
       </div>
 
       <!-- Connection Controls -->
@@ -316,7 +316,10 @@
         <code class="block p-2 bg-gray-900 rounded text-sm font-mono break-all text-xs mb-3">
           {{ savedRecording.id.slice(0, 16) }}...
         </code>
-        <div class="flex gap-2">
+        <p v-if="savedRecording.sealed" class="text-xs text-amber-200 leading-relaxed" data-testid="saved-sealed">
+          🔒 Sealed as it was recorded — this phone keeps no readable copy. Open or send it from Recordings.
+        </p>
+        <div v-else class="flex gap-2">
           <button
             class="flex-1 py-2 bg-green-600 hover:bg-green-700 rounded text-white text-sm"
             @click="downloadRecording"
@@ -367,6 +370,13 @@ import { useWakeLock } from '../composables/useWakeLock'
 import type { Recording } from '../types'
 import { getFullRoomId, isValidShortRoomId } from '../utils/roomId'
 import { getPairedHome, setPairedHome, clearPairedHome, archiveRoomId } from '../lib/archive'
+import { setPairedHomeSealKey } from '../lib/seal/keys'
+
+// The `seal` parameter of a scanned pairing link (in the query or the hash).
+function sealKeyFromLink(link: string): string | null {
+  const q = link.indexOf('?')
+  return q >= 0 ? new URLSearchParams(link.slice(q + 1)).get('seal') : null
+}
 import { createStallMonitor } from '../lib/net/streamHealth'
 import { extractRoomCode, extractHomeKey } from '../lib/net/shareLink'
 import { isOfflineSignal } from '../lib/net/offlinePair'
@@ -557,8 +567,10 @@ function stopForwarding() {
   archiveFwd.leaveRoom()
   forwarding.value = false
 }
-function pairHome() {
+function pairHome(sealKey: string | null = null) {
   if (setPairedHome(pairInput.value)) {
+    // A typed code carries no sealing key; never keep a previous archive's.
+    setPairedHomeSealKey(sealKey)
     pairedHome.value = pairInput.value.toUpperCase()
     showPair.value = false
     pairInput.value = ''
@@ -569,6 +581,7 @@ function pairHome() {
 function unpairHome() {
   stopForwarding()
   clearPairedHome()
+  setPairedHomeSealKey(null)
   pairedHome.value = null
 }
 
@@ -946,7 +959,7 @@ async function startQRScanner() {
       if (homeKey) {
         stopQRScanner()
         pairInput.value = homeKey
-        pairHome()
+        pairHome(sealKeyFromLink(data))
         return
       }
       if (isOfflineSignal(data)) {

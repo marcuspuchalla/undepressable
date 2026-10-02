@@ -260,6 +260,24 @@ const cases: { n: string; status: Status; title: string; body: string; svg: stri
       132,
     ),
   },
+  {
+    n: '08',
+    status: 'now',
+    title: 'Evidence that holds up — even if your phone is taken',
+    body: 'Every recording is signed, so any change shows. Sealed recordings are also encrypted as they are recorded: whoever takes the phone cannot watch them or see who is in them — sealed to your home archive, not even the phone can. Friends can carry sealed copies to safety and check they are intact without seeing them. And a timestamp anchored in Bitcoin proves the recording existed by a given time.',
+    svg: svg(
+      person(60, 62, 'You', EMBER) +
+        `<rect x="92" y="44" width="22" height="18" rx="3" fill="none" stroke="#fbbf24" stroke-width="1.5"/>` +
+        note(103, 82, 'sealed', '#fbbf24', 9) +
+        link(122, 52, 222, 52, GLOW, true, 'carried') +
+        person(250, 62, 'Friend', GLOW) +
+        note(250, 110, "can't open it", '#64748b') +
+        link(278, 52, 386, 52, MOSS, false, 'opened') +
+        home(420, 54, 'home', MOSS) +
+        note(420, 110, 'timestamped', '#6ee7b7'),
+      132,
+    ),
+  },
 ]
 
 // --- per-use-case walkthroughs, tailored to the reader's platform ---
@@ -506,6 +524,26 @@ const walks: Record<string, Walk> = {
           'While streaming: open the share sheet → “Amplify — broadcast to a server”. While watching: the same panel under the player.',
           'Paste the WHIP address and token → Start broadcasting. It reconnects by itself if the connection drops.',
           'The server sees the video — use one you trust. “Always use the relay” (Network) hides your address from it.',
+        ],
+      },
+    ],
+  },
+  '08': {
+    roles: [
+      {
+        who: 'Before you go',
+        steps: [
+          'Pair the phone with your home archive by scanning its QR code (the link carries the archive’s sealing key).',
+          'Recordings → Protect recordings → “Seal to my home archive”. Optionally “Lock with a passphrase” too, so you can open them yourself.',
+          'Optionally “Timestamp recordings automatically” — or leave it off where contacting public servers could draw attention.',
+        ],
+      },
+      {
+        who: 'Afterwards',
+        steps: [
+          'Send recordings home (Recordings → Send to home now), hand them to a friend, or share them as files. Sealed copies stay sealed on the way; everyone can check they are intact.',
+          'At home they open automatically and are checked second by second.',
+          'Timestamp them if you haven’t (the ⏱ button); after a few hours “Check now” shows the Bitcoin block. Evidence files then include root.txt and root.txt.ots for the standard “ots verify”.',
         ],
       },
     ],

@@ -8,6 +8,8 @@ import { adoptDiscoveryFromUrl } from './lib/net/discoveryConfig'
 import { startUpdates, updates } from './composables/useUpdates'
 import { linkSearch } from './lib/appLocation'
 import { capturePristineCopy, keepAppCopy } from './composables/useShareApp'
+import { autoTimestamp, stampRecording } from './lib/timestamp/recordingStamp'
+import { getRecording } from './lib/recordingDb'
 
 import './assets/main.css'
 
@@ -50,6 +52,15 @@ app.mount('#app')
 // Production web builds: service worker for offline use, and updates only
 // after this copy has checked who signed them.
 startUpdates()
+// Optional trusted timestamps for new and arriving recordings (off by
+// default: it contacts public OpenTimestamps servers, with a fingerprint only).
+window.addEventListener('undepressable:recording-saved', (e) => {
+  if (!autoTimestamp() || !navigator.onLine) return
+  void getRecording((e as CustomEvent<string>).detail)
+    .then((rec) => (rec?.proof && !rec.timestamp ? stampRecording(rec) : null))
+    .catch((err) => console.warn('[timestamp] not stamped now:', err?.message ?? err))
+})
+
 // A checked copy of the single-file app, so "Share this app" works offline —
 // once this build's published release description is known.
 watch(

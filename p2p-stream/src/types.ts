@@ -1,4 +1,5 @@
 import type { RecordingProof } from "./lib/integrity";
+import type { SealedKey } from "./lib/seal/crypto";
 
 // User roles in the P2P network
 export type UserRole = 'streamer' | 'collector'
@@ -46,6 +47,40 @@ export interface Recording {
   proof?: RecordingProof
   // Set when this copy came from another device rather than this one's camera.
   origin?: RecordingOrigin
+  // Set when the stored chunks are encrypted (lib/seal): only the holders of
+  // the recipients' private keys can open them.
+  sealed?: RecordingSeal
+  // OpenTimestamps proof that the recording's signed proof existed by a given
+  // time (lib/timestamp).
+  timestamp?: RecordingTimestamp
+}
+
+export interface RecordingTimestamp {
+  /** The .ots proof (base64) for root.txt = the proof's Merkle root + newline. */
+  ots: string
+  requestedAt: string
+  /** Calendars still to confirm. */
+  calendars: string[]
+  /** Set once the proof reaches a Bitcoin block. */
+  bitcoin?: {
+    height: number
+    merkleRoot: string
+    /** When the block header was checked against a block explorer, and the block's time. */
+    checkedAt?: string
+    blockTime?: number
+  }
+}
+
+export interface RecordingSeal {
+  v: 1
+  /** The recording's content key, wrapped for each recipient. */
+  keys: SealedKey[]
+  /**
+   * Proof over the stored, encrypted chunks (same signer as `proof`, which
+   * covers the footage itself): anyone can check a sealed copy is intact
+   * without being able to open it.
+   */
+  proof?: RecordingProof
 }
 
 export interface RecordingOrigin {
@@ -55,6 +90,8 @@ export interface RecordingOrigin {
   at: string
   /** Every chunk was checked against the signed proof on arrival. */
   verified: boolean
+  /** It arrived sealed and was opened here (with this device's key). */
+  opened?: boolean
 }
 
 // Peer information

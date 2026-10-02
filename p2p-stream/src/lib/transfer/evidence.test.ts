@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { buildProof, generateIdentity, sha256, toHex } from '../integrity'
 import type { Recording } from '../../types'
+import { generateSealKeyPair, newContentKey, sealContentKey, encryptChunk, openContentKey } from '../seal/crypto'
 import {
   manifestFor,
   parseManifest,
@@ -13,6 +14,7 @@ import {
   readZip,
   readEvidenceInput,
   videoName,
+  openSealedEvidence,
   type EvidenceManifest,
 } from './evidence'
 
@@ -63,7 +65,7 @@ describe('verifyEvidence', () => {
     const { manifest, video } = await fixture()
     const progress: number[] = []
     const r = await verifyEvidence(manifest, video, (done) => progress.push(done))
-    expect(r).toEqual({ valid: true, checkedChunks: 3 })
+    expect(r).toMatchObject({ valid: true, checkedChunks: 3, sealed: false })
     expect(progress).toEqual([1, 2, 3])
   })
 
@@ -151,3 +153,65 @@ describe('bundle', () => {
     expect(input).toMatchObject({ ok: false, reason: expect.stringMatching(/re-compressed/) })
   })
 })
+
+describe('sealed evidence', () => {
+  async function sealedFixture() {
+    const { recording, chunks } = await fixture()
+    const home = generateSealKeyPair()
+    const ck = newContentKey()
+    const cipher = await Promise.all(chunks.map(async (c) => encryptChunk(ck, new Uint8Array(await c.arrayBuffer()))))
+    const cipherHashes = await Promise.all(cipher.map(async (c) => toHex(await sha256(c))))
+    const identity = generateIdentity()
+    // Both proofs by the same recording device, as the recorder makes them.
+    const proof = buildProof(recording.id, recording.proof!.chunkHashes, identity)
+    const sealedProof = buildProof(recording.id, cipherHashes, identity)
+    const sealedRec: Recording = {
+      ...recording,
+      proof,
+      chunks: recording.chunks.map((c) => ({ ...c, size: cipher[c.index].length })),
+      sealed: { v: 1, keys: await sealContentKey(ck, [home.publicKey]), proof: sealedProof },
+    }
+    const manifest = manifestFor(sealedRec)!
+    return { manifest, video: new Blob(cipher as BlobPart[]), home, plainChunks: chunks }
+  }
+
+  it('describes the encrypted chunks and carries both proofs', async () => {
+    const { manifest } = await sealedFixture()
+    expect(manifest.sealed?.keys.length).toBe(1)
+    expect(videoName(manifest)).toMatch(/\.sealed$/)
+    expect(parseManifest(JSON.stringify(manifest))).toEqual(manifest)
+  })
+
+  it('anyone can check a sealed copy is intact without opening it', async () => {
+    const { manifest, video } = await sealedFixture()
+    expect(await verifyEvidence(manifest, video)).toMatchObject({ valid: true, sealed: true })
+    const bytes = new Uint8Array(await video.arrayBuffer())
+    bytes[40] ^= 1
+    expect((await verifyEvidence(manifest, new Blob([bytes]))).valid).toBe(false)
+  })
+
+  it('a sealed proof from a different device is refused', async () => {
+    const { manifest, video } = await sealedFixture()
+    const other = buildProof(manifest.recording.id, manifest.sealed!.proof.chunkHashes, generateIdentity())
+    const r = await verifyEvidence({ ...manifest, sealed: { ...manifest.sealed!, proof: other } }, video)
+    expect(r.reason).toMatch(/different device/)
+  })
+
+  it('the key holder opens it into verified, playable evidence', async () => {
+    const { manifest, video, home, plainChunks } = await sealedFixture()
+    const ck = (await openContentKey(manifest.sealed!.keys, home.privateKey))!
+    const opened = await openSealedEvidence(manifest, video, ck)
+    expect(opened.manifest.sealed).toBeUndefined()
+    expect(opened.manifest.chunkSizes).toEqual(plainChunks.map((c) => c.size))
+    expect(await verifyEvidence(opened.manifest, opened.video)).toMatchObject({ valid: true, sealed: false })
+    await expect(openSealedEvidence(manifest, video, newContentKey())).rejects.toThrow(/could not be opened/)
+  })
+
+  it('travels in a bundle like any other evidence', async () => {
+    const { manifest, video } = await sealedFixture()
+    const input = await readEvidenceInput([await buildBundle(manifest, [video])])
+    expect(input.ok).toBe(true)
+    if (input.ok) expect(await verifyEvidence(input.manifest, input.video)).toMatchObject({ valid: true, sealed: true })
+  })
+})
+
