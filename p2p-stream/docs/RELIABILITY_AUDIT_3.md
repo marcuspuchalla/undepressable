@@ -850,3 +850,54 @@ recording instead of tearing the connection down and reconnecting.
 - **A sealed recording kept the stream's attestations in the clear** — their
   key is in a public link, so a seized phone could be tied to a stream. They
   are sealed with the footage now.
+- **A viewer on sound only kept collecting attestations** while its copy
+  recorded a frozen frame: checked later, that stretch would have read as a
+  cut. Attestations are now kept (and forwarded home) only while the picture
+  is arriving.
+- **The test harness lost discovery for the rest of a run** when
+  `internet-drops` failed mid-way (it stops the local relay). It now always
+  brings it back.
+
+### Round 7 verification
+
+- **Unit:** 398 tests (was 361). New: fingerprints (stable under noise,
+  brightness shift and rescaling; distinct scenes far apart; flat pictures
+  steady), attestations (any changed field breaks the signature), matching
+  (offset found under network delay; another stream's footage not
+  corroborated; a spliced stretch named; bad signatures dropped; each signer
+  reported separately; a still scene flagged), attestation logs and intake
+  (link key enforced whoever relays; without one, only the stream's source;
+  rate limit), evidence (attestations carried and shape-checked; sealed with
+  sealed recordings and opened with the footage), framed large data-channel
+  messages, every stored recording field round-tripped, the link ladder
+  (straight down on the estimate, one step on loss, every step up on trial,
+  doubling back-off), and sound-only told from a dead stream.
+- **End to end, one clean run:** all 30 scenarios pass. New or extended:
+
+  | Check | Result |
+  |---|---|
+  | corroborate | two cameras with different generated pictures; one viewer records both through the links: each copy kept only its link's key; A: "10 of 10 signed moments match", C: "10 of 10"; A given C's attestations: "✗ … 0 of 10"; the filmer's own recording: 34 of 36; attestations in the evidence file |
+  | corroborate-offline | A films, B relays, C records, face to face: C's copy 10 of 10, signed by A's key |
+  | corroborate-sealed | viewer sealing to home: no attestation in the clear on the phone and the stream key absent from its record; the check there says it is sealed; sent home, opened: 11 of 11 |
+  | archive | the filmer's attestations reach the home archive with the forwarded picture (6 in 6 s) |
+  | throttled | `iptables hashlimit` policer: ~320 kbit/s → small/reduced picture, moving in 10/10 samples, never sound only; ~56 kbit/s → "sound only" on both ends, still recording, no "interrupted"; lifted → picture back without reconnecting |
+
+  Plus pwa-offline, portable, updates and extension — all passing.
+- **Owed:** corroboration on real phones, including a copy re-encoded by a
+  messenger before it is checked; throttling on real networks (a carrier's
+  post-cap fallback speed, a 2G-only setting) and with several viewers of
+  which only one is throttled.
+
+### Round 7 known limits
+
+- A match means the same coarse picture, not the same bytes; a crafted video
+  with the same coarse picture would pass, and a still scene matches easily
+  (the check says so). Who the key belongs to has to be established outside
+  the app — the link the filmer shared.
+- Joined by room code alone, a viewer cannot hold attestations to a key, and
+  takes those of whoever announces itself as the filmer.
+- One attestation per second: shorter edits between two can go unnoticed.
+- Checking plays the copy at 8–16×: an hour of footage takes a few minutes.
+- The ladder shapes each link separately; a filming phone whose own upload is
+  throttled shares it among its direct viewers, so relaying viewers matter
+  more. Below ~50 kbit/s even sound breaks up.
