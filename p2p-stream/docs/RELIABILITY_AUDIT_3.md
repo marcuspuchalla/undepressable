@@ -789,3 +789,64 @@ is a "simple" one — asserted by the E2E test.
 - Timestamps take hours to anchor, prove "existed by", and contacting the
   calendars is visible to the network; they stay off unless asked for.
 
+
+## Part 6 — round 7: copies that check back to the camera, and throttled links
+
+### 34. A viewer's copy could not be linked to what the camera saw
+
+Every copy is signed by the device that recorded it — which proves nothing
+about the picture before it got there. Since viewers' copies are the ones
+that survive when the filming phone is taken, that was the weakest link in
+the evidence chain. **Live attestations** (`lib/corroborate/`): once a
+second the filming phone fingerprints its own camera picture (dHash + aHash
+of a 64×64 grayscale thumbnail, 128 bits) and signs `stream id, sequence,
+ms since start, fingerprint` with Ed25519 — with a key made for this stream
+and never stored, so two streams of one phone cannot be linked through it.
+The share link carries the key (`fk=`); viewers who joined through it keep
+only attestations under that key (others: only from the peer sending the
+stream), signature-checked and rate-limited. They travel wherever the
+picture does — rooms, relay trees, home forwarding, face-to-face chains
+(`LinkMsg 'att'`), syncs and evidence files.
+
+*Check against the filmer* plays a copy through at 8–16× unseen, samples a
+fingerprint every 200 ms of video time, finds the offset between the
+filmer's clock and the copy's by voting (every look-alike pair proposes
+one), and reports per signing key how many attested moments inside the copy
+have a matching frame within ±0.7 s — naming the times that do not, where a
+cut or a swap would be. Fewer than 3 attested moments: "too few"; a scene
+that never changed is flagged as saying little. What it proves, and what it
+does not (whose key, bytes vs. picture), is in THREAT_MODEL §4.
+
+### 35. Throttling turned a stream into a stalling smear
+
+Congestion control lowers the bitrate but never decides a link is too slow
+for video: on a policed 50–300 kbit/s link the picture stalled and crowded
+out the sound. Each sending link now steps through a ladder (`linkShaper.ts`
+logic, `linkShaping.ts` WebRTC) from what the connection measures — full,
+reduced (½ resolution, 450 kbit/s, 24 fps), small (¼, 130 kbit/s, 12 fps),
+sound only (video encoding switched off, sound at high priority). Down: as
+far as the estimate says after two samples (4 s), but on loss alone at most
+one step — a single burst (a keyframe hitting a policer) once threw a
+picture straight to sound only. Up: one step at a time, each step a trial
+(fails on repeated heavy loss, or when the estimate, given 15 s, does not
+hold it); after a failed trial the next waits 30 s, then 60, up to 2 min —
+under a policer the estimate runs ahead of reality and retries flapped every
+20 s before this. The viewer's stall monitor now tells *sound only* from a
+dead stream (audio bytes still moving), so a throttled viewer keeps
+recording instead of tearing the connection down and reconnecting.
+
+### 36. Found on the way
+
+- **The filming screen's bottom buttons could not be pressed** — record/stop,
+  QR, end stream sat inside a `pointer-events-none` overlay since the
+  baseline. Found when the corroboration test tried to end a stream.
+- **New recording fields were silently dropped on save**: the database layer
+  copies an explicit field list. A test now round-trips every field.
+- **Large messages over plain data channels failed**: Chrome caps a message at
+  256 KB. The evidence of a recording carries a hash per second, so handing
+  over anything longer than about an hour face to face failed; with
+  attestations, about a quarter of an hour. Such messages are now framed
+  like chunks.
+- **A sealed recording kept the stream's attestations in the clear** — their
+  key is in a public link, so a seized phone could be tied to a stream. They
+  are sealed with the footage now.

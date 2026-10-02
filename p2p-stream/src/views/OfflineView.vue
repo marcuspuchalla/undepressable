@@ -332,6 +332,8 @@ function stopAttesting() {
 }
 const attestedSeconds = ref(0)
 pair.onAttestation((a) => {
+  // Only while the picture is arriving (see CollectView).
+  if (soundOnly.value || interrupted.value) return
   if (recording.noteAttestation(a)) attestedSeconds.value++
 })
 

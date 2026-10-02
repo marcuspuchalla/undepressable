@@ -47,6 +47,14 @@ to delete in one place.
   and carried by anyone.
 - **Proof of when.** OpenTimestamps anchors a recording's proof in Bitcoin;
   evidence files include `root.txt.ots` for the standard `ots verify`.
+- **Every copy checks back to the camera.** While streaming, the filming phone
+  signs a fingerprint of its picture every second (a key per stream, carried
+  in the share link). Viewers keep the signatures with their copies, and
+  *Check against the filmer* shows, second by second, whether a copy shows
+  what the camera showed — and where it does not.
+- **Throttled, not stopped.** Each viewer's link is measured all the time and
+  steps down — smaller picture, then sound only — and back up when it
+  recovers; a viewer on a crawling connection keeps recording.
 - **Reach everyone.** *Amplify* pushes the stream — from the phone filming or
   from any viewer, e.g. one abroad — to a WHIP broadcast server (MediaMTX,
   Owncast, Cloudflare Stream…) that serves it on the open web.
@@ -106,7 +114,7 @@ npm run build            # production PWA build (+ the single-file app and relea
 npm run build:portable   # just the single-file app: dist-portable/undepressable.html
 npm run build:extension  # browser extension: dist-extension/{chrome,firefox}/ + zips
 npm run release:keygen   # a release signing key pair (see docs/THREAT_MODEL.md §2)
-npm run test:unit        # 361 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes, evidence transfer, releases, WHIP, sealing, timestamps)
+npm run test:unit        # 398 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes, evidence transfer, releases, WHIP, sealing, timestamps, corroboration, link shaping)
 npm run tauri:build      # optional native desktop app
 ```
 
@@ -168,8 +176,8 @@ default; signed releases are built but no developer key is set yet).
 - **TURN is a relay.** A direct P2P path is preferred; TURN only relays
   (still end-to-end encrypted) when strict NAT blocks a direct connection. It is
   the one optional "central" component and can be self-hosted.
-- **Not yet built** (see `../PROJECT_PLAN.md`): at-rest encryption of
-  recordings, cross-collector aggregation, and the native Bluetooth /
+- **Not yet built** (see `../PROJECT_PLAN.md`): cross-collector
+  aggregation, and the native Bluetooth /
   Wi-Fi Direct mesh ([docs/NATIVE_MESH.md](./docs/NATIVE_MESH.md)) — the web
   app can neither find nearby devices by radio nor connect them without a
   shared network.

@@ -501,6 +501,9 @@ function listenForAttestations() {
     onData(data, peerId) {
       const a = take(data, peerId)
       if (!a) return
+      // Only while the picture is arriving: a moment recorded as a frozen
+      // frame (sound only, or interrupted) would read as a cut when checked.
+      if (soundOnly.value || streamInterrupted.value) return
       if (recording.noteAttestation(a)) attestedSeconds.value++
       forwardAttestation(a)
     },
