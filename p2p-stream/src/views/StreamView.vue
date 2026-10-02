@@ -35,6 +35,11 @@
           </div>
         </div>
 
+        <!-- Viewers on links too slow for the full picture get less of it, down to sound only -->
+        <div v-if="slowLinks" class="absolute top-16 right-4 px-2.5 py-1 bg-black/70 rounded-full text-xs text-yellow-200" data-testid="slow-links" title="Their connection cannot carry the full picture; it comes back when it can">
+          🐢 {{ slowLinks }}
+        </div>
+
         <!-- Strategy Badges: the transports actually open right now -->
         <div v-if="isRoomJoined" class="absolute bottom-24 left-4 flex gap-2">
           <span
@@ -253,6 +258,7 @@ import type { RoomChannel } from '../composables/useTrystero'
 import { generateIdentity } from '../lib/integrity/identity'
 import { toHex } from '../lib/integrity/hashing'
 import { startAttestor, type Attestor } from '../lib/corroborate/frames'
+import { TIER_LABEL } from '../lib/net/linkShaping'
 import { RouterLink } from 'vue-router'
 import QRCode from 'qrcode'
 
@@ -318,6 +324,17 @@ function stopAttesting() {
 }
 
 const peerCount = computed(() => trystero.peerCount.value)
+const slowLinks = computed(() => {
+  const tiers = [...trystero.linkTiers.value.values()]
+  if (!tiers.length) return ''
+  const n = (t: string) => tiers.filter((x) => x === t).length
+  const parts = [
+    n('reduced') && `${n('reduced')} ${TIER_LABEL.reduced}`,
+    n('minimal') && `${n('minimal')} ${TIER_LABEL.minimal}`,
+    n('audio') && `${n('audio')} ${TIER_LABEL.audio}`,
+  ].filter(Boolean)
+  return `${tiers.length} slow ${tiers.length === 1 ? 'link' : 'links'}: ${parts.join(', ')}`
+})
 const counts = computed(() => trystero.counts.value)
 
 // --- connection status + relay setup ---

@@ -14,6 +14,8 @@ export interface MediaSample {
   bytesReceived: number;
   /** Cumulative decoded frames — moves even if bytes plateau on a still scene. */
   framesDecoded: number;
+  /** Cumulative inbound bytes for the sound, when known. */
+  audioBytesReceived?: number;
   /** Sample time (ms). */
   at: number;
 }
@@ -23,6 +25,12 @@ export type MediaHealth =
   | "starting"
   /** Bytes/frames are moving. */
   | "flowing"
+  /**
+   * The picture stopped but the sound keeps coming: the sender switched video
+   * off because the link is too slow for it (linkShaper.ts). Not a lost
+   * stream — the connection is alive and still worth recording.
+   */
+  | "audio-only"
   /** Nothing has arrived for longer than the stall window. */
   | "stalled";
 
@@ -48,12 +56,16 @@ export function createStallMonitor(stallMs: number = DEFAULT_STALL_MS) {
   // legitimate t=0 sample and would let the stall clock re-anchor forever.
   let lastProgressAt: number | null = null;
   let seenAnyMedia = false;
+  let lastAudio = 0;
+  let lastAudioAt: number | null = null;
 
   function reset(): void {
     lastBytes = 0;
     lastFrames = 0;
     lastProgressAt = null;
     seenAnyMedia = false;
+    lastAudio = 0;
+    lastAudioAt = null;
   }
 
   function observe(sample: MediaSample): MediaHealth {
@@ -68,11 +80,19 @@ export function createStallMonitor(stallMs: number = DEFAULT_STALL_MS) {
       if (sample.bytesReceived > 0) seenAnyMedia = true;
     }
 
+    if (sample.audioBytesReceived !== undefined && sample.audioBytesReceived > lastAudio) {
+      lastAudio = sample.audioBytesReceived;
+      lastAudioAt = sample.at;
+    }
+
     // Anchor once, so a connection that never delivers anything still times out.
     if (lastProgressAt === null) lastProgressAt = sample.at;
 
     const idleMs = sample.at - lastProgressAt;
-    if (idleMs > stallMs) return "stalled";
+    if (idleMs > stallMs) {
+      const soundFlowing = seenAnyMedia && lastAudioAt !== null && sample.at - lastAudioAt <= stallMs;
+      return soundFlowing ? "audio-only" : "stalled";
+    }
     return seenAnyMedia ? "flowing" : "starting";
   }
 

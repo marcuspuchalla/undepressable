@@ -15,11 +15,12 @@
 // offline-handover, offline-chain, offline-chain-repair, messenger-pair,
 // messenger-pair-late, amplify-streamer, amplify-viewer, sealed-home,
 // sealed-passphrase, sealed-blind-carrier, timestamp, corroborate,
-// corroborate-offline.
+// corroborate-offline, throttled.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
 //   CHROMIUM_PATH  a Chromium binary, if Playwright's default is missing
+//   TRACE=1        throttled: print the filming side's link stats every 3 s
 //
 // See docs/RELIABILITY_AUDIT_3.md for results and what each one proves.
 
@@ -64,6 +65,17 @@ async function newPage(storage, extraArgs = []) {
   const browser = await chromium.launch({ args: [...launchArgs, ...extraArgs], ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) })
   browsers.push(browser)
   const ctx = await browser.newContext({ viewport: { width: 400, height: 860 } })
+  if (process.env.TRACE)
+    await ctx.addInitScript(() => {
+      const Orig = window.RTCPeerConnection
+      window.__pcs = []
+      window.RTCPeerConnection = class extends Orig {
+        constructor(...a) {
+          super(...a)
+          window.__pcs.push(this)
+        }
+      }
+    })
   await ctx.addInitScript((entries) => {
     for (const [k, v] of entries) localStorage.setItem(k, v)
   }, Object.entries({
@@ -1051,6 +1063,96 @@ Object.assign(scenarios, {
     const sameKey = recs[0]?.logs[0]?.pk && recs[0].logs[0].pk === aRecs[0]?.logs[0]?.pk
     const ok = /✓/.test(kept) && /✓ Shows what the filming phone/.test(verdict) && sameKey
     return [ok, `C kept "${kept}"; C's copy: ${verdict.slice(0, 160)}; signed by A's key: ${!!sameKey}`]
+  },
+})
+
+// --- throttled links ---------------------------------------------------------------
+
+/** Police UDP between the browsers to `kBps` kilobytes a second per flow (excess dropped). */
+const throttleRule = (kBps) => ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-m', 'hashlimit', '--hashlimit-name', `und${kBps}`, '--hashlimit-mode', 'srcport,dstport', '--hashlimit-above', `${kBps}kb/s`, '--hashlimit-burst', '48kb', '-j', 'DROP']
+/** Frames the page's video showed in the next `ms`. */
+const framesIn = (page, ms = 3000) =>
+  page.evaluate(async (ms) => {
+    const v = document.querySelector('video')
+    const n = () => v?.getVideoPlaybackQuality?.().totalVideoFrames ?? 0
+    const a = n()
+    await new Promise((r) => setTimeout(r, ms))
+    return n() - a
+  }, ms)
+async function until(fn, ms, every = 2000) {
+  const end = Date.now() + ms
+  for (;;) {
+    const v = await fn().catch(() => null)
+    if (v) return v
+    if (Date.now() > end) return null
+    await new Promise((r) => setTimeout(r, every))
+  }
+}
+
+Object.assign(scenarios, {
+  // The viewer's link is throttled, as networks are during protests: to
+  // ~320 kbit/s the picture keeps moving, smaller; to ~56 kbit/s the filming
+  // phone switches that viewer to sound only — and the viewer keeps
+  // recording instead of declaring the stream lost. Lifted, the picture
+  // comes back on its own.
+  async throttled() {
+    const A = await startStream({})
+    const B = await newPage({})
+    await B.goto(`${APP}/collect/${A.code}`)
+    if ((await videoWithin(B, 40000)) === null) return [false, 'no video before throttling']
+    const pill = () => A.page.locator('[data-testid=slow-links]').innerText().catch(() => '')
+    const notes = []
+    let rule = throttleRule(40)
+    if (!block(true, rule)) return [false, 'needs root for iptables']
+    try {
+      if (process.env.TRACE) {
+        for (let i = 0; i < 25; i++) {
+          const st = await A.page.evaluate(async () => {
+            const out = []
+            for (const pc of window.__pcs ?? []) {
+              const r = await pc.getStats()
+              r.forEach((e) => {
+                if (e.type === 'candidate-pair' && e.nominated && e.state === 'succeeded') out.push(`E=${Math.round((e.availableOutgoingBitrate ?? 0) / 1000)}k`)
+                if (e.type === 'remote-inbound-rtp') out.push(`${e.kind}Loss=${(e.fractionLost ?? 0).toFixed(2)}`)
+                if (e.type === 'outbound-rtp' && e.kind === 'video') out.push(`q=${e.qualityLimitationReason} ${e.frameWidth}x${e.frameHeight}@${e.framesPerSecond}`)
+              })
+            }
+            return out.join(' ')
+          })
+          console.log(`t=${i * 3}s pill="${await pill()}" frames=${await framesIn(B, 1000)} ${st}`)
+          await A.page.waitForTimeout(2000)
+        }
+      }
+      const reduced = await until(async () => (await pill()) || null, 60000)
+      // For the next 30 s: the picture keeps moving, and is never dropped for sound only.
+      const seen = []
+      let movingSamples = 0
+      for (let i = 0; i < 10; i++) {
+        seen.push(await pill())
+        if ((await framesIn(B, 1000)) >= 5) movingSamples++
+        await B.waitForTimeout(2000)
+      }
+      const neverSoundOnly = seen.every((p) => !/sound only/.test(p))
+      notes.push(`~320 kbit/s: "${reduced}"; picture moving in ${movingSamples}/10 samples; tiers seen: ${[...new Set(seen.map((p) => p.replace(/^.*: /, '') || 'full'))].join(', ')}`)
+
+      block(false, rule)
+      rule = throttleRule(7)
+      block(true, rule)
+      const soundOnly = await until(async () => (/sound only/.test(await pill()) && (await B.locator('[data-testid=sound-only]').isVisible()) ? await pill() : null), 90000)
+      const stillRecording = await B.getByText('Stop Recording').isVisible().catch(() => false)
+      const interrupted = await B.getByText('Stream interrupted').isVisible().catch(() => false)
+      notes.push(`~56 kbit/s: "${soundOnly}", viewer banner ${await B.locator('[data-testid=sound-only]').isVisible()}, still recording ${stillRecording}, interrupted ${interrupted}`)
+
+      block(false, rule)
+      rule = null
+      const back = await until(async () => (!(await pill()) && (await framesIn(B, 2000)) > 10 ? true : null), 150000, 3000)
+      const bannerGone = !(await B.locator('[data-testid=sound-only]').isVisible().catch(() => false))
+      notes.push(`lifted: picture back ${!!back}, banner gone ${bannerGone}`)
+      const ok = !!reduced && movingSamples >= 8 && neverSoundOnly && !!soundOnly && stillRecording && !interrupted && !!back && bannerGone
+      return [ok, notes.join(' | ')]
+    } finally {
+      if (rule) block(false, rule)
+    }
   },
 })
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']

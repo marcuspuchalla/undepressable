@@ -102,6 +102,14 @@
         </div>
       </div>
 
+      <!-- Sound only: the link is too slow for the picture; the stream itself is fine -->
+      <div v-if="soundOnly && !streamInterrupted && remoteStream" class="absolute inset-x-0 top-14 z-10 flex justify-center px-4" data-testid="sound-only">
+        <div class="px-3 py-2 rounded-lg bg-black/80 text-center text-xs max-w-sm">
+          <p class="text-yellow-200 font-medium">🔊 Sound only — the connection is too slow for the picture right now</p>
+          <p class="text-gray-400 mt-0.5">Still recording. The picture comes back when the connection allows.</p>
+        </div>
+      </div>
+
       <!-- Stream interrupted: keep the last frame visible, be honest about state -->
       <div v-if="streamInterrupted && remoteStream" class="absolute inset-0 z-10 flex items-center justify-center bg-black/60">
         <div class="text-center p-6">
@@ -437,6 +445,7 @@ const showQRScanner = ref(false)
 const selectedCameraId = ref('')
 const availableCameras = ref<MediaDeviceInfo[]>([])
 const streamInterrupted = ref(false)
+const soundOnly = ref(false)
 // Auto-record every stream (including post-reconnect segments) until the user
 // explicitly presses Stop.
 const autoRecord = ref(true)
@@ -772,10 +781,13 @@ function startStallMonitor() {
     const sample = await trystero.sampleInboundVideo()
     if (!sample) return
     const health = stallMonitor.observe({ ...sample, at: Date.now() })
+    // Sound only: the filming phone switched the picture off because the link
+    // is too slow for it. The connection is alive and still being recorded.
+    soundOnly.value = health === 'audio-only'
 
     if (health === 'stalled') {
       if (!streamInterrupted.value) onStreamLost('no media for 8s')
-    } else if (health === 'flowing' && streamInterrupted.value) {
+    } else if ((health === 'flowing' || health === 'audio-only') && streamInterrupted.value) {
       // Bytes are moving again — clear the overlay the track events never will.
       streamInterrupted.value = false
     }

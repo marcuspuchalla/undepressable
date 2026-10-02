@@ -2,6 +2,8 @@ import { ref, shallowRef, onUnmounted } from "vue";
 import { encodeSignal, decodeSignal } from "../lib/net/offlinePair";
 import { resolveRtcConfig } from "../lib/net/iceConfig";
 import { capVideoSendersWithRetry, markMotionContent } from "../lib/net/senderTuning";
+import { shapeLink } from "../lib/net/linkShaping";
+import type { Tier } from "../lib/net/linkShaper";
 import { encodeLinkMsg, decodeLinkMsg, linkPhase, type LinkMsg, type LinkPhase } from "../lib/net/offlineLink";
 import { createIntake } from "../lib/corroborate/log";
 import type { Attestation } from "../lib/corroborate/attest";
@@ -65,6 +67,8 @@ export interface OfflineLinkView {
   peerRecording: boolean;
   connectedAt: number | null;
   transfer: LinkTransfer | null;
+  /** On a link we send video on: what the link holds right now (linkShaper.ts). */
+  tier: Tier;
 }
 
 interface Link {
@@ -87,6 +91,7 @@ interface Link {
   sync: LinkSync | null;
   /** Paired across the internet (codes over a messenger) rather than on one network. */
   internet: boolean;
+  tier: Tier;
 }
 
 interface LinkSync {
@@ -141,6 +146,7 @@ export function useOfflinePair() {
       peerRecording: l.peerRecording,
       connectedAt: l.connectedAt,
       transfer: l.sync ? { ...l.sync.view } : null,
+      tier: l.tier,
     }));
   }
 
@@ -194,6 +200,7 @@ export function useOfflinePair() {
       renegotiateAfter: false,
       sync: null,
       internet,
+      tier: "full",
     };
     pc.onconnectionstatechange = () => publish();
     // The viewer's control channel, and — either way — the recording
@@ -256,6 +263,11 @@ export function useOfflinePair() {
         await l.pc.setRemoteDescription(msg.d);
         l.negotiating = false;
         capVideoSendersWithRetry(l.pc);
+        // Off-grid links are fast; links over the internet may be throttled.
+        shapeLink(l.pc, (tier) => {
+          l.tier = tier;
+          publish();
+        });
         if (l.renegotiateAfter) {
           l.renegotiateAfter = false;
           await renegotiate(l);
@@ -396,9 +408,10 @@ export function useOfflinePair() {
   }
 
   /** Inbound video byte/frame counters, for noticing a frozen picture. */
-  async function sampleInboundVideo(): Promise<{ bytesReceived: number; framesDecoded: number } | null> {
+  async function sampleInboundVideo(): Promise<{ bytesReceived: number; framesDecoded: number; audioBytesReceived: number } | null> {
     let bytesReceived = 0;
     let framesDecoded = 0;
+    let audioBytesReceived = 0;
     let saw = false;
     for (const l of all.values()) {
       if (l.role !== "watch" || l.closedByUs) continue;
@@ -408,10 +421,12 @@ export function useOfflinePair() {
           saw = true;
           bytesReceived += e.bytesReceived ?? 0;
           framesDecoded += e.framesDecoded ?? 0;
+        } else if (e.type === "inbound-rtp" && e.kind === "audio") {
+          audioBytesReceived += e.bytesReceived ?? 0;
         }
       });
     }
-    return saw ? { bytesReceived, framesDecoded } : null;
+    return saw ? { bytesReceived, framesDecoded, audioBytesReceived } : null;
   }
 
   // --- handing recordings over, face to face --------------------------------

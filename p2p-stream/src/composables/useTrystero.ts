@@ -8,6 +8,8 @@ import { computeCounts, pruneStale, isValidStat, canTrackStat, type SwarmStat } 
 import { createControlGate } from "../lib/swarm/controlAuth";
 import { summarizeRelays, type RelayHealth } from "../lib/net/relayHealth";
 import { capVideoSendersWithRetry, markMotionContent } from "../lib/net/senderTuning";
+import { shapeLink } from "../lib/net/linkShaping";
+import type { Tier } from "../lib/net/linkShaper";
 import {
   createRoutes,
   addMember,
@@ -188,6 +190,14 @@ export function useTrystero() {
     senders: Map<TrysteroRoom, ActionSend>;
   }
   const extraChannels = new Map<string, ExtraChannel>();
+  /** Peers we send video to whose link is too slow for the full picture (linkShaper.ts). */
+  const linkTiers = shallowRef<Map<string, Tier>>(new Map());
+  function noteTier(peerId: string, tier: Tier | null) {
+    const next = new Map(linkTiers.value);
+    if (tier && tier !== "full") next.set(peerId, tier);
+    else next.delete(peerId);
+    linkTiers.value = next;
+  }
   const relayingToCount = computed(() => myTreeChildren.value.length);
 
   const peerCount = computed(() => peers.value.size);
@@ -448,6 +458,7 @@ export function useTrystero() {
         forwardingTo.delete(peerId);
         mediaSentTo.delete(peerId);
         controlGate.forget(peerId);
+        noteTier(peerId, null);
         if (role === "streamer") {
           // Prune the tree; a dead seed's children get re-seated here.
           applyAssignments(treePeerLeft(tree, peerId));
@@ -606,7 +617,12 @@ export function useTrystero() {
     // Cap the video bitrate so a weak phone uplink degrades instead of
     // stalling. Encodings appear only after negotiation, hence the retry.
     const pc = room.getPeers?.()[peerId];
-    if (pc) capVideoSendersWithRetry(pc);
+    if (pc) {
+      capVideoSendersWithRetry(pc);
+      // Step this viewer's picture down — to sound only if need be — while
+      // its link is too slow, and back up when it recovers.
+      shapeLink(pc, (tier) => noteTier(peerId, tier));
+    }
   }
 
   // Stop sending our outbound stream to a peer (it moved under a seed).
@@ -819,7 +835,7 @@ export function useTrystero() {
    * path silently stops delivering while the track stays live. Watching these
    * counters is the only way to notice the picture froze.
    */
-  async function sampleInboundVideo(): Promise<{ bytesReceived: number; framesDecoded: number } | null> {
+  async function sampleInboundVideo(): Promise<{ bytesReceived: number; framesDecoded: number; audioBytesReceived: number } | null> {
     const connections: RTCPeerConnection[] = [];
     for (const room of rooms.value.values()) {
       for (const pc of Object.values(room.getPeers?.() ?? {})) connections.push(pc);
@@ -828,6 +844,7 @@ export function useTrystero() {
 
     let bytesReceived = 0;
     let framesDecoded = 0;
+    let audioBytesReceived = 0;
     let sawInbound = false;
 
     const reports = await Promise.all(
@@ -840,10 +857,12 @@ export function useTrystero() {
           sawInbound = true;
           bytesReceived += entry.bytesReceived ?? 0;
           framesDecoded += entry.framesDecoded ?? 0;
+        } else if (entry.type === "inbound-rtp" && entry.kind === "audio") {
+          audioBytesReceived += entry.bytesReceived ?? 0;
         }
       });
     }
-    return sawInbound ? { bytesReceived, framesDecoded } : null;
+    return sawInbound ? { bytesReceived, framesDecoded, audioBytesReceived } : null;
   }
 
   /**
@@ -910,6 +929,7 @@ export function useTrystero() {
     addChannel,
     /** Has this peer announced itself as the one filming? (Unauthenticated: a hint, not proof.) */
     isStreamerPeer: (peerId: string) => controlGate.isStreamer(peerId),
+    linkTiers,
     sampleInboundVideo,
     getRelayHealth,
     getStrategyStatus,
