@@ -262,16 +262,21 @@ Object.assign(scenarios, {
     await B.goto(`${APP}/collect/${code}`)
     const s = await videoWithin(B, 40000)
     relayProcess.kill() // discovery (the "internet" here) disappears
-    await B.waitForTimeout(15000)
-    const advancing = await B.evaluate(async () => {
-      const v = document.querySelector('video')
-      const a = v.currentTime
-      await new Promise((r) => setTimeout(r, 2000))
-      return v.currentTime > a
-    })
-    const interrupted = await B.locator('text=Stream interrupted').count()
-    relayProcess = startHelper('nostr-relay.mjs', '7777')
-    await new Promise((r) => setTimeout(r, 500))
+    let advancing, interrupted
+    try {
+      await B.waitForTimeout(15000)
+      advancing = await B.evaluate(async () => {
+        const v = document.querySelector('video')
+        const a = v.currentTime
+        await new Promise((r) => setTimeout(r, 2000))
+        return v.currentTime > a
+      })
+      interrupted = await B.locator('text=Stream interrupted').count()
+    } finally {
+      // Every later scenario needs discovery back, whatever happened here.
+      relayProcess = startHelper('nostr-relay.mjs', '7777')
+      await new Promise((r) => setTimeout(r, 500))
+    }
     return [s !== null && advancing && interrupted === 0, `video ${s}s; 15 s after discovery died: ${advancing ? 'still playing' : 'FROZEN'}, interrupted overlay: ${interrupted}`]
   },
   async 'offline-two-viewers'() {
