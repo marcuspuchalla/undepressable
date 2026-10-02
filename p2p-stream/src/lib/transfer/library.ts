@@ -118,6 +118,7 @@ export function recordingFromManifest(
     proof: m.proof,
     ...(m.sealed ? { sealed: { v: 1 as const, keys: m.sealed.keys, proof: m.sealed.proof } } : {}),
     ...(m.timestamp ? { timestamp: m.timestamp } : {}),
+    ...(m.attestations?.length ? { attestations: m.attestations } : {}),
     origin,
   }
 }

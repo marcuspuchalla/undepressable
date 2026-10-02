@@ -55,7 +55,7 @@
         </div>
 
         <!-- Main Controls - Overlay at Bottom -->
-        <div class="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
+        <div class="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/90 via-black/50 to-transparent pointer-events-auto">
           <!-- Recording Buttons -->
           <div class="flex items-center justify-center gap-4 mb-4">
             <template v-if="!isRecording">
@@ -176,6 +176,11 @@
           <div v-if="relayInLink" class="w-full max-w-md text-xs text-moss">
             ✓ Your relay is included, so viewers behind strict networks can connect without setup.
           </div>
+          <div v-if="attesting" class="w-full max-w-md text-xs text-slate-400" data-testid="attest-note">
+            ✓ Every second this phone signs a fingerprint of its picture; viewers keep them with their copies, so each copy
+            can later be checked against what this camera showed. The link carries the key (<span class="font-mono">{{ streamKeyHex.slice(0, 8) }}…</span>),
+            made for this stream only.
+          </div>
           <div v-else-if="!diag.relayConfigured.value" class="w-full max-w-md text-xs text-slate-400">
             No relay configured — viewers on strict networks (VPN, mobile data) may not get through.
             <button class="text-glow underline" @click="openRelay(false)">Set one up</button>
@@ -244,6 +249,10 @@ import ConnectionDoctor from '../components/ConnectionDoctor.vue'
 import RelaySetup from '../components/RelaySetup.vue'
 import AmplifyPanel from '../components/AmplifyPanel.vue'
 import { useAmplify } from '../composables/useAmplify'
+import type { RoomChannel } from '../composables/useTrystero'
+import { generateIdentity } from '../lib/integrity/identity'
+import { toHex } from '../lib/integrity/hashing'
+import { startAttestor, type Attestor } from '../lib/corroborate/frames'
 import { RouterLink } from 'vue-router'
 import QRCode from 'qrcode'
 
@@ -280,6 +289,32 @@ const CAMERA_CONSTRAINTS: MediaStreamConstraints = {
     height: { ideal: 720 }
   },
   audio: true
+}
+
+// Live attestations (lib/corroborate): a key for this stream alone, never
+// stored, so nothing links this stream to the phone's other streams.
+const streamKey = generateIdentity()
+const streamKeyHex = toHex(streamKey.publicKey)
+const attesting = ref(false)
+let attestor: Attestor | null = null
+const attestChannel: RoomChannel = trystero.addChannel('attest', { onData: () => {} })
+
+function startAttesting(stream: MediaStream) {
+  if (attestor) {
+    attestor.setStream(stream)
+    return
+  }
+  attestor = startAttestor(stream, streamKey, (a) => {
+    attestChannel.broadcast(a)
+    // The filmer's own recording carries them too.
+    recording.noteAttestation(a)
+  })
+  attesting.value = true
+}
+function stopAttesting() {
+  attestor?.stop()
+  attestor = null
+  attesting.value = false
 }
 
 const peerCount = computed(() => trystero.peerCount.value)
@@ -334,7 +369,7 @@ const shareBase = computed(() => {
 })
 const linkParams = computed(() => {
   void settingsTick.value
-  return { ...relayShareParams(), ...discoveryShareParams() }
+  return { ...relayShareParams(), ...discoveryShareParams(), fk: streamKeyHex }
 })
 const relayInLink = computed(() => 'turn' in linkParams.value || 'ice' in linkParams.value)
 const shareUrl = computed(() => (roomCode.value ? buildCollectUrl(shareBase.value.base, roomCode.value, linkParams.value, shareBase.value.hash) : ''))
@@ -378,6 +413,7 @@ async function initStream() {
     if (videoPreview.value) {
       videoPreview.value.srcObject = localStream.value
     }
+    startAttesting(localStream.value)
 
     // Open the room AS the streamer, handing it the stream so every peer —
     // including ones who join later — receives the video via onPeerJoin.
@@ -435,6 +471,7 @@ async function recoverCamera(reason: string) {
     localStream.value = fresh
     watchCameraHealth(fresh)
     if (videoPreview.value) videoPreview.value.srcObject = fresh
+    startAttesting(fresh)
     trystero.updateStream(fresh) // one copy per watcher, via each media-owning room
     trystero.error.value = null
     if (wasRecording) await startRecording()
@@ -488,6 +525,7 @@ function endStream() {
     stopRecording()
   }
   
+  stopAttesting()
   trystero.leaveRoom()
   localStream.value?.getTracks().forEach(t => t.stop())
   
@@ -558,6 +596,8 @@ onUnmounted(() => {
   if (isRecording.value) {
     recording.stopRecording()
   }
+  stopAttesting()
+  attestChannel.remove()
   trystero.leaveRoom()
   localStream.value?.getTracks().forEach(t => t.stop())
 })

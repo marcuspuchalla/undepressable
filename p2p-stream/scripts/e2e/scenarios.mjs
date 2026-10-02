@@ -14,7 +14,8 @@
 // offline-two-viewers, offline-isolated, archive, evidence-file, home-sync,
 // offline-handover, offline-chain, offline-chain-repair, messenger-pair,
 // messenger-pair-late, amplify-streamer, amplify-viewer, sealed-home,
-// sealed-passphrase, sealed-blind-carrier, timestamp.
+// sealed-passphrase, sealed-blind-carrier, timestamp, corroborate,
+// corroborate-offline.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
@@ -59,8 +60,8 @@ const launchArgs = [
   '--disable-features=WebRtcHideLocalIpsWithMdns',
 ]
 const browsers = []
-async function newPage(storage) {
-  const browser = await chromium.launch({ args: launchArgs, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) })
+async function newPage(storage, extraArgs = []) {
+  const browser = await chromium.launch({ args: [...launchArgs, ...extraArgs], ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) })
   browsers.push(browser)
   const ctx = await browser.newContext({ viewport: { width: 400, height: 860 } })
   await ctx.addInitScript((entries) => {
@@ -79,8 +80,8 @@ async function closeAll() {
 const turn = (credential = 'test') =>
   ({ undepressable_turn: JSON.stringify({ urls: [`turn:${HOST_IP}:3478`], username: 'test', credential }) })
 
-async function startStream(storage) {
-  const page = await newPage(storage)
+async function startStream(storage, extraArgs = []) {
+  const page = await newPage(storage, extraArgs)
   await page.goto(`${APP}/stream`)
   await page.waitForSelector('text=Share Stream', { timeout: 30000 })
   const code = (await page.textContent('.font-mono.text-lg')).trim()
@@ -302,7 +303,17 @@ Object.assign(scenarios, {
     const archived = await videoWithin(home, 40000)
     await home.waitForSelector('text=Recording a forwarded stream', { timeout: 15000 }).catch(() => {})
     const status = (await home.locator('.card').nth(1).innerText()).replace(/\s+/g, ' ')
-    return [watched !== null && archived !== null && /Recording a forwarded stream/.test(status), `phone video ${watched}s, home video ${archived}s; home: ${status.slice(0, 120)}`]
+    // The filmer's attestations come home with the picture (via the phone).
+    await home.waitForTimeout(6000)
+    const phoneKept = (await phone.locator('[data-testid=attested-count]').innerText().catch(() => 'none')).replace(/\s+/g, ' ')
+    await phone.close() // the phone leaves: home banks its recording
+    let homeRecs = []
+    for (let t = 0; t < 60 && !homeRecs.length; t++) {
+      await home.waitForTimeout(1000)
+      homeRecs = await storedRecordings(home)
+    }
+    const attested = homeRecs[0]?.logs[0]?.n ?? 0
+    return [watched !== null && archived !== null && /Recording a forwarded stream/.test(status) && attested >= 3, `phone video ${watched}s, home video ${archived}s; home: ${status.slice(0, 120)}; phone: "${phoneKept}"; filmer's attestations at home: ${attested}`]
   },
 })
 // Record `seconds` of the fake camera through the app's own recorder (the dev
@@ -870,6 +881,176 @@ Object.assign(scenarios, {
     } finally {
       cal.close()
     }
+  },
+})
+
+// --- corroborated copies --------------------------------------------------------
+
+// A camera file for Chromium's fake capture: a different picture every second
+// (soft blobs on a gradient, from `seed`), so two files never look alike and
+// one file's moments can be told apart. Grayscale 4:2:0 Y4M, looped by Chromium.
+async function writeY4m(path, seed, seconds = 30, w = 240, h = 180, fps = 10) {
+  const { openSync, writeSync, closeSync } = await import('node:fs')
+  let st = seed >>> 0 || 1
+  const rnd = () => {
+    st ^= st << 13
+    st ^= st >>> 17
+    st ^= st << 5
+    return (st >>> 0) / 2 ** 32
+  }
+  const fd = openSync(path, 'w')
+  writeSync(fd, `YUV4MPEG2 W${w} H${h} F${fps}:1 Ip A1:1 C420jpeg\n`)
+  const chroma = Buffer.alloc((w / 2) * (h / 2) * 2, 128)
+  for (let sec = 0; sec < seconds; sec++) {
+    const blobs = Array.from({ length: 6 }, () => ({ x: rnd(), y: rnd(), r: 0.1 + rnd() * 0.25, v: 30 + rnd() * 200 }))
+    const g = rnd() * 120 - 60
+    const y = Buffer.alloc(w * h)
+    for (let j = 0; j < h; j++)
+      for (let i = 0; i < w; i++) {
+        let v = 110 + g * (i / w - 0.5)
+        for (const b of blobs) if (Math.hypot(i / w - b.x, j / h - b.y) < b.r) v = v * 0.3 + b.v * 0.7
+        y[j * w + i] = Math.max(16, Math.min(235, v))
+      }
+    for (let f = 0; f < fps; f++) {
+      writeSync(fd, 'FRAME\n')
+      writeSync(fd, y)
+      writeSync(fd, chroma)
+    }
+  }
+  closeSync(fd)
+  return path
+}
+async function cameraFiles() {
+  const { mkdtempSync } = await import('node:fs')
+  const { tmpdir } = await import('node:os')
+  const dir = mkdtempSync(join(tmpdir(), 'und-cam-'))
+  return { a: await writeY4m(join(dir, 'a.y4m'), 11), b: await writeY4m(join(dir, 'b.y4m'), 9001), dir }
+}
+const camera = (file) => [`--use-file-for-fake-video-capture=${file}`]
+
+/** On the Recordings screen: check one card against the filmer, return its verdict text. */
+async function checkCard(page, card) {
+  await card.locator('[data-testid=corroborate]').click()
+  await page.waitForTimeout(300)
+  await card.locator('[data-testid=corroborate]', { hasNotText: 'Comparing' }).waitFor({ timeout: 90000 }).catch(() => {})
+  return (await card.locator('[data-testid=corroborate-row]').innerText().catch(() => 'no row')).replace(/\s+/g, ' ')
+}
+
+/** In a page: the stored recordings, newest first, with attestation counts. */
+const storedRecordings = (page) =>
+  page.evaluate(async () => {
+    const { getAllRecordings } = await import('/src/lib/recordingDb.ts')
+    const all = await getAllRecordings()
+    return all
+      .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
+      .map((r) => ({ id: r.id, chunks: r.chunks.length, logs: (r.attestations ?? []).map((l) => ({ pk: l.pk, n: l.a.length })) }))
+  })
+
+Object.assign(scenarios, {
+  // Two streams from two cameras showing different pictures; one viewer
+  // records both through share links. Each copy matches what its filmer
+  // signed; with the other stream's attestations swapped in, it does not.
+  // The filmer's own recording carries the same attestations.
+  async corroborate() {
+    const cams = await cameraFiles()
+    const A = await startStream({}, camera(cams.a))
+    const C = await startStream({}, camera(cams.b))
+    const V = await newPage({})
+    const watchAndRecord = async (shareUrl, seconds) => {
+      await V.goto(shareUrl)
+      if ((await videoWithin(V, 40000)) === null) throw new Error(`no video from ${shareUrl}`)
+      await V.waitForSelector('text=Stop Recording', { timeout: 20000 })
+      await V.waitForTimeout(seconds * 1000)
+      const kept = await V.locator('[data-testid=attested-count]').innerText().catch(() => 'none')
+      await V.getByText('Stop Recording').click()
+      await V.waitForTimeout(1500)
+      return kept.replace(/\s+/g, ' ')
+    }
+    const keptA = await watchAndRecord(A.shareUrl, 10)
+    const keptC = await watchAndRecord(C.shareUrl, 10)
+    const fkA = new URL(A.shareUrl).searchParams.get('fk')
+    const fkC = new URL(C.shareUrl).searchParams.get('fk')
+
+    await V.goto(`${APP}/recordings`)
+    const recs = await storedRecordings(V)
+    if (!(await V.waitForSelector('[data-testid=corroborate]', { timeout: 15000 }).catch(() => null)))
+      return [false, `viewer has no checkable copy; kept: "${keptA}" / "${keptC}"; stored: ${JSON.stringify(recs)}`]
+    const [recC, recA] = recs // newest first
+    const signersOk = recA?.logs.length === 1 && recA.logs[0].pk === fkA && recC?.logs.length === 1 && recC.logs[0].pk === fkC
+    const cardA = V.locator('[data-testid=recording]').nth(1)
+    const cardC = V.locator('[data-testid=recording]').nth(0)
+    const verdictA = await checkCard(V, cardA)
+    const verdictC = await checkCard(V, cardC)
+
+    // A carrier attaches another stream's attestations to copy A.
+    await V.evaluate(async ([a, c]) => {
+      const db = await import('/src/lib/recordingDb.ts')
+      const recA = await db.getRecording(a)
+      const recC = await db.getRecording(c)
+      await db.putRecording({ ...recA, attestations: recC.attestations, corroboration: undefined })
+    }, [recA.id, recC.id])
+    await V.reload()
+    await V.waitForSelector('[data-testid=corroborate]', { timeout: 15000 })
+    const swapped = await checkCard(V, V.locator('[data-testid=recording]').nth(1))
+
+    // The evidence file carries them.
+    const inManifest = await V.evaluate(async (id) => {
+      const db = await import('/src/lib/recordingDb.ts')
+      const { manifestFor } = await import('/src/lib/transfer/evidence.ts')
+      return manifestFor(await db.getRecording(id))?.attestations?.[0]?.a.length ?? 0
+    }, recC.id)
+
+    // The filmer's own recording, checked on the filming phone.
+    await A.page.locator('button[title="End Stream"]').click()
+    await A.page.waitForTimeout(3000)
+    await A.page.goto(`${APP}/recordings`)
+    await A.page.waitForSelector('[data-testid=corroborate]', { timeout: 15000 })
+    const own = await checkCard(A.page, A.page.locator('[data-testid=recording]').first())
+
+    const ok =
+      /✓/.test(keptA) && /✓/.test(keptC) && signersOk &&
+      /✓ Shows what the filming phone/.test(verdictA) && /✓ Shows what the filming phone/.test(verdictC) &&
+      /✗ Does not show/.test(swapped) && inManifest > 3 && /✓ Shows what the filming phone/.test(own)
+    return [ok, `kept: "${keptA.slice(0, 60)}" / "${keptC.slice(0, 60)}"; signers = link keys ${signersOk} (${JSON.stringify(recs.map((r) => r.logs))}); A: ${verdictA.slice(0, 160)} | C: ${verdictC.slice(0, 160)} | A with C's attestations: ${swapped.slice(0, 160)} | in evidence: ${inManifest} | filmer's own: ${own.slice(0, 120)}`]
+  },
+})
+
+Object.assign(scenarios, {
+  // Face to face, through a chain: A films (its own camera file), B relays
+  // onward, C records. The attestations travel down the chain with the
+  // picture, and C's copy checks out against A's key.
+  async 'corroborate-offline'() {
+    const cams = await cameraFiles()
+    const A = await newPage({}, camera(cams.a))
+    await A.goto(`${APP}/offline`)
+    await A.getByText("I'm filming").click()
+    await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const B = await offlineViewer(A)
+    if ((await videoWithin(B, 20000)) === null) return [false, 'B got no video']
+    await B.locator('[data-testid=share-onward]').click()
+    await B.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    const C = await newPage({})
+    await C.goto(`${APP}/offline`)
+    await C.getByText("I'm receiving").click()
+    await pasteCode(C, await codeOf(B))
+    await C.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
+    await pasteCode(B, await codeOf(C))
+    if ((await videoWithin(C, 25000)) === null) return [false, 'C got no video through B']
+    await C.waitForTimeout(10000)
+    const kept = (await C.locator('[data-testid=attested-count]').innerText().catch(() => 'none')).replace(/\s+/g, ' ')
+    await C.getByRole('button', { name: 'Stop', exact: true }).click()
+    await C.waitForTimeout(1500)
+    await C.goto(`${APP}/recordings`)
+    const recs = await storedRecordings(C)
+    if (!(await C.waitForSelector('[data-testid=corroborate]', { timeout: 15000 }).catch(() => null))) return [false, `C has no checkable copy; kept "${kept}"; ${JSON.stringify(recs)}`]
+    const verdict = await checkCard(C, C.locator('[data-testid=recording]').first())
+    // The key C holds is A's: the one A's own recording carries too.
+    await A.getByRole('button', { name: 'Stop filming' }).click()
+    await A.waitForTimeout(1500)
+    const aRecs = await storedRecordings(A)
+    const sameKey = recs[0]?.logs[0]?.pk && recs[0].logs[0].pk === aRecs[0]?.logs[0]?.pk
+    const ok = /✓/.test(kept) && /✓ Shows what the filming phone/.test(verdict) && sameKey
+    return [ok, `C kept "${kept}"; C's copy: ${verdict.slice(0, 160)}; signed by A's key: ${!!sameKey}`]
   },
 })
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']

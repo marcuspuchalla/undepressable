@@ -6,9 +6,14 @@
 // say every few seconds whether they are still there and still recording, so
 // the person filming can see that a copy is actually being kept.
 
+import { isAttestationShape, type Attestation } from "../corroborate/attest";
+
 export type LinkMsg =
   | { t: "sdp"; d: { type: "offer" | "answer"; sdp: string } }
   | { t: "hello"; role: "stream" | "watch"; recording: boolean }
+  // The filming device's signed fingerprint of its picture (lib/corroborate),
+  // passed down a chain unchanged.
+  | { t: "att"; a: Attestation }
   | { t: "bye" };
 
 /** Cap on what we will parse from the peer; an SDP with media is a few KB. */
@@ -35,6 +40,11 @@ export function decodeLinkMsg(raw: unknown): LinkMsg | null {
   if (m.t === "hello") {
     if ((m.role !== "stream" && m.role !== "watch") || typeof m.recording !== "boolean") return null;
     return { t: "hello", role: m.role, recording: m.recording };
+  }
+  if (m.t === "att") {
+    const a = m.a;
+    if (!isAttestationShape(a)) return null;
+    return { t: "att", a: { v: 1, s: a.s, n: a.n, t: a.t, f: a.f, pk: a.pk, sig: a.sig } };
   }
   if (m.t === "bye") return { t: "bye" };
   return null;

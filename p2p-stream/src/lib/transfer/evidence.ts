@@ -17,6 +17,7 @@
 import type { Recording, RecordingTimestamp } from '../../types'
 import { sha256, toHex, verifyProof, type RecordingProof } from '../integrity'
 import { decryptChunk, type SealedKey } from '../seal/crypto'
+import { isLogsShape, type AttestationLog } from '../corroborate/log'
 
 export const EVIDENCE_FORMAT = 'undepressable-evidence'
 
@@ -47,6 +48,11 @@ export interface EvidenceManifest {
   sealed?: { v: 1; keys: SealedKey[]; proof: RecordingProof }
   /** OpenTimestamps proof for root.txt (the footage proof's Merkle root), if one was made. */
   timestamp?: RecordingTimestamp
+  /**
+   * What the filming device signed while streaming (lib/corroborate): a
+   * fingerprint of its picture every second, to check this copy against.
+   */
+  attestations?: AttestationLog[]
 }
 
 export interface EvidenceCheck {
@@ -79,6 +85,7 @@ export function manifestFor(recording: Recording): EvidenceManifest | null {
     proof: recording.proof,
     ...(recording.sealed?.proof ? { sealed: { v: 1 as const, keys: recording.sealed.keys, proof: recording.sealed.proof } } : {}),
     ...(recording.timestamp ? { timestamp: recording.timestamp } : {}),
+    ...(recording.attestations?.length ? { attestations: recording.attestations } : {}),
   }
 }
 
@@ -100,6 +107,7 @@ export function parseManifest(text: string): EvidenceManifest | null {
   if (!Array.isArray(m.chunkSizes) || !m.chunkSizes.every((n: unknown) => Number.isInteger(n) && (n as number) > 0)) return null
   if (!isProofShape(p)) return null
   if (m.timestamp !== undefined && (!m.timestamp || typeof m.timestamp.ots !== 'string')) return null
+  if (m.attestations !== undefined && !isLogsShape(m.attestations)) return null
   if (m.sealed !== undefined) {
     const sd = m.sealed
     if (!sd || sd.v !== 1 || !Array.isArray(sd.keys) || sd.keys.length === 0 || !isProofShape(sd.proof)) return null
@@ -225,6 +233,15 @@ timestamp: root.txt holds proof.merkleRoot, and root.txt.ots is an
 OpenTimestamps proof that it existed by the time of a Bitcoin block. Check it
 with the OpenTimestamps client: "ots verify root.txt.ots" (and "ots upgrade"
 first if it was still pending when the bundle was made).
+
+If evidence.json has "attestations", the device that was filming signed
+a fingerprint of its picture every second while it streamed, and the
+device that made this copy received them live. Recordings → Check against
+the filmer compares them with this video: it shows whether this copy shows
+what the filming device's camera showed, second by second. Each fingerprint
+is a perceptual hash (two 64-bit hashes of a 64×64 grayscale thumbnail), so
+a match means "the same picture", not "the same bytes". Who signed them is
+the "pk" key: the stream's share link carries the same key as fk=…
 
 To check it: open Undepressable → Recordings → Import, and choose this
 .zip (or the .webm together with its evidence file). Every chunk is

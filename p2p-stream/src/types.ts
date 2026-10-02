@@ -1,5 +1,7 @@
 import type { RecordingProof } from "./lib/integrity";
 import type { SealedKey } from "./lib/seal/crypto";
+import type { AttestationLog } from "./lib/corroborate/log";
+import type { Corroboration } from "./lib/corroborate/match";
 
 // User roles in the P2P network
 export type UserRole = 'streamer' | 'collector'
@@ -53,6 +55,20 @@ export interface Recording {
   // OpenTimestamps proof that the recording's signed proof existed by a given
   // time (lib/timestamp).
   timestamp?: RecordingTimestamp
+  // What the filming device signed while streaming: a fingerprint of its
+  // picture every second (lib/corroborate). Kept by viewers, so their copy can
+  // be checked against the source.
+  attestations?: AttestationLog[]
+  // The last check of this copy against them (local only; never trusted from elsewhere).
+  corroboration?: CorroborationCheck
+}
+
+export interface CorroborationCheck {
+  checkedAt: string
+  /** Frames fingerprinted from this copy. */
+  frames: number
+  results: Corroboration[]
+  invalid: number
 }
 
 export interface RecordingTimestamp {

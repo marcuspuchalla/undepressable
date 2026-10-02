@@ -17,6 +17,8 @@ import {
   openSealedEvidence,
   type EvidenceManifest,
 } from './evidence'
+import { signAttestation, newStreamId } from '../corroborate/attest'
+import { addToLogs, type AttestationLog } from '../corroborate/log'
 
 async function fixture(chunkTexts = ['first second of video', 'second second', 'third']) {
   const chunks = chunkTexts.map((t) => new Blob([t]))
@@ -51,6 +53,20 @@ describe('evidence manifest', () => {
     const { recording } = await fixture()
     expect(manifestFor({ ...recording, proof: undefined })).toBeNull()
     expect(manifestFor({ ...recording, status: 'recording' })).toBeNull()
+  })
+
+  it("carries the filmer's attestations, and refuses malformed ones", async () => {
+    const { recording } = await fixture()
+    const filmer = generateIdentity()
+    const s = newStreamId()
+    const logs: AttestationLog[] = []
+    for (let n = 0; n < 3; n++) addToLogs(logs, signAttestation({ s, n, t: n * 1000, f: '0123456789abcdef0123456789abcdef' }, filmer))
+    const manifest = manifestFor({ ...recording, attestations: logs })!
+    expect(manifest.attestations).toEqual(logs)
+    expect(parseManifest(JSON.stringify(manifest))).toEqual(manifest)
+    expect(manifestFor({ ...recording, attestations: [] })!.attestations).toBeUndefined()
+    const broken = { ...manifest, attestations: [{ ...logs[0], a: [[0, 0, 'not-hex', 'x']] }] }
+    expect(parseManifest(JSON.stringify(broken))).toBeNull()
   })
 
   it('rejects anything that is not evidence', () => {

@@ -231,7 +231,7 @@
               placeholder="A1B2C3"
               class="input flex-1 text-center font-mono text-xl tracking-widest uppercase"
               @input="inputRoomCode = inputRoomCode.toUpperCase().replace(/[^A-Z0-9]/g, '')"
-              @keyup.enter="isValidRoomCode(inputRoomCode) && joinStream(inputRoomCode)"
+              @keyup.enter="isValidRoomCode(inputRoomCode) && joinStream(inputRoomCode, null)"
             />
             <button
               class="flex-none px-4 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
@@ -250,7 +250,7 @@
           v-if="!props.roomCode"
           class="w-full btn-emergency py-4 text-lg"
           :disabled="!isValidRoomCode(inputRoomCode) || isConnecting"
-          @click="joinStream(inputRoomCode)"
+          @click="joinStream(inputRoomCode, null)"
         >
           <span v-if="isConnecting">Connecting...</span>
           <span v-else>Join Stream</span>
@@ -301,6 +301,9 @@
 
         <p v-if="remoteStream && !isRecording && !savedRecording" class="text-sm text-center text-gray-500">
           Auto-recording when stream starts
+        </p>
+        <p v-if="attestedSeconds > 0" class="text-xs text-center text-moss" data-testid="attested-count">
+          ✓ The filming phone signs its picture every second — {{ attestedSeconds }} kept with your copy{{ filmerKey ? '' : ' (key not in your link: compare it with the filmer)' }}
         </p>
 
         <!-- Pass it on to a broadcast server (e.g. from where the server isn't blocked) -->
@@ -390,6 +393,10 @@ import RelaySetup from '../components/RelaySetup.vue'
 import AmplifyPanel from '../components/AmplifyPanel.vue'
 import { useAmplify } from '../composables/useAmplify'
 import { useRouter } from 'vue-router'
+import type { RoomChannel } from '../composables/useTrystero'
+import { createIntake } from '../lib/corroborate/log'
+import type { Attestation } from '../lib/corroborate/attest'
+import { linkSearch } from '../lib/appLocation'
 
 const qrScanner = useQRScanner()
 
@@ -466,6 +473,31 @@ let stallTimer: number | null = null
 const counts = computed(() => trystero.counts.value)
 const router = useRouter()
 
+// --- the filmer's live attestations (lib/corroborate) ---
+// The share link carries the key the filming phone signs with (fk=…): then
+// only attestations under that key are kept, whoever relays them. Joined by
+// typing the code there is no key to hold them to, so only what the peer
+// sending the stream says counts.
+const filmerKey = ref<string | null>(null)
+const attestedSeconds = ref(0)
+let attestChannel: RoomChannel | null = null
+function filmerKeyFrom(search: string): string | null {
+  const k = new URLSearchParams(search).get('fk')?.toLowerCase() ?? null
+  return k && /^[0-9a-f]{64}$/.test(k) ? k : null
+}
+function listenForAttestations() {
+  attestChannel?.remove()
+  const take = createIntake({ expectedKey: filmerKey.value, isSource: (peerId) => trystero.isStreamerPeer(peerId) })
+  attestChannel = trystero.addChannel('attest', {
+    onData(data, peerId) {
+      const a = take(data, peerId)
+      if (!a) return
+      if (recording.noteAttestation(a)) attestedSeconds.value++
+      forwardAttestation(a)
+    },
+  })
+}
+
 // --- connection status + relay setup ---
 const diag = useConnectionDiagnosis(trystero, {
   role: 'collector',
@@ -519,6 +551,12 @@ window.addEventListener('online', onBackOnline)
 // re-broadcasts the received stream to the friend's home device so a copy is
 // safe there too. The streamer is unaffected — it still sends just one stream.
 const archiveFwd = useTrystero()
+// The filmer's attestations go home with the picture: they are signed, so the
+// archive needs to trust nobody on the way.
+const archiveAttest = archiveFwd.addChannel('attest', { onData: () => {} })
+function forwardAttestation(a: Attestation) {
+  if (forwarding.value) archiveAttest.broadcast(a)
+}
 const pairedHome = ref<string | null>(getPairedHome())
 const forwarding = ref(false)
 const showPair = ref(false)
@@ -589,15 +627,17 @@ onMounted(async () => {
   // Auto-join from URL only - don't request camera permission
   if (props.roomCode && isValidShortRoomId(props.roomCode)) {
     console.log('[CollectView] Auto-joining from URL:', props.roomCode)
-    await joinStream(props.roomCode)
+    await joinStream(props.roomCode, filmerKeyFrom(linkSearch()))
   }
 })
 
-async function joinStream(shortCode: string) {
+/** `key`: the filmer's key from the link (null: none; left out: keep the current one, e.g. on a retry). */
+async function joinStream(shortCode: string, key?: string | null) {
   if (!shortCode || !isValidShortRoomId(shortCode)) {
     console.error('Invalid room code:', shortCode)
     return
   }
+  if (key !== undefined) filmerKey.value = key
   
   const fullRoomId = getFullRoomId(shortCode)
   console.log('[CollectView] Joining room:', shortCode, '->', fullRoomId)
@@ -617,6 +657,8 @@ async function joinStream(shortCode: string) {
     if (!initialized) {
       throw new Error('Failed to initialize Trystero')
     }
+
+    listenForAttestations()
 
     // Join room with both strategies
     const joined = await trystero.joinRoom(fullRoomId, ['both'])
@@ -946,11 +988,15 @@ async function startQRScanner() {
       
       // A share link may carry a relay and discovery relays — adopt them
       // exactly as if the link had been opened, then read the room code.
+      let scannedKey: string | null = null
       try {
         const url = new URL(data.trim())
-        adoptRelayFromUrl(url.search)
-        adoptDiscoveryFromUrl(url.search)
+        // Hash-routed copies carry their parameters after the route (#/collect/CODE?…).
+        const search = linkSearch(url)
+        adoptRelayFromUrl(search)
+        adoptDiscoveryFromUrl(search)
         diag.refreshRelay()
+        scannedKey = filmerKeyFrom(search)
       } catch {
         /* not a URL: a bare room code */
       }
@@ -972,7 +1018,7 @@ async function startQRScanner() {
 
       if (isValidShortRoomId(roomCode)) {
         inputRoomCode.value = roomCode
-        joinStream(roomCode)
+        joinStream(roomCode, scannedKey)
       } else {
         console.error('Invalid room code from QR:', roomCode)
         alert('Invalid QR code. Please scan a valid room code.')
@@ -1019,6 +1065,8 @@ onUnmounted(() => {
   }
   stopQRScanner()
   stopStallMonitor()
+  attestChannel?.remove()
+  archiveAttest.remove()
   trystero.leaveRoom()
   archiveFwd.leaveRoom()
 })

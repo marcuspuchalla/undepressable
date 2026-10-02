@@ -154,6 +154,30 @@
               <span v-if="stampError[recording.id]" class="text-red-300">{{ stampError[recording.id] }}</span>
             </div>
 
+            <!-- Checked against what the filming phone signed while streaming -->
+            <div v-if="hasAttestations(recording) && recording.status === 'completed'" class="mt-1.5 text-xs space-y-1" data-testid="corroborate-row">
+              <div class="flex flex-wrap items-center gap-2">
+                <button
+                  class="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 transition-colors"
+                  :disabled="corroborating[recording.id] !== undefined"
+                  title="Plays this copy through and compares it with the fingerprints the filming phone signed live"
+                  data-testid="corroborate"
+                  @click="checkFilmer(recording)"
+                >{{ corroborating[recording.id] !== undefined ? `Comparing… ${corroborating[recording.id]}%` : '🎥 Check against the filmer' }}</button>
+                <span class="text-slate-500">{{ attestationCount(recording) }} s signed by the filming phone</span>
+              </div>
+              <template v-if="recording.corroboration && corroborating[recording.id] === undefined">
+                <p
+                  v-for="r in recording.corroboration.results"
+                  :key="r.signer"
+                  :class="CORR_CLASS[r.verdict]"
+                  data-testid="corroborate-result"
+                >{{ corroborationText(r) }}</p>
+                <p v-if="!recording.corroboration.results.length" class="text-red-300" data-testid="corroborate-result">✗ None of the signatures check out.</p>
+              </template>
+              <p v-if="corrError[recording.id]" class="text-red-300">{{ corrError[recording.id] }}</p>
+            </div>
+
           </div>
 
           <!-- Actions -->
@@ -252,6 +276,9 @@ import { chunkBlobs, verifyStored, importEvidence, deliveredTo, makeOutbox, foot
 import { sealAudience, type SealAudience } from '../lib/seal/keys'
 import { stampRecording, refreshTimestamp, autoTimestamp } from '../lib/timestamp/recordingStamp'
 import ProtectRecordings from '../components/ProtectRecordings.vue'
+import { hasAttestations, checkAgainstFilmer } from '../lib/corroborate/check'
+import { entryCount } from '../lib/corroborate/log'
+import type { Corroboration } from '../lib/corroborate/match'
 
 const recordingStore = useRecordingStore()
 const opfs = useOPFS()
@@ -297,6 +324,58 @@ async function withStamp(rec: Recording, fn: (r: Recording) => Promise<Recording
 }
 const timestampNow = (rec: Recording) => withStamp(rec, stampRecording)
 const checkStamp = (rec: Recording) => withStamp(rec, refreshTimestamp)
+// --- checked against the filmer's live attestations ---
+const corroborating = ref<Record<string, number>>({})
+const corrError = ref<Record<string, string>>({})
+const CORR_CLASS: Record<Corroboration['verdict'], string> = {
+  corroborated: 'text-moss',
+  'not-corroborated': 'text-red-300',
+  'too-short': 'text-slate-400',
+}
+const attestationCount = (rec: Recording) => entryCount(rec.attestations ?? [])
+const clock = (ms: number) => `${Math.floor(ms / 60000)}:${String(Math.floor(ms / 1000) % 60).padStart(2, '0')}`
+/** "0:04–0:08, 0:15": unmatched moments, consecutive seconds joined. */
+function stretches(ms: number[]): string {
+  const out: string[] = []
+  let from = -1
+  let to = -1
+  for (const m of [...ms].sort((a, b) => a - b)) {
+    if (from >= 0 && m - to <= 1500) to = m
+    else {
+      if (from >= 0) out.push(from === to ? clock(from) : `${clock(from)}–${clock(to)}`)
+      from = to = m
+    }
+  }
+  if (from >= 0) out.push(from === to ? clock(from) : `${clock(from)}–${clock(to)}`)
+  return out.slice(0, 6).join(', ') + (out.length > 6 ? ', …' : '')
+}
+function corroborationText(r: Corroboration): string {
+  const key = `key ${r.signer.slice(0, 8)}…`
+  const gaps = r.unmatchedAt.length ? ` No match at ${stretches(r.unmatchedAt)}.` : ''
+  if (r.verdict === 'too-short') return `Too few signed moments to tell (${r.total}) — ${key}`
+  if (r.verdict === 'not-corroborated') return `✗ Does not show what the filming phone signed: ${r.matched} of ${r.total} moments match (${key}).${gaps}`
+  const still = r.scenes <= 1 ? ' The picture hardly changed, so this says little.' : ''
+  return `✓ Shows what the filming phone's camera showed: ${r.matched} of ${r.total} signed moments match (${key}).${gaps}${still}`
+}
+async function checkFilmer(rec: Recording) {
+  corroborating.value = { ...corroborating.value, [rec.id]: 0 }
+  const { [rec.id]: _e, ...rest } = corrError.value
+  corrError.value = rest
+  try {
+    await checkAgainstFilmer(rec, {
+      onProgress: (done, total) => {
+        corroborating.value = { ...corroborating.value, [rec.id]: Math.min(99, Math.round((100 * done) / Math.max(total, 1))) }
+      },
+    })
+    await recordingStore.loadRecordings()
+  } catch (e: any) {
+    corrError.value = { ...corrError.value, [rec.id]: e?.message ?? String(e) }
+  } finally {
+    const { [rec.id]: _d, ...others } = corroborating.value
+    corroborating.value = others
+  }
+}
+
 const SEAL_LABEL: Record<SealAudience, string> = { home: ' for home', passphrase: ' · passphrase', both: ' · home + passphrase', other: '' }
 const verifying = ref<Record<string, number>>({})
 

@@ -103,6 +103,8 @@ type ActionReceive = (cb: (data: unknown, peerId: string, meta?: unknown) => voi
 export interface RoomChannel {
   /** Send to one peer over the transport that carries it; resolves once handed to the connection. */
   send(data: unknown, peerId: string, meta?: Record<string, unknown>): Promise<boolean>;
+  /** Send to every connected peer; failures are ignored (for small, frequent messages). */
+  broadcast(data: unknown): void;
   remove(): void;
 }
 
@@ -500,15 +502,19 @@ export function useTrystero() {
     extraChannels.set(name, ch);
     rooms.value.forEach((room, strategy) => wireChannel(room, strategy, name, ch));
     for (const peerId of peers.value.keys()) handlers.onPeerJoin?.(peerId);
+    const sendTo = async (data: unknown, peerId: string, meta?: Record<string, unknown>) => {
+      const strategy = transportStrategyFor(peerId);
+      const room = strategy ? rooms.value.get(strategy as TrysteroStrategy) : undefined;
+      const send = room ? ch.senders.get(room) : undefined;
+      if (!send) return false;
+      const result = send(data, peerId, meta);
+      await Promise.all(Array.isArray(result) ? result : [result]);
+      return true;
+    };
     return {
-      async send(data, peerId, meta) {
-        const strategy = transportStrategyFor(peerId);
-        const room = strategy ? rooms.value.get(strategy as TrysteroStrategy) : undefined;
-        const send = room ? ch.senders.get(room) : undefined;
-        if (!send) return false;
-        const result = send(data, peerId, meta);
-        await Promise.all(Array.isArray(result) ? result : [result]);
-        return true;
+      send: sendTo,
+      broadcast(data) {
+        for (const peerId of peers.value.keys()) sendTo(data, peerId).catch(() => {});
       },
       remove() {
         if (extraChannels.get(name) === ch) extraChannels.delete(name);
@@ -902,6 +908,8 @@ export function useTrystero() {
     setRecording,
     setOnStreamReceived,
     addChannel,
+    /** Has this peer announced itself as the one filming? (Unauthenticated: a hint, not proof.) */
+    isStreamerPeer: (peerId: string) => controlGate.isStreamer(peerId),
     sampleInboundVideo,
     getRelayHealth,
     getStrategyStatus,

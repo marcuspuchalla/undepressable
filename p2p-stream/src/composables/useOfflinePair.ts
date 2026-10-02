@@ -3,6 +3,8 @@ import { encodeSignal, decodeSignal } from "../lib/net/offlinePair";
 import { resolveRtcConfig } from "../lib/net/iceConfig";
 import { capVideoSendersWithRetry, markMotionContent } from "../lib/net/senderTuning";
 import { encodeLinkMsg, decodeLinkMsg, linkPhase, type LinkMsg, type LinkPhase } from "../lib/net/offlineLink";
+import { createIntake } from "../lib/corroborate/log";
+import type { Attestation } from "../lib/corroborate/attest";
 import { channelWire, type ChannelWire } from "../lib/transfer/channelWire";
 import { createSyncReceiver, createSyncSender } from "../lib/transfer/syncProtocol";
 import { makeInbox, makeOutbox } from "../lib/transfer/library";
@@ -107,6 +109,10 @@ export function useOfflinePair() {
   let recording = false;
   /** New invites go across the internet (codes over a messenger). */
   let internet = false;
+  // The filmer's attestations, from the link we watch through (its signature
+  // checked, a few per second at most).
+  let onAttestation: ((a: Attestation) => void) | null = null;
+  const takeAttestation = createIntake({ isSource: () => true });
 
   function phaseOf(l: Link, now: number): LinkPhase {
     if (l.role === "watch" && !l.everConnected && !l.closedByUs) {
@@ -231,6 +237,13 @@ export function useOfflinePair() {
     l.lastHeardAt = Date.now();
     if (msg.t === "hello") {
       l.peerRecording = msg.recording;
+    } else if (msg.t === "att") {
+      if (l.role !== "watch") return;
+      const a = takeAttestation(msg.a, String(l.id));
+      if (!a) return;
+      onAttestation?.(a);
+      // Relaying the picture onward: the attestations go with it.
+      sendAttestation(a);
     } else if (msg.t === "bye") {
       l.pc.close();
       l.channelOpen = false;
@@ -471,6 +484,11 @@ export function useOfflinePair() {
 
   // --- both -----------------------------------------------------------------
 
+  /** Send an attestation to every device we send the picture to. */
+  function sendAttestation(a: Attestation) {
+    for (const l of all.values()) if (l.role === "stream" && l.channelOpen) send(l, { t: "att", a });
+  }
+
   function setRecording(value: boolean) {
     recording = value;
     for (const l of all.values()) hello(l);
@@ -522,6 +540,10 @@ export function useOfflinePair() {
       internet = value;
     },
     sendRecordings,
+    sendAttestation,
+    onAttestation(cb: ((a: Attestation) => void) | null) {
+      onAttestation = cb;
+    },
     closeLink,
     reset,
   };

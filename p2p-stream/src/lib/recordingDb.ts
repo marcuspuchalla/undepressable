@@ -48,6 +48,8 @@ export function serializeRecording(recording: Recording): Record<string, unknown
   if (recording.origin) out.origin = plain(recording.origin);
   if (recording.sealed) out.sealed = plain(recording.sealed);
   if (recording.timestamp) out.timestamp = plain(recording.timestamp);
+  if (recording.attestations?.length) out.attestations = plain(recording.attestations);
+  if (recording.corroboration) out.corroboration = plain(recording.corroboration);
   return out;
 }
 

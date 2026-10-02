@@ -140,6 +140,9 @@
             <div class="flex-1">
               <p class="text-sm font-medium text-slate-100">{{ watchTitle }}</p>
               <p class="text-xs text-slate-500">{{ recordingLabel }}</p>
+              <p v-if="attestedSeconds > 0" class="text-xs text-moss" data-testid="attested-count">
+                ✓ {{ attestedSeconds }} s signed by the filming phone, kept with your copy
+              </p>
             </div>
           </div>
           <video ref="remoteVideo" autoplay playsinline muted class="w-full rounded-xl bg-black max-h-72" />
@@ -266,6 +269,8 @@ import { OFFLINE_CONNECT_TIPS, INTERNET_CONNECT_TIPS, type LinkPhase } from '../
 import { hasRelay } from '../lib/net/iceConfig'
 import { createStallMonitor } from '../lib/net/streamHealth'
 import PairCode from '../components/PairCode.vue'
+import { generateIdentity } from '../lib/integrity/identity'
+import { startAttestor, type Attestor } from '../lib/corroborate/frames'
 
 // Paste box shared by both roles: accepts a pairing code as text.
 const CodeInput = defineComponent({
@@ -303,6 +308,28 @@ const CodeInput = defineComponent({
 })
 
 const pair = useOfflinePair()
+
+// The filmer's signed fingerprints (lib/corroborate): sent down every link
+// with the picture, and kept with every copy — ours included.
+let attestor: Attestor | null = null
+function attest(stream: MediaStream) {
+  if (attestor) {
+    attestor.setStream(stream)
+    return
+  }
+  attestor = startAttestor(stream, generateIdentity(), (a) => {
+    pair.sendAttestation(a)
+    recording.noteAttestation(a)
+  })
+}
+function stopAttesting() {
+  attestor?.stop()
+  attestor = null
+}
+const attestedSeconds = ref(0)
+pair.onAttestation((a) => {
+  if (recording.noteAttestation(a)) attestedSeconds.value++
+})
 
 // Next to each other (one hotspot, no internet) or far apart (codes over a
 // messenger, the internet carries the video, no discovery server involved).
@@ -425,6 +452,7 @@ async function startStreaming() {
     localStream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS)
     role.value = 'stream'
     watchCamera(localStream)
+    attest(localStream)
     await nextTick()
     if (localVideo.value) localVideo.value.srcObject = localStream
     // The person filming keeps a copy too — as online. If their phone is
@@ -486,6 +514,7 @@ async function recoverCamera() {
     localStream?.getTracks().forEach((t) => t.stop())
     localStream = fresh
     watchCamera(fresh)
+    attest(fresh)
     if (localVideo.value) localVideo.value.srcObject = fresh
     await pair.replaceLocalStream(fresh)
     queueRecording(async () => {
@@ -639,6 +668,8 @@ function transferText(t: LinkTransfer | null): string {
 async function restart() {
   stopScan()
   await queueRecording(stopRecordingNow)
+  stopAttesting()
+  attestedSeconds.value = 0
   pair.reset()
   localStream?.getTracks().forEach((t) => t.stop())
   localStream = null
@@ -659,6 +690,8 @@ onUnmounted(() => {
   clearInterval(stallTimer)
   scanner.stopScanning()
   if (recording.isRecording.value) recording.stopRecording()
+  stopAttesting()
+  pair.onAttestation(null)
   localStream?.getTracks().forEach((t) => t.stop())
   wakeLock.release()
 })
