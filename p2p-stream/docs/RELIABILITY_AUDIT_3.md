@@ -901,3 +901,71 @@ recording instead of tearing the connection down and reconnecting.
 - The ladder shapes each link separately; a filming phone whose own upload is
   throttled shares it among its direct viewers, so relaying viewers matter
   more. Below ~50 kbit/s even sound breaks up.
+
+## Part 7 — round 8: one record out of many, blending in, and evidence that checks itself
+
+### 37. Each viewer's copy stood alone
+
+Every viewer records on its own, so when one phone is taken or drops out
+the others' copies have their gaps at different moments — and nothing put
+them together. **Combined records** (`lib/combine/`): copies of one stream
+are grouped by the filmer's key and stream id (by room without
+attestations), placed on the filmer's clock — exactly, from the picture
+check; roughly, from when the attestations arrived (their receipt times are
+now kept in the logs); as a last resort, from device clocks, tied to the
+placed copies — and covered with the fewest switches, best-aligned copy
+first. The timeline plays through one video element, switching copies, and
+renders into one signed recording through a canvas at the copies' own
+picture size (a letterboxed re-encode no longer matches the filmer's
+fingerprints), with gaps drawn at full length so the clock stays linear:
+the rendered video still checks out against the filmer. Its record names
+every source copy's signed root and key; a combined bundle carries each
+copy as its own evidence bundle under `sources/`, and importing one
+imports and verifies them all. Viewers' and the filmer's own recordings
+are now filed under the room, so copies group even without attestations.
+
+### 38. The app's traffic said what it was
+
+Deep packet inspection recognises WebRTC before it knows the app: STUN to
+public servers, DTLS between peers, TURN in the clear. **Blend in**
+(`lib/net/blendIn.ts`, Network page) needs a `turns:` relay on 443 and
+then: relay candidates only, only TLS relays in the configuration, no STUN
+servers, no NAT probe, discovery over Nostr/WSS only. Without a TLS relay
+the setting cannot apply, and says so. `docs/TRAFFIC.md` says what each
+component looks like on the wire and what still shows — hostnames, the
+steady shape of a live stream, TURN's TLS handshake without ALPN; no
+pluggable transports, which a web page cannot do.
+
+### 39. Evidence depended on the app that made it
+
+The README in a bundle described the check in words; actually doing it
+without the app meant writing code. Every bundle now carries
+`verify.html` — 49 KB, built from the same modules (`vite --mode verify`,
+inlined like the single-file app, handed to the app through a virtual
+module) — which checks the signature over every second, the filmer's
+attestations, a timestamp's presence and a combined record's sources, in
+any browser from disk, uploading nothing.
+
+### 40. Half a second to hide in
+
+Attestations were signed once a second, so an edit shorter than a second
+between two of them could pass. The filming device now signs twice a
+second (the logs allow six hours at that rate).
+
+### 41. Found on the way
+
+- **Chromium sends TURN over TCP/TLS through the system's HTTPS proxy.** On
+  this machine every outbound TCP went through the container's agent proxy,
+  which refused the relay: `turns:` "failed to establish connection" while
+  `turn:` over UDP worked. The harness launches the blend-in browsers with
+  `--no-proxy-server`. Worth knowing in the field: a phone with a configured
+  HTTP proxy routes `turns:` through it.
+- **Headless Chromium phones home.** With the proxy out of the way the net
+  log showed DNS and QUIC to Google (account checks, push registration, DoH
+  probes) — none of it the app's. The blend-in scenario refuses to resolve
+  anything but localhost and the relay, and classifies what remains by
+  Chromium's own net log.
+- **The test TURN server only spoke UDP.** `turn-tcp-bridge.mjs` fronts it
+  over TCP and TLS with RFC 5766 stream framing, so `turns:…:443` is
+  exercised for real (a self-signed certificate, accepted by the test
+  browser only).

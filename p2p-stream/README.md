@@ -55,6 +55,16 @@ to delete in one place.
 - **Throttled, not stopped.** Each viewer's link is measured all the time and
   steps down — smaller picture, then sound only — and back up when it
   recovers; a viewer on a crawling connection keeps recording.
+- **Many copies, one record.** Copies of one stream from different viewers
+  are laid on the filmer's clock (*Combine copies*): together they cover
+  more than any single copy; rendered into one signed video, the record names
+  every copy it was made from and still checks out against the filmer.
+- **Blend in.** With a `turns:` relay on 443, the app sends nothing but TLS to
+  port 443 — no STUN, no UDP, discovery over WSS only. What a watcher can
+  still see: [docs/TRAFFIC.md](./docs/TRAFFIC.md).
+- **Evidence that checks itself.** Every evidence bundle carries
+  `verify.html`: a 50 KB page from the same code that checks the recording on
+  any computer, with no website and no app.
 - **Reach everyone.** *Amplify* pushes the stream — from the phone filming or
   from any viewer, e.g. one abroad — to a WHIP broadcast server (MediaMTX,
   Owncast, Cloudflare Stream…) that serves it on the open web.
@@ -114,7 +124,7 @@ npm run build            # production PWA build (+ the single-file app and relea
 npm run build:portable   # just the single-file app: dist-portable/undepressable.html
 npm run build:extension  # browser extension: dist-extension/{chrome,firefox}/ + zips
 npm run release:keygen   # a release signing key pair (see docs/THREAT_MODEL.md §2)
-npm run test:unit        # 398 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes, evidence transfer, releases, WHIP, sealing, timestamps, corroboration, link shaping)
+npm run test:unit        # 411 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes, evidence transfer, releases, WHIP, sealing, timestamps, corroboration, link shaping, combining, blend-in)
 npm run tauri:build      # optional native desktop app
 ```
 
@@ -168,7 +178,8 @@ Prefer `turns:` on port 443 — it survives networks that block UDP/plain TURN.
 
 **Read [docs/THREAT_MODEL.md](./docs/THREAT_MODEL.md)** before relying on the
 app: what it resists, and what it does not (sealing recordings is off by
-default; signed releases are built but no developer key is set yet).
+default; signed releases are built but no developer key is set yet). What is
+still owed on real phones and networks: [docs/DEVICE_CHECKLIST.md](./docs/DEVICE_CHECKLIST.md).
 
 - **Privacy-first fonts.** The UI does **not** load web fonts from a CDN (that
   would leak every viewer's IP and break offline); it uses a system font stack.
@@ -176,8 +187,7 @@ default; signed releases are built but no developer key is set yet).
 - **TURN is a relay.** A direct P2P path is preferred; TURN only relays
   (still end-to-end encrypted) when strict NAT blocks a direct connection. It is
   the one optional "central" component and can be self-hosted.
-- **Not yet built** (see `../PROJECT_PLAN.md`): cross-collector
-  aggregation, and the native Bluetooth /
+- **Not yet built** (see `../PROJECT_PLAN.md`): the native Bluetooth /
   Wi-Fi Direct mesh ([docs/NATIVE_MESH.md](./docs/NATIVE_MESH.md)) — the web
   app can neither find nearby devices by radio nor connect them without a
   shared network.

@@ -316,6 +316,44 @@ const cases: { n: string; status: Status; title: string; body: string; svg: stri
       176,
     ),
   },
+  {
+    n: '11',
+    status: 'now',
+    title: 'Many copies, one record',
+    body: 'Every viewer records on their own, so when one phone is taken or drops out, the others’ copies have their gaps at different moments. Bring the copies to one device — the home archive, a laptop — and Combine copies lays them on the filmer’s clock: together they cover more than any single copy. Play them through as one, or render one signed video whose record names every copy it was made from, and which still checks out against the filmer.',
+    svg: svg(
+      person(60, 62, 'Viewer 1', GLOW) +
+        person(60, 126, 'Viewer 2', GLOW) +
+        `<rect x="110" y="48" width="130" height="10" rx="2" fill="#7dd3fc" opacity="0.7"/>` +
+        `<rect x="200" y="112" width="150" height="10" rx="2" fill="#7dd3fc" opacity="0.7"/>` +
+        note(175, 80, '0:00–0:45', '#64748b') +
+        note(275, 144, '0:30–1:20', '#64748b') +
+        link(360, 56, 420, 80, MOSS, false) +
+        link(360, 118, 420, 96, MOSS, false) +
+        `<rect x="430" y="82" width="80" height="12" rx="2" fill="#6ee7b7"/>` +
+        note(470, 112, 'one record', '#6ee7b7'),
+      160,
+    ),
+  },
+  {
+    n: '12',
+    status: 'now',
+    title: 'Evidence that checks itself',
+    body: 'An evidence bundle must outlive this website and this app. Every bundle therefore carries verify.html: one small page, built from the same code, that checks the recording on any computer — the signature over every second, the filmer’s signed moments, a timestamp, a combined record’s sources — with nothing uploaded anywhere. Double-click it. The README next to it says how to check with nothing but standard tools.',
+    svg: svg(
+      `<rect x="40" y="36" width="110" height="60" rx="6" fill="none" stroke="#7dd3fc" stroke-width="1.6"/>` +
+        note(95, 58, 'video.webm', '#7dd3fc') +
+        note(95, 74, 'evidence.json', '#7dd3fc') +
+        note(95, 90, 'verify.html', '#6ee7b7') +
+        link(156, 66, 250, 66, GLOW, true, 'any browser') +
+        `<rect x="258" y="36" width="120" height="60" rx="6" fill="none" stroke="#6ee7b7" stroke-width="1.6"/>` +
+        note(318, 60, '✓ unaltered', '#6ee7b7') +
+        note(318, 76, '✓ matches the camera', '#6ee7b7') +
+        note(318, 92, '⏱ existed by …', '#6ee7b7') +
+        note(455, 66, 'no website, no app', '#64748b'),
+      132,
+    ),
+  },
 ]
 
 // --- per-use-case walkthroughs, tailored to the reader's platform ---
@@ -616,6 +654,43 @@ const walks: Record<string, Walk> = {
           'Recordings → “🎥 Check against the filmer”. The copy is played through quickly and compared with every signed second.',
           '“✓ Shows what the filming phone’s camera showed: 58 of 60 signed moments match (key 3fa2…)” — and, if some do not, at which times. Compare the key with the one in the stream’s link.',
           'A match means the same picture, not the same bytes: it survives re-encoding, and a picture that hardly changed says less (the result says so).',
+        ],
+      },
+    ],
+  },
+  '11': {
+    roles: [
+      {
+        who: 'Gathering the copies',
+        steps: [
+          'Copies reach one device the usual ways: the home archive records what phones watch and receives what they recorded alone; friends hand recordings over or share evidence files; Import them.',
+          'Recordings → “Combine copies” appears as soon as one stream has more than one copy there. Copies are grouped by the filmer’s key (or by room, for copies without the filmer’s signatures).',
+        ],
+      },
+      {
+        who: 'Combining',
+        steps: [
+          '“Check every copy against the filmer” aligns each copy exactly; until then they are placed by when the filmer’s signals arrived, or by device clocks (shown next to each copy).',
+          'The bar shows what the copies cover together, and the gaps nobody covers. “Play through” plays them as one; “Render one video” records that into one signed video (in real time — keep the screen open).',
+          'The rendered video shows “rendered from N copies”. Its record names every copy’s signed root and key; “Save combined record” bundles it with every copy, and importing that elsewhere brings all of them.',
+        ],
+      },
+    ],
+  },
+  '12': {
+    roles: [
+      {
+        who: 'Whoever receives a bundle',
+        steps: [
+          'Unzip it. Double-click verify.html — it opens in the browser, from disk. Choose the .zip, or the video together with evidence.json.',
+          'Read the result: “Unaltered: all N seconds match the signature”, then whether the picture matches what the filming device signed, and where it does not.',
+          'For a combined record, check each copy under sources/ the same way. For a timestamp, run ots verify root.txt.ots with the OpenTimestamps client.',
+        ],
+      },
+      {
+        who: 'If even that is gone',
+        steps: [
+          'README.txt in the bundle spells out the check with standard tools: SHA-256 each second, rebuild the Merkle root, verify the Ed25519 signature.',
         ],
       },
     ],
