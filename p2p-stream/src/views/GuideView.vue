@@ -282,7 +282,7 @@ const cases: { n: string; status: Status; title: string; body: string; svg: stri
     n: '09',
     status: 'now',
     title: 'Every copy checks back to the camera',
-    body: 'While you stream, your phone signs a small fingerprint of its picture every second, with a key made for this stream only — the share link carries it. Every viewer keeps those signatures with their copy. Later, anyone holding a copy can check it against them: does it show what your camera showed, second by second, and where does it not (a cut, a swap)? It works even when your phone and your own recording are gone.',
+    body: 'While you stream, your phone signs a small fingerprint of its picture twice a second, with a key made for this stream only — the share link carries it. Every viewer keeps those signatures with their copy. Later, anyone holding a copy can check it against them: does it show what your camera showed, second by second, and where does it not (a cut, a swap)? It works even when your phone and your own recording are gone.',
     svg: svg(
       person(60, 62, 'You', EMBER) +
         note(60, 110, 'signs each second', '#fbbf24', 9) +
@@ -535,6 +535,14 @@ const walks: Record<string, Walk> = {
         ],
       },
       {
+        who: 'If the network looks for WebRTC itself',
+        steps: [
+          'Network → “Blend in with ordinary web traffic”. It needs a turns: relay on port 443 (yours, or one you were given) — the card says whether one is set up.',
+          'From then on the app sends nothing but TLS to port 443: media through the relay, discovery over WSS, no STUN, no direct connections. Slower, and the relay carries everything.',
+          'What a watcher can still see — hostnames, the shape of a live stream — is in docs/TRAFFIC.md. Put the relay behind a name that means nothing.',
+        ],
+      },
+      {
         who: 'If devices can’t find each other (“can’t reach any discovery server”)',
         steps: [
           'Open “Pair by messenger” (Home, or the button on the status card).',
@@ -591,14 +599,14 @@ const walks: Record<string, Walk> = {
       {
         who: 'The person filming',
         steps: [
-          'Nothing to switch on: the share sheet says “Every second this phone signs a fingerprint of its picture” and shows the start of the key.',
+          'Nothing to switch on: the share sheet says “Twice a second this phone signs a fingerprint of its picture” and shows the start of the key.',
           'Share the link (not just the code) where you can: it carries the key, so viewers only accept signatures made with it. Posting the link publicly also shows later which key was yours.',
         ],
       },
       {
         who: 'Viewers',
         steps: [
-          'Join through the link. Under the player: “✓ The filming phone signs its picture every second — N kept with your copy”.',
+          'Join through the link. Under the player: “✓ The filming phone signs its picture twice a second — N kept with your copy”.',
           'Your copy carries the signatures wherever it goes: to your home archive, to friends, in evidence files.',
         ],
       },

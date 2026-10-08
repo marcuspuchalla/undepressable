@@ -15,7 +15,7 @@
 // offline-handover, offline-chain, offline-chain-repair, messenger-pair,
 // messenger-pair-late, amplify-streamer, amplify-viewer, sealed-home,
 // sealed-passphrase, sealed-blind-carrier, timestamp, corroborate,
-// corroborate-offline, corroborate-sealed, throttled, combine.
+// corroborate-offline, corroborate-sealed, throttled, combine, blend-in.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
@@ -25,8 +25,10 @@
 // See docs/RELIABILITY_AUDIT_3.md for results and what each one proves.
 
 import { chromium } from 'playwright'
+import { createRequire } from 'node:module'
+const require = createRequire(import.meta.url)
 import { spawn, execFileSync } from 'node:child_process'
-import { networkInterfaces } from 'node:os'
+import { networkInterfaces, tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
@@ -62,8 +64,11 @@ const launchArgs = [
   '--disable-features=WebRtcHideLocalIpsWithMdns',
 ]
 const browsers = []
+let netlogs = 0
 async function newPage(storage, extraArgs = []) {
-  const browser = await chromium.launch({ args: [...launchArgs, ...extraArgs], ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) })
+  // NETLOG=<dir>: Chromium's own log of every DNS lookup and socket, per browser.
+  const netlog = process.env.NETLOG ? [`--log-net-log=${join(process.env.NETLOG, `netlog-${++netlogs}.json`)}`, '--net-log-capture-mode=Default'] : []
+  const browser = await chromium.launch({ args: [...launchArgs, ...extraArgs, ...netlog], ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) })
   browsers.push(browser)
   const ctx = await browser.newContext({ viewport: { width: 400, height: 860 } })
   if (process.env.TRACE)
@@ -1305,11 +1310,119 @@ Object.assign(scenarios, {
     return [ok, `link ${linkShown}; before: "${before}" → after: "${after}"; ${coverage}; play-through saw copies ${seen.size}, gap ${sawGap}; rendered ${rendered?.seconds}s signed ${rendered?.signed}, ${JSON.stringify(rendered?.segments)}, ${rendered?.alignment}; "${badge}"; check → ${checked.slice(0, 140)}; import elsewhere: "${importedText.slice(0, 120)}", ${onF} recordings`]
   },
 })
+
+// --- blend in: nothing but TLS to 443 -------------------------------------------------
+
+/** Drop (and count) every UDP packet this host sends, except the TURN server's relay sockets talking to each other. */
+const NO_UDP_RULE = ['-p', 'udp', '-s', HOST_IP, '-m', 'multiport', '!', '--sports', '20000:24000', '-m', 'comment', '--comment', 'undnoudp', '-j', 'DROP']
+function udpPacketsDropped() {
+  try {
+    const line = execFileSync('iptables', ['-L', 'OUTPUT', '-v', '-n', '-x'], { encoding: 'utf8' }).split('\n').find((l) => l.includes('undnoudp'))
+    return line ? Number(line.trim().split(/\s+/)[0]) : null
+  } catch {
+    return null
+  }
+}
+/**
+ * Chromium must not send TURN-over-TCP through this machine's HTTPS proxy, and
+ * must accept the test relay's self-signed certificate. Its own background
+ * requests (account checks, push registration, DoH probes to Google — all of
+ * which send UDP) are silenced by refusing to resolve any other host, so what
+ * is counted is the app's traffic; the browser's net log shows the hosts.
+ */
+const TLS_RELAY_ARGS = ['--no-proxy-server', '--ignore-certificate-errors', `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE ${HOST_IP}`]
+/** Distinct hosts a Chromium net log shows connections or lookups to. */
+function netlogHosts(file) {
+  const { readFileSync } = require('node:fs')
+  const text = readFileSync(file, 'utf8')
+  return [...new Set([...text.matchAll(/"host":"([^"]+)"/g)].map((m) => m[1].replace(/^https?:\/\//, '')))].sort()
+}
+const tlsRelay = () => ({ undepressable_turn: JSON.stringify({ urls: [`turns:${HOST_IP}:443`], username: 'test', credential: 'test' }) })
+
+Object.assign(scenarios, {
+  // With Blend in on and a turns: relay on 443, a stream works while every
+  // UDP packet from this host is dropped — and none is even attempted. With
+  // it off, the same setup tries UDP (STUN, direct candidates) at once.
+  async 'blend-in'() {
+    if (!block(true, NO_UDP_RULE)) return [false, 'needs root for iptables']
+    // TRACE=1: what the dropped packets were (counted by class, before the drop).
+    const trace = process.env.TRACE
+      ? [
+          ['-p', 'udp', '-s', HOST_IP, '-m', 'multiport', '--sports', '20000:24000', '-m', 'comment', '--comment', 'from-relay-sockets', '-j', 'ACCEPT'],
+          ['-p', 'udp', '-s', HOST_IP, '--dport', '3478', '-m', 'comment', '--comment', 'to-turn-3478', '-j', 'ACCEPT'],
+          ['-p', 'udp', '-s', HOST_IP, '--dport', '53', '-m', 'comment', '--comment', 'dns', '-j', 'ACCEPT'],
+          ['-p', 'udp', '-s', HOST_IP, '--dport', '5353', '-m', 'comment', '--comment', 'mdns', '-j', 'ACCEPT'],
+          ['-p', 'udp', '-s', HOST_IP, '--dport', '443', '-m', 'comment', '--comment', 'quic-443', '-j', 'ACCEPT'],
+          ['-p', 'udp', '-s', HOST_IP, '--dport', '19302', '-m', 'comment', '--comment', 'google-stun', '-j', 'ACCEPT'],
+          ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '--dport', '20000:24000', '-m', 'comment', '--comment', 'browser-to-relay-ports', '-j', 'ACCEPT'],
+          ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-m', 'comment', '--comment', 'host-to-host-other', '-j', 'ACCEPT'],
+          ['-p', 'udp', '-s', HOST_IP, '-m', 'comment', '--comment', 'elsewhere', '-j', 'ACCEPT'],
+        ]
+      : []
+    // Specific classes first, the catch-all last (each insert goes to the top).
+    for (const r of [...trace].reverse()) execFileSync('iptables', ['-I', 'OUTPUT', '1', ...r])
+    const table = () => execFileSync('iptables', ['-L', 'OUTPUT', '-v', '-n', '-x'], { encoding: 'utf8' }).split('\n').filter((l) => /\/\*/.test(l)).map((l) => l.trim().replace(/\s+/g, ' ')).join('\n')
+    const { mkdtempSync, existsSync } = await import('node:fs')
+    const logDir = mkdtempSync(join(tmpdir(), 'und-netlog-'))
+    const run = async (blend) => {
+      try {
+        execFileSync('iptables', ['-Z', 'OUTPUT'])
+      } catch {
+        /* counters then read by difference */
+      }
+      const before = udpPacketsDropped() ?? 0
+      // The control uses every discovery transport, as a device without "only my relays" would.
+      const storage = { ...tlsRelay(), ...(blend ? { undepressable_blend_in: '1' } : { undepressable_nostr_relays_only: '' }) }
+      const logs = ['a', 'b'].map((n) => join(logDir, `${blend ? 'on' : 'off'}-${n}.json`))
+      const A = await newPage(storage, [...TLS_RELAY_ARGS, `--log-net-log=${logs[0]}`])
+      const rooms = []
+      A.on('console', (m) => {
+        const t = /\[Trystero\] Created (\w+) room/.exec(m.text())
+        if (t) rooms.push(t[1])
+      })
+      await A.goto(`${APP}/network`)
+      const status = (await A.locator('[data-testid=blend-in-status]').innerText().catch(() => '')).replace(/\s+/g, ' ')
+      await A.goto(`${APP}/stream`)
+      await A.waitForSelector('text=Share Stream', { timeout: 30000 })
+      const code = (await A.textContent('.font-mono.text-lg')).trim()
+      await A.locator('.fixed.inset-0 button').first().click()
+      const B = await newPage(storage, [...TLS_RELAY_ARGS, `--log-net-log=${logs[1]}`])
+      await B.goto(`${APP}/collect/${code}`)
+      const video = await videoWithin(B, 45000)
+      await B.waitForTimeout(3000)
+      const dropped = (udpPacketsDropped() ?? 0) - before
+      const streamer = await statusOf(A)
+      if (trace.length) console.log(`--- blend in ${blend ? 'on' : 'off'}:\n${table()}`)
+      await closeAll()
+      const hosts = [...new Set(logs.filter(existsSync).flatMap(netlogHosts))].filter((h) => !/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(h)).sort()
+      return { video, dropped, streamer, rooms: [...new Set(rooms)].sort(), status, hosts }
+    }
+    try {
+      const on = await run(true)
+      const off = await run(false)
+      // Beyond the dev server and discovery on localhost — and Chromium's own
+      // lookups (Google services, refused by the resolver rules above) — the
+      // only host either browser touched is the TLS relay.
+      const browserOwn = /(^|\.)(google\.com|googleapis\.com|gvt1\.com|gstatic\.com)$|^dns\.google$|^~notfound$/
+      const appHosts = on.hosts.filter((h) => !browserOwn.test(h))
+      const onlyRelay = appHosts.length > 0 && appHosts.every((h) => h === HOST_IP || h === `${HOST_IP}:443`)
+      const ok =
+        on.video !== null && on.dropped === 0 && onlyRelay && /RELAY/.test(on.streamer) && on.rooms.join() === 'nostr' && /✓ A TLS relay on port 443/.test(on.status) &&
+        off.dropped > 0
+      return [ok, `blend in: video ${on.video}s via "${on.streamer.slice(0, 40)}", discovery rooms ${JSON.stringify(on.rooms)}, UDP packets attempted ${on.dropped}, the app's hosts beyond localhost: ${JSON.stringify(appHosts)}, Network page: "${on.status.slice(0, 60)}" | same relay, blend in off: UDP packets attempted ${off.dropped}, video ${off.video}s, rooms ${JSON.stringify(off.rooms)}, hosts ${JSON.stringify(off.hosts.filter((h) => !browserOwn.test(h)))}`]
+    } finally {
+      for (const r of trace) execFileSync('iptables', ['-D', 'OUTPUT', ...r])
+      block(false, NO_UDP_RULE)
+    }
+  },
+})
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']
 const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'offline-isolated', 'messenger-pair', 'messenger-pair-late'])
 
 relayProcess = startHelper('nostr-relay.mjs', '7777')
 startHelper('turn-server.mjs', HOST_IP)
+// TURN over TLS on 443 and over TCP on 8443, in front of the UDP server (blend-in).
+startHelper('turn-tcp-bridge.mjs', HOST_IP, '443', '8443', join(tmpdir(), 'und-turn-cert'))
 await new Promise((r) => setTimeout(r, 1000))
 
 let failures = 0

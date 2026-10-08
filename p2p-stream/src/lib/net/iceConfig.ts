@@ -29,6 +29,7 @@
 // firewalls, hostile infrastructure).
 
 import { getPublicRelays, getExtraStun } from "./publicRelays";
+import { isBlendIn, blendInConfig, blendInApplies } from "./blendIn";
 
 const TURN_STORAGE_KEY = "undepressable_turn";
 
@@ -489,7 +490,14 @@ export function getRtcConfig(): RTCConfiguration {
   const setup = getRelaySetup(env, storage);
   const servers = baseServers(setup, storage);
   if (setup.iceUrl) servers.push(...(readCache(storage, setup.iceUrl)?.servers ?? []));
-  return baseRtcConfig(dedupeServers(servers), isForceRelay(storage));
+  return finishRtcConfig(baseRtcConfig(dedupeServers(servers), isForceRelay(storage)), storage);
+}
+
+// Blend in (lib/net/blendIn.ts): only a TLS relay, relay candidates only. If
+// nothing qualifies the ordinary configuration stands — the setting cannot
+// make a connection impossible, only quieter.
+function finishRtcConfig(config: RTCConfiguration, storage: StorageLike | null): RTCConfiguration {
+  return isBlendIn(storage) && blendInApplies(config) ? blendInConfig(config) : config;
 }
 
 /** Like getRtcConfig, but fetches credentials from a credentials URL first. */
@@ -499,7 +507,7 @@ export async function resolveRtcConfig(opts: FetchIceOptions = {}): Promise<RTCC
   const setup = getRelaySetup(env, storage);
   const servers = baseServers(setup, storage);
   if (setup.iceUrl) servers.push(...((await fetchIceServers(setup.iceUrl, { ...opts, storage })) ?? []));
-  return baseRtcConfig(dedupeServers(servers), isForceRelay(storage));
+  return finishRtcConfig(baseRtcConfig(dedupeServers(servers), isForceRelay(storage)), storage);
 }
 
 /** Just the relay (TURN) entries of a server list — for relay self-tests. */

@@ -9,6 +9,7 @@ import { createControlGate } from "../lib/swarm/controlAuth";
 import { summarizeRelays, type RelayHealth } from "../lib/net/relayHealth";
 import { capVideoSendersWithRetry, markMotionContent } from "../lib/net/senderTuning";
 import { shapeLink } from "../lib/net/linkShaping";
+import { isBlendIn } from "../lib/net/blendIn";
 import type { Tier } from "../lib/net/linkShaper";
 import {
   createRoutes,
@@ -286,7 +287,8 @@ export function useTrystero() {
     // first; in "only my relays" mode the public transports stay off.
     const plan = planDiscovery(NOSTR_RELAYS, getCustomRelays(), isCustomRelaysOnly());
     let resolved = resolveStrategies(strategies);
-    if (!plan.usePublicTransports) resolved = resolved.filter((s) => s === "nostr");
+    // Blending in: Nostr over WSS only — trackers and brokers are recognisable.
+    if (!plan.usePublicTransports || isBlendIn()) resolved = resolved.filter((s) => s === "nostr");
     if (resolved.length === 0) resolved = ["nostr"];
     if (resolved.includes("nostr")) await loadStrategy("nostr");
     if (mySession !== session) return;

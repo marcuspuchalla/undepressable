@@ -48,6 +48,27 @@
         <RelaySetup inline :show-stun="nat?.kind === 'blocked'" @saved="onRelaySaved" />
       </div>
 
+      <!-- Blend in -->
+      <div class="card space-y-3" data-testid="blend-in">
+        <h2 class="font-semibold text-slate-100">Blend in with ordinary web traffic</h2>
+        <p class="text-sm text-slate-400 leading-relaxed">
+          Networks that look for WebRTC can see STUN requests, direct connections and relays in the clear. With this on,
+          the app sends nothing but TLS to port 443: media only through a <code>turns:…:443</code> relay, discovery only
+          through Nostr relays over WSS, no STUN and no direct connections at all.
+        </p>
+        <label class="flex items-start gap-2 text-sm text-slate-300">
+          <input v-model="blendIn" type="checkbox" class="mt-1" data-testid="blend-in-toggle" @change="onBlendInToggle" />
+          <span>Blend in <span class="block text-xs text-slate-500">Everything through the TLS relay. Slower, uses the relay's bandwidth, and only as hidden as docs/TRAFFIC.md says.</span></span>
+        </label>
+        <div class="rounded-lg border px-3 py-2 text-sm" :class="BLEND_TEXT[blendReady.level].box" data-testid="blend-in-status">
+          <p :class="BLEND_TEXT[blendReady.level].tone">{{ BLEND_TEXT[blendReady.level].title }}</p>
+          <p class="text-xs text-slate-400 mt-1">
+            <template v-if="blendReady.tlsRelays.length">Relay: <span class="font-mono">{{ blendReady.tlsRelays.join(', ') }}</span>. </template>
+            Discovery: {{ blendReady.ownDiscoveryOnly ? 'your own relays only' : 'public Nostr relays over WSS (add your own below to avoid well-known hostnames)' }}.
+          </p>
+        </div>
+      </div>
+
       <!-- Share links -->
       <div class="card space-y-3">
         <h2 class="font-semibold text-slate-100">Share links &amp; QR codes</h2>
@@ -145,6 +166,8 @@ import { resolveShareBase, getConfiguredPublicUrl, setConfiguredPublicUrl, type 
 import { appBase, usesHashRoutes } from '../lib/appLocation'
 import { getCustomRelays, setCustomRelays, isCustomRelaysOnly, setCustomRelaysOnly, parseRelayList } from '../lib/net/discoveryConfig'
 import { NOSTR_RELAYS, TORRENT_TRACKERS } from '../types'
+import { isBlendIn, setBlendIn, blendInReadiness, type BlendInLevel } from '../lib/net/blendIn'
+import { getRelaySetup } from '../lib/net/iceConfig'
 import { updates, checkForUpdate, APP_BUILD } from '../composables/useUpdates'
 import { shortFingerprint } from '../lib/update/release'
 
@@ -205,6 +228,22 @@ const REACH_TEXT: Record<Reachability, string> = {
   device: 'Only this device can open this link — scan it with the app, or set the public address below.',
 }
 
+// --- blend in ---
+const blendIn = ref(isBlendIn())
+const blendTick = ref(0)
+const blendReady = computed(() => {
+  void blendTick.value
+  return blendInReadiness(getRelaySetup(), [], isCustomRelaysOnly())
+})
+const BLEND_TEXT: Record<BlendInLevel, { title: string; tone: string; box: string }> = {
+  ready: { title: '✓ A TLS relay on port 443 is set up — traffic passes as HTTPS.', tone: 'text-moss', box: 'border-moss/30 bg-moss/10' },
+  'tls-other-port': { title: 'A TLS relay is set up, but not on port 443: encrypted, on a port HTTPS does not use.', tone: 'text-yellow-200', box: 'border-yellow-500/30 bg-yellow-900/30' },
+  none: { title: 'Needs a turns: relay on port 443 — set one up above. Until then this setting does not apply.', tone: 'text-yellow-200', box: 'border-yellow-500/30 bg-yellow-900/30' },
+}
+function onBlendInToggle() {
+  setBlendIn(blendIn.value)
+}
+
 const probing = ref(false)
 const nat = ref<NatProbeResult | null>(null)
 const relayCheck = ref<RelayTestResult | null>(null)
@@ -231,6 +270,7 @@ async function runProbe() {
 function onRelaySaved() {
   relayConfigured.value = hasRelay()
   relayCheck.value = null
+  blendTick.value++
 }
 
 // --- share links ---
@@ -264,6 +304,7 @@ function saveRelays() {
   setCustomRelaysOnly(relaysOnly.value && list.length > 0)
   customRelays.value = list.join('\n')
   relaysOnly.value = isCustomRelaysOnly()
+  blendTick.value++
   relaysNote.value = list.length ? `Saved ${list.length} relay${list.length === 1 ? '' : 's'}. Applies to the next connection.` : 'Cleared.'
 }
 </script>

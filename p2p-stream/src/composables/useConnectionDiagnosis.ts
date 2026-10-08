@@ -4,6 +4,7 @@ import { diagnose, type Diagnosis } from "../lib/net/diagnosis";
 import { hasRelay, STUN_SERVERS } from "../lib/net/iceConfig";
 import { probeNat, type NatKind } from "../lib/net/natProbe";
 import { getExtraStun } from "../lib/net/publicRelays";
+import { isBlendIn } from "../lib/net/blendIn";
 
 // One quick STUN check per ~10 minutes per tab is enough: the network rarely
 // changes under a session, and each check opens a connection of its own.
@@ -18,6 +19,8 @@ function currentNatKind(): Promise<NatKind | null> {
 }
 
 async function measureNatKind(): Promise<NatKind | null> {
+  // A NAT probe is STUN traffic: not while blending in (nothing direct is tried anyway).
+  if (isBlendIn()) return null;
   try {
     const cached = JSON.parse(sessionStorage.getItem(NAT_CACHE_KEY) ?? "null");
     if (cached && Date.now() - cached.at < NAT_CACHE_MS) return cached.kind as NatKind;
