@@ -999,7 +999,10 @@ second (the logs allow six hours at that rate).
   | self-check | a viewer's bundle unzipped; verify.html (49 KB) from disk in a plain browser: video + evidence.json → "Unaltered, 9 s", 16 moments matched against the filmer; the .zip → unaltered; one byte flipped → "Second 4 … does not match what was signed" |
   | corroborate, -offline, -sealed, archive | pass at two attestations a second (20–21 kept in 10 s) |
 
-  `throttled` re-run with the ladder fix: pending.
+  `throttled` re-run with the ladder fix: **pass** — ~320 kbit/s: reduced and
+  small picture, moving in 10/10 samples, never sound only; ~56 kbit/s:
+  sound only on both ends, still recording, no "interrupted"; lifted: the
+  full picture back.
 
   Plus pwa-offline, portable (the single file now 1.10 MB with the checker
   inside), updates and extension — all passing on the round's build.
