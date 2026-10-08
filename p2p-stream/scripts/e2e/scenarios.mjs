@@ -15,7 +15,7 @@
 // offline-handover, offline-chain, offline-chain-repair, messenger-pair,
 // messenger-pair-late, amplify-streamer, amplify-viewer, sealed-home,
 // sealed-passphrase, sealed-blind-carrier, timestamp, corroborate,
-// corroborate-offline, corroborate-sealed, throttled.
+// corroborate-offline, corroborate-sealed, throttled, combine.
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
@@ -57,6 +57,7 @@ function block(on, rule = BLOCK_RULE) {
 const launchArgs = [
   '--use-fake-device-for-media-stream',
   '--use-fake-ui-for-media-stream',
+  '--autoplay-policy=no-user-gesture-required',
   // Real host IPs instead of mDNS names, so peers on one machine can connect.
   '--disable-features=WebRtcHideLocalIpsWithMdns',
 ]
@@ -1202,6 +1203,106 @@ Object.assign(scenarios, {
     const atHome = await checkCard(home, homeCard)
     const ok = onPhone?.clear === 0 && onPhone?.sealed && keyHidden && /could not be opened|sealed/.test(phoneCheck) && sent && /✓ Shows what the filming phone/.test(atHome)
     return [ok, `phone: ${onPhone?.clear} in the clear, sealed blob ${onPhone?.sealed}, stream key absent from the record ${keyHidden}, check → "${phoneCheck.slice(0, 110)}"; sent home ${sent}; home: ${atHome.slice(0, 150)}`]
+  },
+})
+
+// --- combined records --------------------------------------------------------------
+
+/** Save the first recording's evidence bundle from the Recordings screen; returns its path. */
+async function saveFirstBundle(page, dir) {
+  await page.goto(`${APP}/recordings`)
+  await page.locator('[data-testid=send-evidence]').first().click()
+  const [download] = await Promise.all([page.waitForEvent('download'), page.locator('[data-testid=save-evidence]').first().click()])
+  const file = join(dir, download.suggestedFilename())
+  await download.saveAs(file)
+  return file
+}
+
+Object.assign(scenarios, {
+  // Two viewers record different stretches of one stream (with a gap between);
+  // their evidence files meet on a third device, which lays them on the
+  // filmer's clock, plays them through as one, and renders one signed video
+  // that still checks out against the filmer — and whose record carries both
+  // copies, importable elsewhere.
+  async combine() {
+    const { mkdtempSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const cams = await cameraFiles()
+    const dir = mkdtempSync(join(tmpdir(), 'und-combine-'))
+    const A = await startStream({}, camera(cams.a))
+    const watch = async (seconds) => {
+      const V = await newPage({})
+      await V.goto(A.shareUrl)
+      if ((await videoWithin(V, 40000)) === null) throw new Error('viewer got no video')
+      await V.waitForSelector('text=Stop Recording', { timeout: 20000 })
+      await V.waitForTimeout(seconds * 1000)
+      await V.getByText('Stop Recording').click()
+      await V.waitForTimeout(1500)
+      return V
+    }
+    const V1 = await watch(10)
+    await V1.waitForTimeout(3000) // nobody records: a gap
+    const V2 = await watch(10)
+    const b1 = await saveFirstBundle(V1, dir)
+    const b2 = await saveFirstBundle(V2, dir)
+
+    const H = await newPage({})
+    await H.goto(`${APP}/recordings`)
+    await importFiles(H, b1)
+    await importFiles(H, b2)
+    const linkShown = await H.locator('[data-testid=combine-link]').isVisible().catch(() => false)
+    await H.goto(`${APP}/combine`)
+    const group = H.locator('[data-testid=group]').first()
+    await group.waitFor({ timeout: 10000 })
+    const before = (await group.locator('[data-testid=alignment]').allInnerTexts()).join(' | ')
+    await group.locator('[data-testid=check-all]').click()
+    await group.locator('[data-testid=check-all]').waitFor({ state: 'detached', timeout: 60000 }).catch(() => {})
+    const after = (await group.locator('[data-testid=alignment]').allInnerTexts()).join(' | ')
+    const coverage = (await group.locator('[data-testid=coverage-text]').innerText()).replace(/\s+/g, ' ')
+
+    // Play through: the position advances, the copy switches, the gap shows.
+    await group.locator('[data-testid=play-through]').click()
+    const seen = new Set()
+    let sawGap = false
+    for (let i = 0; i < 40; i++) {
+      await H.waitForTimeout(500)
+      const pos = (await group.locator('[data-testid=player-position]').innerText().catch(() => '')).replace(/\s+/g, ' ')
+      const m = /copy (\w+)/.exec(pos)
+      if (m) seen.add(m[1])
+      if (await group.locator('[data-testid=gap-card]').isVisible().catch(() => false)) sawGap = true
+      if (seen.size >= 2 && sawGap) break
+    }
+    await group.locator('[data-testid=play-through]').click() // stop
+
+    // Render one video (real time), then check it against the filmer.
+    await group.locator('[data-testid=render]').click()
+    await group.locator('[data-testid=rendered]').waitFor({ timeout: 120000 })
+    await H.goto(`${APP}/recordings`)
+    const renderedCard = H.locator('[data-testid=recording]', { has: H.locator('[data-testid=combined-badge]') }).first()
+    const badge = await renderedCard.locator('[data-testid=combined-badge]').innerText()
+    const checked = await checkCard(H, renderedCard)
+    const rendered = await H.evaluate(async () => {
+      const { getAllRecordings } = await import('/src/lib/recordingDb.ts')
+      const r = (await getAllRecordings()).find((x) => x.combined)
+      return r && { seconds: r.chunks.length, signed: !!r.proof, sources: r.combined.sources.length, segments: r.combined.segments.map((s) => [s.copy ? 'copy' : 'gap', Math.round((s.to - s.from) / 1000)]), alignment: r.combined.alignment }
+    })
+
+    // The combined record travels with its copies.
+    await renderedCard.locator('[data-testid=send-evidence]').click()
+    const [download] = await Promise.all([H.waitForEvent('download'), renderedCard.locator('[data-testid=save-combined]').click()])
+    const combinedZip = join(dir, download.suggestedFilename())
+    await download.saveAs(combinedZip)
+    const F = await newPage({})
+    await F.goto(`${APP}/recordings`)
+    const importedText = await importFiles(F, combinedZip)
+    const onF = await F.locator('[data-testid=recording]').count()
+
+    const ok =
+      linkShown && /signals/.test(before) && (after.match(/Matched against the filmer/g) ?? []).length === 2 &&
+      /2 stretches/.test(coverage) && /in gaps/.test(coverage) && /aligned by ✓ matched/i.test(coverage) &&
+      seen.size === 2 && sawGap && /2 copies/.test(badge) && rendered?.signed && rendered.sources === 2 && rendered.alignment === 'picture' &&
+      /✓ Shows what the filming phone/.test(checked) && /Source copies: 2 verified and imported/.test(importedText) && onF === 3
+    return [ok, `link ${linkShown}; before: "${before}" → after: "${after}"; ${coverage}; play-through saw copies ${seen.size}, gap ${sawGap}; rendered ${rendered?.seconds}s signed ${rendered?.signed}, ${JSON.stringify(rendered?.segments)}, ${rendered?.alignment}; "${badge}"; check → ${checked.slice(0, 140)}; import elsewhere: "${importedText.slice(0, 120)}", ${onF} recordings`]
   },
 })
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']

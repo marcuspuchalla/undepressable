@@ -45,6 +45,11 @@ const router = createRouter({
       component: RecordingsView
     },
     {
+      path: '/combine',
+      name: 'combine',
+      component: () => import('../views/CombineView.vue')
+    },
+    {
       path: '/guide',
       name: 'guide',
       component: GuideView

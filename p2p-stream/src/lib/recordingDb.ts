@@ -50,6 +50,7 @@ export function serializeRecording(recording: Recording): Record<string, unknown
   if (recording.timestamp) out.timestamp = plain(recording.timestamp);
   if (recording.attestations?.length) out.attestations = plain(recording.attestations);
   if (recording.corroboration) out.corroboration = plain(recording.corroboration);
+  if (recording.combined) out.combined = plain(recording.combined);
   return out;
 }
 

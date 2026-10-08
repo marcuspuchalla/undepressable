@@ -859,7 +859,10 @@ async function startRecording() {
   if (!remoteStream.value) return
   
   console.log('[CollectView] Starting recording')
-  const success = await recording.startRecording(remoteStream.value)
+  // Under the room's name: copies of one stream then belong together even
+  // without the filmer's attestations (Recordings → Combine copies).
+  const room = (props.roomCode || inputRoomCode.value || '').toUpperCase()
+  const success = await recording.startRecording(remoteStream.value, 'medium', room ? `room-${room}` : undefined)
   if (success) {
     isRecording.value = true
     trystero.setRecording(true)

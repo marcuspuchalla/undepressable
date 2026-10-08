@@ -491,7 +491,7 @@ export function useRecording() {
   function noteAttestation(a: Attestation): boolean {
     if (!live) return false
     live.recording.attestations ??= []
-    return addToLogs(live.recording.attestations, a)
+    return addToLogs(live.recording.attestations, a, Date.now() - live.recording.startedAt.getTime())
   }
 
   // Re-derive the Merkle root from stored chunk hashes and check the signature,

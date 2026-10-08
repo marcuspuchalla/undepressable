@@ -2,6 +2,7 @@ import type { RecordingProof } from "./lib/integrity";
 import type { SealedKey } from "./lib/seal/crypto";
 import type { AttestationLog } from "./lib/corroborate/log";
 import type { Corroboration } from "./lib/corroborate/match";
+import type { Segment, Alignment } from "./lib/combine/timeline";
 
 // User roles in the P2P network
 export type UserRole = 'streamer' | 'collector'
@@ -61,6 +62,29 @@ export interface Recording {
   attestations?: AttestationLog[]
   // The last check of this copy against them (local only; never trusted from elsewhere).
   corroboration?: CorroborationCheck
+  // Set when this video was rendered out of several copies of one stream
+  // (lib/combine): the copies it was made from, and which plays when.
+  combined?: CombinedInfo
+}
+
+export interface CombinedSource {
+  /** The source copy's recording id and signed proof root: what to look for and check. */
+  id: string
+  merkleRoot: string
+  pubKey: string
+  /** Common time of its first frame, and how that was found. */
+  startMs: number
+  alignment: Alignment
+}
+
+export interface CombinedInfo {
+  v: 1
+  /** The stream, when the copies carried the filmer's attestations. */
+  stream?: { pk: string; s: string }
+  sources: CombinedSource[]
+  /** Common time → source copy. The rendered video starts at segments[0].from. */
+  segments: Segment[]
+  alignment: Alignment
 }
 
 export interface CorroborationCheck {

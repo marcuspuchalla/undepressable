@@ -505,7 +505,7 @@ async function startRecording() {
   if (!localStream.value) return
   
   console.log('[StreamView] Starting recording')
-  const success = await recording.startRecording(localStream.value)
+  const success = await recording.startRecording(localStream.value, 'medium', roomCode.value ? `room-${roomCode.value}` : undefined)
   if (success) {
     isRecording.value = true
     trystero.setRecording(true)

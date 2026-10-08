@@ -19,6 +19,7 @@ describe('stored recording shape', () => {
       timestamp: { ots: 'AA==', requestedAt: '2026-10-01T10:00:06Z', calendars: [] },
       attestations: [{ v: 1, pk: 'a'.repeat(64), s: 'b'.repeat(16), a: [[0, 0, 'c'.repeat(32), 'd'.repeat(128)]] }],
       corroboration: { checkedAt: '2026-10-01T12:00:00Z', frames: 20, results: [], invalid: 0 },
+      combined: { v: 1, sources: [], segments: [], alignment: 'picture' },
     }
     const back = deserializeRecording(JSON.parse(JSON.stringify(serializeRecording(rec))))
     expect(back).toEqual(rec)

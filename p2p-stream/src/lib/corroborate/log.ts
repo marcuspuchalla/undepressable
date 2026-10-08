@@ -16,9 +16,14 @@ export interface AttestationLog {
   pk: string
   /** Stream id. */
   s: string
-  /** [sequence number, filmer's ms since stream start, fingerprint, signature] */
-  a: [number, number, string, string][]
+  /**
+   * [sequence number, filmer's ms since stream start, fingerprint, signature,
+   *  ms into this recording when it arrived (optional: aligns copies without a picture check)]
+   */
+  a: LogEntry[]
 }
+
+export type LogEntry = [number, number, string, string] | [number, number, string, string, number]
 
 /** Six hours of attestations per recording; past that, new ones are not kept. */
 export const MAX_ENTRIES = 6 * 3600
@@ -28,7 +33,7 @@ const MAX_LOGS = 16
  * Add a (verified) attestation to the logs. Returns false when it was a
  * duplicate or a limit was reached.
  */
-export function addToLogs(logs: AttestationLog[], a: Attestation): boolean {
+export function addToLogs(logs: AttestationLog[], a: Attestation, receivedAtMs?: number): boolean {
   let log = logs.find((l) => l.pk === a.pk && l.s === a.s)
   if (!log) {
     if (logs.length >= MAX_LOGS) return false
@@ -37,7 +42,7 @@ export function addToLogs(logs: AttestationLog[], a: Attestation): boolean {
   }
   if (entryCount(logs) >= MAX_ENTRIES) return false
   if (log.a.some((e) => e[0] === a.n)) return false
-  log.a.push([a.n, a.t, a.f, a.sig])
+  log.a.push(receivedAtMs === undefined ? [a.n, a.t, a.f, a.sig] : [a.n, a.t, a.f, a.sig, Math.max(0, Math.round(receivedAtMs))])
   return true
 }
 
@@ -59,7 +64,8 @@ export function isLogsShape(x: unknown): x is AttestationLog[] {
     total += l.a.length
     if (total > MAX_ENTRIES) return false
     for (const e of l.a) {
-      if (!Array.isArray(e) || e.length !== 4) return false
+      if (!Array.isArray(e) || (e.length !== 4 && e.length !== 5)) return false
+      if (e.length === 5 && !(Number.isFinite(e[4]) && e[4] >= 0)) return false
       if (!isAttestationShape({ v: 1, s: l.s, n: e[0], t: e[1], f: e[2], pk: l.pk, sig: e[3] })) return false
     }
   }

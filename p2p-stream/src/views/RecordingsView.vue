@@ -2,6 +2,7 @@
   <div class="h-full overflow-y-auto p-4">
     <div class="flex items-center justify-between mb-4 gap-3">
       <h2 class="text-xl font-bold">Recordings</h2>
+      <RouterLink v-if="combinable" to="/combine" class="btn-secondary text-sm py-1.5 ml-auto" data-testid="combine-link">Combine copies</RouterLink>
       <label class="btn-secondary text-sm py-1.5 cursor-pointer" data-testid="import-evidence">
         Import…
         <input
@@ -93,6 +94,7 @@
                 {{ recording.status === 'receiving' ? 'arriving…' : recording.status }}
               </span>
               <span class="text-xs text-gray-500">{{ formatDate(recording.startedAt) }}</span>
+              <span v-if="recording.combined" class="text-xs text-glow" data-testid="combined-badge">rendered from {{ recording.combined.sources.length }} copies</span>
               <span v-if="recording.origin?.kind === 'imported'" class="text-xs text-glow">imported · verified</span>
               <span v-else-if="recording.origin?.kind === 'synced'" class="text-xs text-glow">from a paired phone{{ recording.origin.verified ? ' · verified' : '' }}</span>
               <span v-if="atHome[recording.id]" class="text-xs text-moss" data-testid="at-home">✓ at home</span>
@@ -228,6 +230,9 @@
               <button v-if="sendPanel[recording.id].canShare" class="btn-primary text-xs py-1.5" @click="shareEvidence(recording)">
                 Share…
               </button>
+              <button v-if="recording.combined" class="btn-secondary text-xs py-1.5" data-testid="save-combined" @click="saveCombined(recording)">
+                {{ savingCombined[recording.id] ? 'Building…' : 'Save combined record (with the copies)' }}
+              </button>
               <button class="btn-secondary text-xs py-1.5" data-testid="save-evidence" @click="saveEvidence(recording)">
                 Save as file
               </button>
@@ -277,12 +282,30 @@ import { sealAudience, type SealAudience } from '../lib/seal/keys'
 import { stampRecording, refreshTimestamp, autoTimestamp } from '../lib/timestamp/recordingStamp'
 import ProtectRecordings from '../components/ProtectRecordings.vue'
 import { hasAttestations, checkAgainstFilmer } from '../lib/corroborate/check'
+import { groupCopies } from '../lib/combine/align'
+import { buildCombinedBundle, sourceBundles } from '../lib/combine/record'
+import { getRecording } from '../lib/recordingDb'
 import { entryCount } from '../lib/corroborate/log'
 import type { Corroboration } from '../lib/corroborate/match'
 import type { CorroborationCheck } from '../types'
 
 const recordingStore = useRecordingStore()
 const opfs = useOPFS()
+const combinable = computed(() => groupCopies(recordings.value).length > 0)
+
+// --- combined records (lib/combine) ---
+const savingCombined = ref<Record<string, boolean>>({})
+async function saveCombined(rec: Recording) {
+  savingCombined.value = { ...savingCombined.value, [rec.id]: true }
+  try {
+    const sources = (await Promise.all((rec.combined?.sources ?? []).map((s) => getRecording(s.id)))).filter((r): r is Recording => !!r)
+    const built = await buildCombinedBundle(rec, sources)
+    if (built) saveFile(built.zip, built.name)
+  } finally {
+    const { [rec.id]: _d, ...rest } = savingCombined.value
+    savingCombined.value = rest
+  }
+}
 
 const STATUS_CLASS: Record<string, string> = {
   completed: 'bg-green-900/50 text-green-400',
@@ -564,11 +587,35 @@ async function onImport(event: Event) {
     }
     const result = await importEvidence(picked.manifest, picked.video)
     const seconds = picked.manifest.chunkSizes.length
+    // A combined record carries the copies it was rendered from: import each
+    // of those too, checked against its own signature.
+    let copies = ''
+    if (picked.manifest.combined) {
+      let got = 0
+      let bad = 0
+      for (const file of files) {
+        for (const entry of await sourceBundles(file)) {
+          const src = await readEvidenceInput([entry.blob])
+          if (!src.ok) {
+            bad++
+            continue
+          }
+          const ok = await verifyEvidence(src.manifest, src.video)
+          if (!ok.valid) {
+            bad++
+            continue
+          }
+          await importEvidence(src.manifest, src.video)
+          got++
+        }
+      }
+      copies = ` Source copies: ${got} verified and imported${bad ? `, ${bad} refused` : ''}.`
+    }
     importState.value = {
       busy: false,
       ok: true,
       message: result === 'exists' ? '✓ Verified — this device already has this recording' : `✓ Verified and imported (${seconds} s)`,
-      detail: `Every second matches the signature of key ${picked.manifest.proof.pubKey.slice(0, 8)}…`,
+      detail: `Every second matches the signature of key ${picked.manifest.proof.pubKey.slice(0, 8)}…${copies}`,
     }
     await refreshRecordings()
   } catch (e: any) {

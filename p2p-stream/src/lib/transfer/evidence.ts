@@ -14,7 +14,7 @@
  * each one against the proof — no trust in whoever carried the file.
  */
 
-import type { Recording, RecordingTimestamp } from '../../types'
+import type { Recording, RecordingTimestamp, CombinedInfo } from '../../types'
 import { sha256, toHex, verifyProof, type RecordingProof } from '../integrity'
 import { decryptChunk, openJson, type SealedKey } from '../seal/crypto'
 import { isLogsShape, type AttestationLog } from '../corroborate/log'
@@ -53,6 +53,12 @@ export interface EvidenceManifest {
    * fingerprint of its picture every second, to check this copy against.
    */
   attestations?: AttestationLog[]
+  /**
+   * Present when this video was rendered out of several copies of one stream
+   * (lib/combine): which copies, and which plays when. The copies themselves
+   * are the evidence; a combined bundle carries them under sources/.
+   */
+  combined?: CombinedInfo
 }
 
 export interface EvidenceCheck {
@@ -88,6 +94,7 @@ export function manifestFor(recording: Recording): EvidenceManifest | null {
       : {}),
     ...(recording.timestamp ? { timestamp: recording.timestamp } : {}),
     ...(recording.attestations?.length ? { attestations: recording.attestations } : {}),
+    ...(recording.combined ? { combined: recording.combined } : {}),
   }
 }
 
@@ -110,6 +117,7 @@ export function parseManifest(text: string): EvidenceManifest | null {
   if (!isProofShape(p)) return null
   if (m.timestamp !== undefined && (!m.timestamp || typeof m.timestamp.ots !== 'string')) return null
   if (m.attestations !== undefined && !isLogsShape(m.attestations)) return null
+  if (m.combined !== undefined && !isCombinedShape(m.combined)) return null
   if (m.sealed !== undefined) {
     const sd = m.sealed
     if (!sd || sd.v !== 1 || !Array.isArray(sd.keys) || sd.keys.length === 0 || !isProofShape(sd.proof)) return null
@@ -118,6 +126,23 @@ export function parseManifest(text: string): EvidenceManifest | null {
     if (sd.attestations !== undefined && (typeof sd.attestations !== 'string' || sd.attestations.length > 16_000_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(sd.attestations))) return null
   }
   return m as EvidenceManifest
+}
+
+const ALIGNMENTS = ['picture', 'signals', 'clock']
+function isCombinedShape(c: any): boolean {
+  const ms = (x: unknown) => Number.isFinite(x)
+  return (
+    !!c &&
+    c.v === 1 &&
+    ALIGNMENTS.includes(c.alignment) &&
+    (c.stream === undefined || (c.stream && HEX64.test(c.stream.pk) && typeof c.stream.s === 'string')) &&
+    Array.isArray(c.sources) &&
+    c.sources.length <= 64 &&
+    c.sources.every((s: any) => s && typeof s.id === 'string' && HEX64.test(s.merkleRoot) && HEX64.test(s.pubKey) && ms(s.startMs) && ALIGNMENTS.includes(s.alignment)) &&
+    Array.isArray(c.segments) &&
+    c.segments.length <= 10_000 &&
+    c.segments.every((g: any) => g && ms(g.from) && ms(g.to) && ms(g.at) && (g.copy === null || typeof g.copy === 'string'))
+  )
 }
 
 function isProofShape(p: any): boolean {
@@ -256,6 +281,10 @@ what the filming device's camera showed, second by second. Each fingerprint
 is a perceptual hash (two 64-bit hashes of a 64×64 grayscale thumbnail), so
 a match means "the same picture", not "the same bytes". Who signed them is
 the "pk" key: the stream's share link carries the same key as fk=…
+
+If evidence.json has "combined", this video was rendered out of several
+copies of one stream; the copies are the evidence, and a combined record
+carries each under sources/ as its own bundle (see "combined.sources").
 
 To check it: open Undepressable → Recordings → Import, and choose this
 .zip (or the .webm together with its evidence file). Every chunk is
