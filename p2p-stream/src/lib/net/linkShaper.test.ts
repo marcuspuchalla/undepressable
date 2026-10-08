@@ -97,6 +97,24 @@ describe("createShaper", () => {
     expect(run(s, repeat(est(150), 9), 16_000)).toEqual(repeat("minimal", 9));
   });
 
+  it("does not sit out the back-off when the link recovers by two tiers or more", () => {
+    const s = createShaper({ probeAfterMs: 10_000, maxProbeMs: 120_000 });
+    run(s, repeat(est(40), 2)); // sound only
+    // Three failed tries: estimates one tier ahead, loss when video is sent → back-off grows to 80 s.
+    let t = 4000;
+    for (let i = 0; i < 3; i++) {
+      run(s, repeat(est(120), 4), t); // steps up to minimal
+      t += 8000;
+      run(s, [est(120, 0.3), est(120, 0.3)], t); // fails
+      t += 4000;
+      t += 200_000; // wait out the back-off each time
+    }
+    expect(s.tier).toBe("audio");
+    // The throttle is lifted: the estimate says "full" — two tiers and more above. Up after 4 samples, not minutes.
+    const tiers = run(s, repeat(est(2000), 4), t);
+    expect(tiers[3]).toBe("minimal");
+  });
+
   it("respects a ceiling, and lowering it applies at once", () => {
     const s = createShaper({ ceiling: "reduced" });
     expect(s.tier).toBe("reduced");

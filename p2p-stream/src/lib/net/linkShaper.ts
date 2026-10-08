@@ -144,7 +144,11 @@ export function createShaper(opts: ShaperOptions = {}) {
       if (++below >= downAfter) moveTo(fits, s.at); // straight down, as far as the estimate says
     } else if (rank(fits) < rank(tier)) {
       below = 0;
-      if (++above >= upAfter && settled) stepUp(s.at); // up one step at a time
+      // Up one step at a time. A link that recovered by two tiers or more
+      // has plainly changed: it does not sit out the back-off from earlier
+      // failed tries (that wait is for estimates running one tier ahead).
+      const strong = rank(tier) - rank(fits) >= 2;
+      if (++above >= upAfter && (settled || strong)) stepUp(s.at);
     } else {
       below = 0;
       above = 0;
