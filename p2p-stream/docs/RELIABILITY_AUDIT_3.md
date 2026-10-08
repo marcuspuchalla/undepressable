@@ -829,7 +829,8 @@ far as the estimate says after two samples (4 s), but on loss alone at most
 one step — a single burst (a keyframe hitting a policer) once threw a
 picture straight to sound only. Up: one step at a time, each step a trial
 (fails on repeated heavy loss, or when the estimate, given 15 s, does not
-hold it); after a failed trial the next waits 30 s, then 60, up to 2 min —
+hold it); after a failed trial the next waits 30 s, then 60 (round 8: and
+no longer, see §41) —
 under a policer the estimate runs ahead of reality and retries flapped every
 20 s before this. The viewer's stall monitor now tells *sound only* from a
 dead stream (audio bytes still moving), so a throttled viewer keeps
@@ -969,3 +970,55 @@ second (the logs allow six hours at that rate).
   over TCP and TLS with RFC 5766 stream framing, so `turns:…:443` is
   exercised for real (a self-signed certificate, accepted by the test
   browser only).
+
+- **Sound only could stay sound only for minutes after the throttle lifted.**
+  With video switched off nothing is sent that could raise the link's
+  estimate, so the climb back is by timed tries — and the back-off between
+  tries had grown to two minutes. Now at most a minute (a few seconds of
+  broken picture a minute on a link that stays slow), and a link whose
+  estimate jumps two tiers above the current one steps up at once.
+
+### Round 8 verification
+
+- **Unit:** 412 tests (was 398). New: the combined timeline (fewest
+  switches, gaps, a copy inside another never played, alignment ranking),
+  grouping and placing copies (by stream and by room; picture, signals and
+  clock placements; a non-matching copy left out; clock copies tied to placed
+  ones), blend-in (TLS-relay detection incl. port 443, configuration
+  reduced to TLS relays and relay candidates, readiness levels), evidence
+  manifests with `combined`, and the link ladder's recovery rules.
+- **End to end, one run:** 32 of 33 scenarios pass; `throttled` brought the
+  picture back after the throttle lifted but not the full picture within the
+  budget (the ladder fix in §41 follows from it; its re-run is recorded
+  below the table). New:
+
+  | Check | Result |
+  |---|---|
+  | combine | two viewers, 10 s each with a 3 s pause, bundles imported on a third device: placed by the filmer's signals, then "Matched against the filmer" ×2; "0:23 covered, 0:05 in gaps, 2 stretches"; play-through switched copies and showed the gap; rendered 27 s [copy 11, gap 6, copy 12], signed, "rendered from 2 copies", 19 of 19 moments match the filmer; the combined record imported on a fourth device with both source copies verified |
+  | blend-in | every UDP packet from the host dropped and counted: on — video via RELAY, rooms ["nostr"], **0 UDP packets attempted**, the app's only host beyond localhost the TLS relay (Chromium net log); off, same relay — 58 UDP packets, rooms mqtt/nostr/torrent, every public tracker and broker contacted |
+  | self-check | a viewer's bundle unzipped; verify.html (49 KB) from disk in a plain browser: video + evidence.json → "Unaltered, 9 s", 16 moments matched against the filmer; the .zip → unaltered; one byte flipped → "Second 4 … does not match what was signed" |
+  | corroborate, -offline, -sealed, archive | pass at two attestations a second (20–21 kept in 10 s) |
+
+  `throttled` re-run with the ladder fix: pending.
+
+  Plus pwa-offline, portable (the single file now 1.10 MB with the checker
+  inside), updates and extension — all passing on the round's build.
+- **Owed:** `docs/DEVICE_CHECKLIST.md` — everything across all rounds that
+  needs real phones, networks and services, in one list.
+
+### Round 8 known limits
+
+- Combining needs the copies on one device, and plays the record through in
+  real time to render it: an hour of footage takes an hour. Copies that
+  cannot be aligned by the filmer's signatures are placed by device clocks,
+  which can be seconds off; the result says which alignment it got.
+- A rendered video is a re-encode: evidence is the copies it names, which
+  is why a combined record carries them.
+- Blend in needs a `turns:` relay on 443 and makes everything go through
+  it; what still shows is in `TRAFFIC.md`. A device with a system HTTP proxy
+  sends `turns:` through that proxy.
+- `verify.html` needs a browser; it checks what the bundle carries, not
+  whose key it is. An app built without `npm run build:verify` makes bundles
+  without it.
+- Two attestations a second double their size (about 400 bytes a second);
+  an edit shorter than half a second between two can still pass.

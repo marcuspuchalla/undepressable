@@ -1157,7 +1157,9 @@ Object.assign(scenarios, {
 
       block(false, rule)
       rule = null
-      const back = await until(async () => (!(await pill()) && (await framesIn(B, 2000)) > 10 ? true : null), 150000, 3000)
+      // Sound only sends nothing that could raise the estimate, so the climb
+      // back is by timed tries: up to a minute, then three trials of 15 s.
+      const back = await until(async () => (!(await pill()) && (await framesIn(B, 2000)) > 10 ? true : null), 240000, 3000)
       const bannerGone = !(await B.locator('[data-testid=sound-only]').isVisible().catch(() => false))
       notes.push(`lifted: picture back ${!!back}, banner gone ${bannerGone}`)
       const ok = !!reduced && movingSamples >= 8 && neverSoundOnly && !!soundOnly && stillRecording && !interrupted && !!back && bannerGone

@@ -45,7 +45,7 @@ export interface ShaperOptions {
   upAfter?: number;
   /** In a lowered tier, try one step up after this long with a quiet link… */
   probeAfterMs?: number;
-  /** …doubling after each failed try, up to this. */
+  /** …doubling after each failed try, up to this (a minute by default). */
   maxProbeMs?: number;
   /** Never above this tier (e.g. a data-saving choice). */
   ceiling?: Tier;
@@ -79,7 +79,11 @@ export function createShaper(opts: ShaperOptions = {}) {
   const downAfter = opts.downAfter ?? 2;
   const upAfter = opts.upAfter ?? 4;
   const probeBase = opts.probeAfterMs ?? 15_000;
-  const maxProbe = opts.maxProbeMs ?? 120_000;
+  // Up to a minute between tries: on a link that stays too slow, that is a
+  // few seconds of broken picture a minute; on one that recovered while
+  // nothing but sound was sent (so no estimate could say so), it is how
+  // long the picture takes to come back.
+  const maxProbe = opts.maxProbeMs ?? 60_000;
   let ceiling: Tier = opts.ceiling ?? "full";
 
   let tier: Tier = ceiling;
