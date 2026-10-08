@@ -50,7 +50,7 @@ export interface EvidenceManifest {
   timestamp?: RecordingTimestamp
   /**
    * What the filming device signed while streaming (lib/corroborate): a
-   * fingerprint of its picture every second, to check this copy against.
+   * fingerprint of its picture twice a second, to check this copy against.
    */
   attestations?: AttestationLog[]
   /**
@@ -274,7 +274,7 @@ with the OpenTimestamps client: "ots verify root.txt.ots" (and "ots upgrade"
 first if it was still pending when the bundle was made).
 
 If evidence.json has "attestations", the device that was filming signed
-a fingerprint of its picture every second while it streamed, and the
+a fingerprint of its picture twice a second while it streamed, and the
 device that made this copy received them live. Recordings → Check against
 the filmer compares them with this video: it shows whether this copy shows
 what the filming device's camera showed, second by second. Each fingerprint
@@ -285,6 +285,10 @@ the "pk" key: the stream's share link carries the same key as fk=…
 If evidence.json has "combined", this video was rendered out of several
 copies of one stream; the copies are the evidence, and a combined record
 carries each under sources/ as its own bundle (see "combined.sources").
+
+If verify.html is in this bundle, open it in any browser (double-click it):
+it checks all of the above on your computer, from the same code as the app,
+with no website and nothing uploaded.
 
 To check it: open Undepressable → Recordings → Import, and choose this
 .zip (or the .webm together with its evidence file). Every chunk is
@@ -432,7 +436,7 @@ export async function readZip(zip: Blob): Promise<ZipFileEntry[] | null> {
 }
 
 /** The bundle for a recording, given its chunk blobs in order. */
-export function buildBundle(manifest: EvidenceManifest, chunks: Blob[]): Promise<Blob> {
+export function buildBundle(manifest: EvidenceManifest, chunks: Blob[], extras: { name: string; parts: Blob[] }[] = []): Promise<Blob> {
   const json = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' })
   // With a timestamp: root.txt and its .ots proof, checkable with `ots verify root.txt.ots`.
   const stamped = manifest.timestamp
@@ -447,6 +451,7 @@ export function buildBundle(manifest: EvidenceManifest, chunks: Blob[]): Promise
       { name: 'evidence.json', parts: [json] },
       ...stamped,
       { name: 'README.txt', parts: [new Blob([README])] },
+      ...extras,
     ],
     new Date(manifest.recording.startedAt),
   )

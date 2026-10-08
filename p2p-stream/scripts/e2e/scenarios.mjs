@@ -15,7 +15,8 @@
 // offline-handover, offline-chain, offline-chain-repair, messenger-pair,
 // messenger-pair-late, amplify-streamer, amplify-viewer, sealed-home,
 // sealed-passphrase, sealed-blind-carrier, timestamp, corroborate,
-// corroborate-offline, corroborate-sealed, throttled, combine, blend-in.
+// corroborate-offline, corroborate-sealed, throttled, combine, blend-in,
+// self-check (needs npm run build:verify).
 // Scenarios that block UDP need root (iptables). Env:
 //   APP_URL        default http://localhost:4400
 //   HOST_IP        this machine's non-loopback IPv4 (auto-detected)
@@ -1414,6 +1415,59 @@ Object.assign(scenarios, {
       for (const r of trace) execFileSync('iptables', ['-D', 'OUTPUT', ...r])
       block(false, NO_UDP_RULE)
     }
+  },
+})
+
+// --- self-checking bundles ------------------------------------------------------------
+
+Object.assign(scenarios, {
+  // A viewer's evidence bundle carries verify.html: opened from disk in a
+  // plain browser, with no website and no app, it checks the video against
+  // its signature and against the filmer's attestations — and refuses a copy
+  // with one byte changed.
+  async 'self-check'() {
+    const { mkdtempSync, readFileSync, writeFileSync, existsSync } = await import('node:fs')
+    const { tmpdir } = await import('node:os')
+    const cams = await cameraFiles()
+    const dir = mkdtempSync(join(tmpdir(), 'und-selfcheck-'))
+    const A = await startStream({}, camera(cams.a))
+    const V = await newPage({})
+    await V.goto(A.shareUrl)
+    if ((await videoWithin(V, 40000)) === null) return [false, 'viewer got no video']
+    await V.waitForSelector('text=Stop Recording', { timeout: 20000 })
+    await V.waitForTimeout(8000)
+    await V.getByText('Stop Recording').click()
+    await V.waitForTimeout(1500)
+    const bundle = await saveFirstBundle(V, dir)
+    execFileSync('unzip', ['-q', bundle, '-d', dir])
+    const verifier = join(dir, 'verify.html')
+    if (!existsSync(verifier)) return [false, `no verify.html in the bundle (run npm run build:verify and restart the dev server); entries: ${execFileSync('unzip', ['-Z1', bundle], { encoding: 'utf8' }).trim().split('\n').join(', ')}`]
+    const webm = join(dir, execFileSync('unzip', ['-Z1', bundle], { encoding: 'utf8' }).split('\n').find((n) => /\.webm$/.test(n)))
+    const size = readFileSync(verifier).length
+
+    // A plain browser, from disk: no dev server, no app.
+    const P = await newPage({})
+    const resultText = () => P.locator('#out').innerText().then((t) => t.replace(/\s+/g, ' '))
+    const settle = (re) => P.waitForFunction((src) => new RegExp(src).test(document.getElementById('out')?.textContent ?? ''), re.source, { timeout: 90000 }).then(() => true).catch(() => false)
+    await P.goto(`file://${verifier}`)
+    await P.locator('#files').setInputFiles([webm, join(dir, 'evidence.json')])
+    const okFiles = (await settle(/Unaltered/)) && (await settle(/Shows what the filming device|Does not show|Too few|None of the signatures/))
+    const pair = await resultText()
+    await P.goto(`file://${verifier}`)
+    await P.locator('#files').setInputFiles([bundle])
+    const okZip = await settle(/Unaltered/)
+    const zipText = await resultText()
+    // One flipped byte in the middle of the video.
+    const bytes = readFileSync(webm)
+    bytes[Math.floor(bytes.length / 2)] ^= 0xff
+    const tampered = join(dir, 'tampered.webm')
+    writeFileSync(tampered, bytes)
+    await P.goto(`file://${verifier}`)
+    await P.locator('#files').setInputFiles([tampered, join(dir, 'evidence.json')])
+    const refused = await settle(/Not the recording that was signed/)
+    const tamperedText = await resultText()
+    const ok = okFiles && /✓ Unaltered/.test(pair) && /✓ Shows what the filming device/.test(pair) && okZip && /✓ Unaltered/.test(zipText) && refused
+    return [ok, `verify.html ${(size / 1024).toFixed(0)} KB from disk: video + evidence.json → "${pair.slice(0, 220)}" | the .zip → unaltered ${okZip} | one byte changed → "${tamperedText.slice(-90)}"`]
   },
 })
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']

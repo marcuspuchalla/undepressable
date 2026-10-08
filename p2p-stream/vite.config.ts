@@ -24,11 +24,53 @@ function buildId(): string {
 // `vite build --mode portable` makes the self-contained single-file app
 // (scripts/build-portable.js): relative paths, hash routes, one inlined bundle,
 // so it runs from a file or from any mirror under any path.
+// `vite build --mode verify` builds the standalone evidence check (verify/):
+// one small page from the same modules, inlined into dist-verify/verify.html
+// and carried inside every evidence bundle (src/lib/transfer/verifier.ts).
+const VERIFY_HTML = resolve(__dirname, 'dist-verify/verify.html')
+function verifierPlugin() {
+  const id = 'virtual:verify-html'
+  return {
+    name: 'undepressable-verifier',
+    resolveId: (source: string) => (source === id ? '\0' + id : null),
+    load(this: any, source: string) {
+      if (source !== '\0' + id) return null
+      this.addWatchFile?.(VERIFY_HTML)
+      let html = ''
+      try {
+        html = readFileSync(VERIFY_HTML, 'utf8')
+      } catch {
+        /* not built yet (npm run build:verify): bundles then carry no checker */
+      }
+      return `export default ${JSON.stringify(html)}`
+    },
+  }
+}
+
 export default defineConfig(({ mode }) => {
   const portable = mode === 'portable'
   const noServiceWorker = mode === 'extension' || portable
+  if (mode === 'verify') {
+    return {
+      root: resolve(__dirname, 'verify'),
+      publicDir: false,
+      base: './',
+      define: { __APP_BUILD__: JSON.stringify(buildId()), __HASH_ROUTES__: 'true', __PORTABLE__: 'true' },
+      resolve: { alias: { '@': resolve(__dirname, 'src') } },
+      build: {
+        outDir: resolve(__dirname, 'dist-verify/app'),
+        emptyOutDir: true,
+        cssCodeSplit: false,
+        assetsInlineLimit: 1024 * 1024,
+        target: 'esnext',
+        sourcemap: false,
+        rollupOptions: { output: { inlineDynamicImports: true } },
+      },
+    }
+  }
   return {
   plugins: [
+    verifierPlugin(),
     nodePolyfills({
       include: ['process', 'util', 'buffer', 'stream'],
       globals: {

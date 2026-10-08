@@ -1,7 +1,7 @@
 /**
  * How a recording keeps the attestations it received: grouped by stream
- * (signer + stream id), each entry just `[n, t, f, sig]` — about 200 bytes per
- * second of footage, small next to the video itself.
+ * (signer + stream id), each entry just `[n, t, f, sig]` — about 400 bytes per
+ * second of footage (two attestations), small next to the video itself.
  *
  * The log is not covered by the recording's own proof, and needs not be:
  * every entry is signed by the filming device. Whoever carries a copy can
@@ -25,8 +25,8 @@ export interface AttestationLog {
 
 export type LogEntry = [number, number, string, string] | [number, number, string, string, number]
 
-/** Six hours of attestations per recording; past that, new ones are not kept. */
-export const MAX_ENTRIES = 6 * 3600
+/** Six hours of attestations (two a second) per recording; past that, new ones are not kept. */
+export const MAX_ENTRIES = 6 * 3600 * 2
 const MAX_LOGS = 16
 
 /**

@@ -22,12 +22,18 @@ import path from 'path'
 import { fileURLToPath } from 'url'
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
-const appDir = path.join(root, 'dist-portable', 'app')
-const outFile = path.join(root, 'dist-portable', 'undepressable.html')
+// --app-dir / --out: inline another Vite build the same way (the evidence
+// check, dist-verify/app → dist-verify/verify.html).
+const arg = (name, fallback) => {
+  const at = process.argv.indexOf(name)
+  return at > 0 && process.argv[at + 1] ? path.resolve(root, process.argv[at + 1]) : fallback
+}
+const appDir = arg('--app-dir', path.join(root, 'dist-portable', 'app'))
+const outFile = arg('--out', path.join(root, 'dist-portable', 'undepressable.html'))
 
 const indexPath = path.join(appDir, 'index.html')
 if (!fs.existsSync(indexPath)) {
-  console.error('dist-portable/app/index.html not found — run "vite build --mode portable" first.')
+  console.error(`${path.relative(root, indexPath)} not found — run the matching "vite build" first.`)
   process.exit(1)
 }
 let html = fs.readFileSync(indexPath, 'utf8')
@@ -42,7 +48,9 @@ html = html.replace(/<script type="module" crossorigin src="([^"]+)"><\/script>/
 // Stylesheet.
 html = html.replace(/<link rel="stylesheet" crossorigin href="([^"]+)">/g, (_m, href) => `<style>${read(href).toString('utf8')}</style>`)
 // Icons: one small data URI; the rest only matter to installed web apps.
-html = html.replace(/<link rel="icon" href="\.\/favicon\.ico">/, () => `<link rel="icon" href="data:image/x-icon;base64,${read('favicon.ico').toString('base64')}">`)
+if (fs.existsSync(path.join(appDir, 'favicon.ico'))) {
+  html = html.replace(/<link rel="icon" href="\.\/favicon\.ico">/, () => `<link rel="icon" href="data:image/x-icon;base64,${read('favicon.ico').toString('base64')}">`)
+}
 html = html.replace(/\s*<link rel="icon" type="image\/png"[^>]*>/g, '')
 html = html.replace(/\s*<link rel="apple-touch-icon"[^>]*>/g, '')
 

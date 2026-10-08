@@ -284,6 +284,7 @@ import ProtectRecordings from '../components/ProtectRecordings.vue'
 import { hasAttestations, checkAgainstFilmer } from '../lib/corroborate/check'
 import { groupCopies } from '../lib/combine/align'
 import { buildCombinedBundle, sourceBundles } from '../lib/combine/record'
+import { verifierEntries } from '../lib/transfer/verifier'
 import { getRecording } from '../lib/recordingDb'
 import { entryCount } from '../lib/corroborate/log'
 import type { Corroboration } from '../lib/corroborate/match'
@@ -357,7 +358,7 @@ const CORR_CLASS: Record<Corroboration['verdict'], string> = {
   'too-short': 'text-slate-400',
 }
 const attestationNote = (rec: Recording) =>
-  rec.attestations?.length ? `${entryCount(rec.attestations)} s signed by the filming phone` : 'signed by the filming phone — sealed with the footage'
+  rec.attestations?.length ? `${entryCount(rec.attestations)} moments signed by the filming phone` : 'signed by the filming phone — sealed with the footage'
 // Results for sealed recordings are shown, not stored (see checkAgainstFilmer).
 const checks = ref<Record<string, CorroborationCheck>>({})
 const checkOf = (rec: Recording) => checks.value[rec.id] ?? rec.corroboration
@@ -536,7 +537,7 @@ async function openSend(recording: Recording) {
   ]
   let zip: File | undefined
   try {
-    zip = new File([await buildBundle(manifest, blobs)], bundleName(manifest), { type: 'application/zip' })
+    zip = new File([await buildBundle(manifest, blobs, verifierEntries())], bundleName(manifest), { type: 'application/zip' })
   } catch {
     /* over ~4 GB: send the two files instead */
   }

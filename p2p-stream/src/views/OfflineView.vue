@@ -141,7 +141,7 @@
               <p class="text-sm font-medium text-slate-100">{{ watchTitle }}</p>
               <p class="text-xs text-slate-500">{{ recordingLabel }}</p>
               <p v-if="attestedSeconds > 0" class="text-xs text-moss" data-testid="attested-count">
-                ✓ {{ attestedSeconds }} s signed by the filming phone, kept with your copy
+                ✓ {{ attestedSeconds }} signed moments from the filming phone, kept with your copy
               </p>
             </div>
           </div>

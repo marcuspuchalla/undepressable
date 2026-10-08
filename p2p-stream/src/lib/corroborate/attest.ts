@@ -1,5 +1,5 @@
 /**
- * Live attestations: once a second, the device filming signs a perceptual
+ * Live attestations: twice a second, the device filming signs a perceptual
  * fingerprint of what its camera shows. They travel to every viewer with the
  * stream (a few hundred bytes a second) and are kept with each viewer's
  * recording, so a viewer's copy can later be checked against what the

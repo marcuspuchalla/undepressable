@@ -182,7 +182,7 @@
             ✓ Your relay is included, so viewers behind strict networks can connect without setup.
           </div>
           <div v-if="attesting" class="w-full max-w-md text-xs text-slate-400" data-testid="attest-note">
-            ✓ Every second this phone signs a fingerprint of its picture; viewers keep them with their copies, so each copy
+            ✓ Twice a second this phone signs a fingerprint of its picture; viewers keep them with their copies, so each copy
             can later be checked against what this camera showed. The link carries the key (<span class="font-mono">{{ streamKeyHex.slice(0, 8) }}…</span>),
             made for this stream only.
           </div>

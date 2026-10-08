@@ -57,7 +57,7 @@ export interface Recording {
   // time (lib/timestamp).
   timestamp?: RecordingTimestamp
   // What the filming device signed while streaming: a fingerprint of its
-  // picture every second (lib/corroborate). Kept by viewers, so their copy can
+  // picture twice a second (lib/corroborate). Kept by viewers, so their copy can
   // be checked against the source.
   attestations?: AttestationLog[]
   // The last check of this copy against them (local only; never trusted from elsewhere).

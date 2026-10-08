@@ -311,7 +311,7 @@
           Auto-recording when stream starts
         </p>
         <p v-if="attestedSeconds > 0" class="text-xs text-center text-moss" data-testid="attested-count">
-          ✓ The filming phone signs its picture every second — {{ attestedSeconds }} kept with your copy{{ filmerKey ? '' : ' (key not in your link: compare it with the filmer)' }}
+          ✓ The filming phone signs its picture twice a second — {{ attestedSeconds }} kept with your copy{{ filmerKey ? '' : ' (key not in your link: compare it with the filmer)' }}
         </p>
 
         <!-- Pass it on to a broadcast server (e.g. from where the server isn't blocked) -->

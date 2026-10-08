@@ -10,6 +10,7 @@ import { buildBundle, buildZip, bundleName, manifestFor, readZip, type ZipFileEn
 import { addToLogs, type AttestationLog } from '../corroborate/log'
 import { mainLog, type CopyGroup } from './align'
 import { renderTimeline, type RenderOptions } from './player'
+import { verifierEntries } from '../transfer/verifier'
 import type { Timeline } from './timeline'
 
 /** The playable footage of every placed copy (sealed ones opened, when this device can). */
@@ -103,6 +104,7 @@ export async function buildCombinedBundle(rec: Recording, sources: Recording[]):
     { name: `${bundleName(own.manifest).replace(/\.zip$/, '')}.webm`, parts: [own.video] },
     { name: 'evidence.json', parts: [new Blob([JSON.stringify(own.manifest, null, 2)], { type: 'application/json' })] },
     { name: 'README.txt', parts: [new Blob([COMBINED_README])] },
+    ...verifierEntries(),
   ]
   for (const src of sources) {
     const ev = await plainEvidence(src)

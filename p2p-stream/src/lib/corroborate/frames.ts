@@ -36,6 +36,9 @@ function hiddenVideo(): HTMLVideoElement {
   return v
 }
 
+/** Two signed moments a second: an edit between two has at most half a second to hide in. */
+export const ATTEST_EVERY_MS = 500
+
 export interface Attestor {
   /** The key attestations are signed with (hex): goes into the share link. */
   readonly publicKey: string
@@ -46,11 +49,11 @@ export interface Attestor {
 }
 
 /**
- * Once a second, fingerprint what the camera shows and sign it. The key is
+ * Twice a second, fingerprint what the camera shows and sign it. The key is
  * made for this stream alone and never stored: nothing links two streams of
  * the same phone, or a stream to the phone's own recordings.
  */
-export function startAttestor(stream: MediaStream, key: Identity, emit: (a: Attestation) => void, everyMs = 1000): Attestor {
+export function startAttestor(stream: MediaStream, key: Identity, emit: (a: Attestation) => void, everyMs = ATTEST_EVERY_MS): Attestor {
   const ctx = thumbCanvas()
   const video = hiddenVideo()
   const streamId = newStreamId()
