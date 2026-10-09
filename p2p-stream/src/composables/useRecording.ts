@@ -1,7 +1,7 @@
 import { ref } from 'vue'
 import { ensurePersistentStorage } from '../lib/persistence'
 import { putRecording } from '../lib/recordingDb'
-import { newContentKey, sealContentKey, encryptChunk } from '../lib/seal/crypto'
+import { newContentKey, sealContentKey, encryptChunk, sealJson } from '../lib/seal/crypto'
 import { sealRecipients } from '../lib/seal/keys'
 import { useOPFS } from './useOPFS'
 import { checkStorage, type StorageAssessment } from '../lib/storageGuard'
@@ -12,37 +12,12 @@ import {
   toHex,
   buildProof,
   verifyProof,
-  generateIdentity,
-  serializeIdentity,
-  deserializeIdentity,
-  type Identity,
   type VerificationResult,
 } from '../lib/integrity'
 
-// A single anonymous Ed25519 identity per browser, used to sign recording
-// proofs. Persisted (no PII — just a random keypair) so a device's recordings
-// share one verifiable signer.
-const IDENTITY_KEY = 'undepressable_identity'
-let cachedIdentity: Identity | null = null
-function getIdentity(): Identity {
-  if (cachedIdentity) return cachedIdentity
-  try {
-    const saved = localStorage.getItem(IDENTITY_KEY)
-    if (saved) {
-      cachedIdentity = deserializeIdentity(JSON.parse(saved))
-      return cachedIdentity
-    }
-  } catch {
-    /* corrupt/absent — regenerate below */
-  }
-  cachedIdentity = generateIdentity()
-  try {
-    localStorage.setItem(IDENTITY_KEY, JSON.stringify(serializeIdentity(cachedIdentity)))
-  } catch {
-    /* storage blocked; identity still valid for this session */
-  }
-  return cachedIdentity
-}
+import { getIdentity } from '../lib/integrity/deviceIdentity'
+import { addToLogs } from '../lib/corroborate/log'
+import type { Attestation } from '../lib/corroborate/attest'
 
 // In-memory storage for continuous recording (for download)
 interface RecordingSession {
@@ -430,6 +405,12 @@ export function useRecording() {
             s.recording.sealed.proof = buildProof(s.recording.id, cipherHashes, getIdentity())
           }
         }
+        // A sealed recording's attestations are sealed with it: in the clear
+        // they would tie this phone to a stream other people watched.
+        if (s.seal && s.recording.sealed && s.recording.attestations?.length) {
+          s.recording.sealed.attestations = await sealJson(s.seal.contentKey, s.recording.attestations)
+          delete s.recording.attestations
+        }
         // The content key goes out of reach with the session.
         if (s.seal) s.seal.contentKey.fill(0)
       } catch (e) {
@@ -505,6 +486,14 @@ export function useRecording() {
     activeSessions.delete(recordingId)
   }
 
+  // Keep an attestation from the filming device with the recording in progress
+  // (the caller has checked who sent it and its signature).
+  function noteAttestation(a: Attestation): boolean {
+    if (!live) return false
+    live.recording.attestations ??= []
+    return addToLogs(live.recording.attestations, a, Date.now() - live.recording.startedAt.getTime())
+  }
+
   // Re-derive the Merkle root from stored chunk hashes and check the signature,
   // proving the recording hasn't been altered since it was saved.
   function verifyRecording(recording: Recording): VerificationResult {
@@ -524,6 +513,7 @@ export function useRecording() {
     cleanupSession,
     checkForOrphanedRecordings,
     verifyRecording,
+    noteAttestation,
     getIdentity
   }
 }

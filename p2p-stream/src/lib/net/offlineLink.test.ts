@@ -7,6 +7,8 @@ import {
   OFFLINE_SILENCE_MS,
   type LinkFacts,
 } from "./offlineLink";
+import { signAttestation, newStreamId } from "../corroborate/attest";
+import { generateIdentity } from "../integrity/identity";
 
 describe("control messages", () => {
   it("round-trips each message kind", () => {
@@ -27,6 +29,14 @@ describe("control messages", () => {
     expect(decodeLinkMsg(JSON.stringify({ t: "other" }))).toBeNull();
     expect(decodeLinkMsg(new ArrayBuffer(4))).toBeNull();
     expect(decodeLinkMsg("x".repeat(70 * 1024))).toBeNull();
+  });
+
+  it("carries the filmer's attestations, and only well-formed ones (extra fields dropped)", () => {
+    const a = signAttestation({ s: newStreamId(), n: 4, t: 4000, f: "0123456789abcdef0123456789abcdef" }, generateIdentity());
+    expect(decodeLinkMsg(encodeLinkMsg({ t: "att", a }))).toEqual({ t: "att", a });
+    expect(decodeLinkMsg(JSON.stringify({ t: "att", a: { ...a, extra: "x".repeat(1000) } }))).toEqual({ t: "att", a });
+    expect(decodeLinkMsg(JSON.stringify({ t: "att", a: { ...a, f: "nothex" } }))).toBeNull();
+    expect(decodeLinkMsg(JSON.stringify({ t: "att" }))).toBeNull();
   });
 });
 

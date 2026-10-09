@@ -7,7 +7,8 @@ import Turn from 'node-turn'
 const ip = process.argv[2] || '127.0.0.1'
 const server = new Turn({
   listeningPort: 3478,
-  listeningIps: [ip],
+  // Also on loopback: the TCP/TLS bridge (turn-tcp-bridge.mjs) talks to it there.
+  listeningIps: [ip, '127.0.0.1'],
   relayIps: [ip],
   externalIps: ip,
   minPort: 20000,

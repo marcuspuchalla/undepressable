@@ -68,8 +68,14 @@ Scenarios: `open`, `blocked`, `relay-link`, `relay-one-side`,
 `offline-chain-repair`, `messenger-pair` and `messenger-pair-late` (discovery
 dead, direct UDP dropped, codes pasted like messages — also 90 s late),
 `amplify-streamer` and `amplify-viewer` (WHIP to a stand-in broadcast
-server), `sealed-home`, `sealed-passphrase`, `sealed-blind-carrier` and
-`timestamp`. Also `scripts/e2e/pwa-offline.mjs` and `scripts/e2e/portable.mjs`
+server), `sealed-home`, `sealed-passphrase`, `sealed-blind-carrier`,
+`timestamp`, `corroborate`, `corroborate-offline` and `corroborate-sealed`
+(two fake cameras playing generated files with a different picture every
+second, so copies can be told apart), `throttled` (an `iptables hashlimit`
+policer between the browsers; `TRACE=1` prints the link stats), `combine`,
+`blend-in` (every UDP packet dropped and counted; a TCP/TLS front for the
+test TURN server; `TRACE=1` classifies the packets, `NETLOG=<dir>` keeps
+Chromium's net logs) and `self-check` (needs `npm run build:verify`). Also `scripts/e2e/pwa-offline.mjs` and `scripts/e2e/portable.mjs`
 (need `npm run build`), `scripts/e2e/updates.mjs` (builds three signed
 versions itself) and `scripts/e2e/extension.mjs` (needs
 `npm run build:extension`). Results and what each proves:
@@ -341,6 +347,53 @@ hotspot — 🔒 not implemented; design in [`NATIVE_MESH.md`](NATIVE_MESH.md).
 3. Blind carrier: a sealed evidence file imported by a friend verifies as intact but cannot be opened there; the friend sends it home, where it opens and verifies. ✅ (E2E `sealed-blind-carrier`)
 4. ⏱ *Timestamp*: requested → still pending → anchored and checked against the block; the evidence bundle contains `root.txt` and `root.txt.ots` whose digest matches. ✅ (E2E `timestamp`, stand-in calendar and explorer) · ⬜ against the real OpenTimestamps calendars and `ots verify` on a real, confirmed proof (hours later).
 5. On real phones: sealed recording at a scene, phone locked/taken, recording still arrives home and opens there. ⬜
+
+## Scenario 9 — Every copy checks back to the camera (round 7)
+
+**Guide:** Use case 09.
+
+1. Stream; the share sheet says the phone signs its picture every second and shows the start of the key; the link carries `fk=`. A viewer joins through the link: "✓ The filming phone signs its picture every second — N kept with your copy". ✅ (E2E `corroborate`)
+2. Viewer → Recordings → *Check against the filmer* → "✓ Shows what the filming phone's camera showed: n of n signed moments match (key …)", the key being the link's. A copy given another stream's attestations → "✗ Does not show …, 0 of n". The filmer's own recording checks out too. ✅ (E2E `corroborate`, two cameras with different pictures)
+3. Face to face through a chain (A films, B relays, C records): C's copy checks out against A's key. ✅ (E2E `corroborate-offline`)
+4. Forwarded to a home archive: the attestations arrive with the picture. ✅ (E2E `archive`)
+5. Sealed to home: nothing readable on the phone ties it to the stream; sent home, the copy opens and checks out. ✅ (E2E `corroborate-sealed`)
+6. A cut: a copy with a stretch replaced names the unmatched times. ✅ (unit) · ⬜ on a real edited file.
+7. On real phones: a viewer on mobile data, a copy re-encoded by a messenger (WhatsApp, Signal) then checked. ⬜
+
+## Scenario 10 — Throttled networks (round 7)
+
+**Guide:** Use case 10.
+
+1. Throttle one viewer's link to ~320 kbit/s: the filmer sees "🐢 1 slow link: small/reduced picture"; the viewer's picture keeps moving and is never dropped to sound only. ✅ (E2E `throttled`, policer)
+2. Throttle to ~56 kbit/s: "sound only" on both ends; the viewer keeps recording and is not told the stream was interrupted. ✅ (E2E `throttled`)
+3. Lift the limit: the picture comes back without reconnecting. ✅ (E2E `throttled`)
+4. Several viewers, one throttled: the others keep the full picture. ⬜
+5. On real networks: a phone on throttled mobile data (e.g. a carrier's 128 kbit/s fallback after the data cap), and a 2G-only setting. ⬜
+
+## Scenario 11 — Many copies, one record (round 8)
+
+**Guide:** Use case 11.
+
+1. Two viewers record different stretches of one stream with a pause between; their bundles are imported on a third device. Recordings → *Combine copies*: one group, copies placed by the filmer's signals, then matched against the filmer; the bar shows two stretches and the gap. ✅ (E2E `combine`)
+2. *Play through* switches copies and shows the gap card; *Render one video* produces a signed recording "rendered from 2 copies", segments [copy, gap, copy], that checks out against the filmer. ✅ (E2E `combine`: 19 of 19)
+3. *Save combined record*; imported on a fourth device, it brings both source copies, each verified. ✅ (E2E `combine`)
+4. Real copies from real phones (different encoders, different clocks). ⬜ (`DEVICE_CHECKLIST.md`)
+
+## Scenario 12 — Blend in (round 8)
+
+**Guide:** Use case 06, "If the network looks for WebRTC itself".
+
+1. A `turns:…:443` relay configured, *Blend in* on, every UDP packet from the host dropped and counted: the stream works via RELAY, discovery rooms Nostr only, **0** UDP packets attempted, and Chromium's net log shows no host beyond localhost and the relay. ✅ (E2E `blend-in`)
+2. Same relay, *Blend in* off: UDP attempted at once (direct candidates), rooms mqtt/nostr/torrent, every public tracker and broker contacted. ✅ (E2E `blend-in`, control)
+3. Without a TLS relay the Network page says the setting cannot apply. ✅ (unit)
+4. On a real network that blocks UDP or WebRTC, with a real coturn. ⬜
+
+## Scenario 13 — Evidence that checks itself (round 8)
+
+**Guide:** Use case 12.
+
+1. A viewer's bundle, unzipped; `verify.html` opened from disk in a plain browser: video + evidence.json → "Unaltered", the filmer's moments matched; the .zip itself → unaltered; one byte flipped → "Second 4 does not match what was signed". ✅ (E2E `self-check`)
+2. On each platform's browser from the OS's file manager, including iOS Files → Safari. ⬜
 
 ## Cross-cutting checks (run once per platform)
 

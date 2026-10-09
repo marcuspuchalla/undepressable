@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Undepressable evidence check</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; padding: 24px 16px 48px; background: #0b0d10; color: #e2e8f0; font: 15px/1.5 system-ui, -apple-system, sans-serif; }
+      main { max-width: 640px; margin: 0 auto; }
+      h1 { font-size: 22px; margin: 0 0 4px; }
+      p { margin: 0 0 12px; color: #94a3b8; }
+      label.drop { display: block; border: 2px dashed #334155; border-radius: 12px; padding: 24px 16px; text-align: center; cursor: pointer; margin: 16px 0; }
+      label.drop.over { border-color: #6ee7b7; }
+      label.drop input { display: none; }
+      .card { background: #11161c; border: 1px solid #1f2937; border-radius: 12px; padding: 14px 16px; margin: 12px 0; }
+      .ok { color: #6ee7b7; }
+      .bad { color: #fca5a5; }
+      .dim { color: #94a3b8; font-size: 13px; }
+      .mono { font-family: ui-monospace, monospace; font-size: 13px; word-break: break-all; }
+      ul { margin: 6px 0 0; padding-left: 20px; }
+      li { margin: 2px 0; }
+      progress { width: 100%; }
+      details { margin-top: 10px; }
+      summary { cursor: pointer; color: #94a3b8; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Undepressable evidence check</h1>
+      <p>
+        Checks a recording against the proof it came with — on this computer, without the website or the app. Choose the
+        evidence bundle (<span class="mono">.zip</span>), or the video together with its
+        <span class="mono">evidence.json</span> / <span class="mono">.evidence.txt</span>. Nothing is uploaded anywhere.
+      </p>
+      <label class="drop" id="drop">
+        <input id="files" type="file" multiple accept=".zip,.webm,.sealed,.json,.txt,video/webm,application/zip,application/json,text/plain" />
+        <span>Choose files, or drop them here</span>
+      </label>
+      <div id="out"></div>
+      <p class="dim">
+        This page is built from the same code as the app and travels inside every evidence bundle. What it checks, and
+        how to check without it, is in README.txt next to it.
+      </p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -9,6 +9,8 @@ import {
   lockPrivateKey,
   unlockPrivateKey,
   CHUNK_OVERHEAD,
+  sealJson,
+  openJson,
 } from './crypto'
 
 const bytes = (s: string) => new TextEncoder().encode(s)
@@ -59,6 +61,17 @@ describe('chunk encryption', () => {
     changed[changed.length - 1] ^= 1
     await expect(decryptChunk(ck, changed)).rejects.toThrow()
     await expect(decryptChunk(newContentKey(), sealed)).rejects.toThrow()
+  })
+})
+
+describe('sealed metadata', () => {
+  it('round-trips JSON under the content key, and refuses another key', async () => {
+    const ck = newContentKey()
+    const value = { logs: [{ pk: 'ab'.repeat(32), a: [[1, 2, 'x', 'y']] }], note: 'Café ✓' }
+    const sealed = await sealJson(ck, value)
+    expect(sealed).not.toContain('ab'.repeat(8))
+    expect(await openJson(ck, sealed)).toEqual(value)
+    await expect(openJson(newContentKey(), sealed)).rejects.toThrow()
   })
 })
 

@@ -789,3 +789,239 @@ is a "simple" one — asserted by the E2E test.
 - Timestamps take hours to anchor, prove "existed by", and contacting the
   calendars is visible to the network; they stay off unless asked for.
 
+
+## Part 6 — round 7: copies that check back to the camera, and throttled links
+
+### 34. A viewer's copy could not be linked to what the camera saw
+
+Every copy is signed by the device that recorded it — which proves nothing
+about the picture before it got there. Since viewers' copies are the ones
+that survive when the filming phone is taken, that was the weakest link in
+the evidence chain. **Live attestations** (`lib/corroborate/`): once a
+second the filming phone fingerprints its own camera picture (dHash + aHash
+of a 64×64 grayscale thumbnail, 128 bits) and signs `stream id, sequence,
+ms since start, fingerprint` with Ed25519 — with a key made for this stream
+and never stored, so two streams of one phone cannot be linked through it.
+The share link carries the key (`fk=`); viewers who joined through it keep
+only attestations under that key (others: only from the peer sending the
+stream), signature-checked and rate-limited. They travel wherever the
+picture does — rooms, relay trees, home forwarding, face-to-face chains
+(`LinkMsg 'att'`), syncs and evidence files.
+
+*Check against the filmer* plays a copy through at 8–16× unseen, samples a
+fingerprint every 200 ms of video time, finds the offset between the
+filmer's clock and the copy's by voting (every look-alike pair proposes
+one), and reports per signing key how many attested moments inside the copy
+have a matching frame within ±0.7 s — naming the times that do not, where a
+cut or a swap would be. Fewer than 3 attested moments: "too few"; a scene
+that never changed is flagged as saying little. What it proves, and what it
+does not (whose key, bytes vs. picture), is in THREAT_MODEL §4.
+
+### 35. Throttling turned a stream into a stalling smear
+
+Congestion control lowers the bitrate but never decides a link is too slow
+for video: on a policed 50–300 kbit/s link the picture stalled and crowded
+out the sound. Each sending link now steps through a ladder (`linkShaper.ts`
+logic, `linkShaping.ts` WebRTC) from what the connection measures — full,
+reduced (½ resolution, 450 kbit/s, 24 fps), small (¼, 130 kbit/s, 12 fps),
+sound only (video encoding switched off, sound at high priority). Down: as
+far as the estimate says after two samples (4 s), but on loss alone at most
+one step — a single burst (a keyframe hitting a policer) once threw a
+picture straight to sound only. Up: one step at a time, each step a trial
+(fails on repeated heavy loss, or when the estimate, given 15 s, does not
+hold it); after a failed trial the next waits 30 s, then 60 (round 8: and
+no longer, see §41) —
+under a policer the estimate runs ahead of reality and retries flapped every
+20 s before this. The viewer's stall monitor now tells *sound only* from a
+dead stream (audio bytes still moving), so a throttled viewer keeps
+recording instead of tearing the connection down and reconnecting.
+
+### 36. Found on the way
+
+- **The filming screen's bottom buttons could not be pressed** — record/stop,
+  QR, end stream sat inside a `pointer-events-none` overlay since the
+  baseline. Found when the corroboration test tried to end a stream.
+- **New recording fields were silently dropped on save**: the database layer
+  copies an explicit field list. A test now round-trips every field.
+- **Large messages over plain data channels failed**: Chrome caps a message at
+  256 KB. The evidence of a recording carries a hash per second, so handing
+  over anything longer than about an hour face to face failed; with
+  attestations, about a quarter of an hour. Such messages are now framed
+  like chunks.
+- **A sealed recording kept the stream's attestations in the clear** — their
+  key is in a public link, so a seized phone could be tied to a stream. They
+  are sealed with the footage now.
+- **A viewer on sound only kept collecting attestations** while its copy
+  recorded a frozen frame: checked later, that stretch would have read as a
+  cut. Attestations are now kept (and forwarded home) only while the picture
+  is arriving.
+- **The test harness lost discovery for the rest of a run** when
+  `internet-drops` failed mid-way (it stops the local relay). It now always
+  brings it back.
+
+### Round 7 verification
+
+- **Unit:** 398 tests (was 361). New: fingerprints (stable under noise,
+  brightness shift and rescaling; distinct scenes far apart; flat pictures
+  steady), attestations (any changed field breaks the signature), matching
+  (offset found under network delay; another stream's footage not
+  corroborated; a spliced stretch named; bad signatures dropped; each signer
+  reported separately; a still scene flagged), attestation logs and intake
+  (link key enforced whoever relays; without one, only the stream's source;
+  rate limit), evidence (attestations carried and shape-checked; sealed with
+  sealed recordings and opened with the footage), framed large data-channel
+  messages, every stored recording field round-tripped, the link ladder
+  (straight down on the estimate, one step on loss, every step up on trial,
+  doubling back-off), and sound-only told from a dead stream.
+- **End to end, one clean run:** all 30 scenarios pass. New or extended:
+
+  | Check | Result |
+  |---|---|
+  | corroborate | two cameras with different generated pictures; one viewer records both through the links: each copy kept only its link's key; A: "10 of 10 signed moments match", C: "10 of 10"; A given C's attestations: "✗ … 0 of 10"; the filmer's own recording: 34 of 36; attestations in the evidence file |
+  | corroborate-offline | A films, B relays, C records, face to face: C's copy 10 of 10, signed by A's key |
+  | corroborate-sealed | viewer sealing to home: no attestation in the clear on the phone and the stream key absent from its record; the check there says it is sealed; sent home, opened: 11 of 11 |
+  | archive | the filmer's attestations reach the home archive with the forwarded picture (6 in 6 s) |
+  | throttled | `iptables hashlimit` policer: ~320 kbit/s → small/reduced picture, moving in 10/10 samples, never sound only; ~56 kbit/s → "sound only" on both ends, still recording, no "interrupted"; lifted → picture back without reconnecting |
+
+  Plus pwa-offline, portable, updates and extension — all passing.
+- **Owed:** corroboration on real phones, including a copy re-encoded by a
+  messenger before it is checked; throttling on real networks (a carrier's
+  post-cap fallback speed, a 2G-only setting) and with several viewers of
+  which only one is throttled.
+
+### Round 7 known limits
+
+- A match means the same coarse picture, not the same bytes; a crafted video
+  with the same coarse picture would pass, and a still scene matches easily
+  (the check says so). Who the key belongs to has to be established outside
+  the app — the link the filmer shared.
+- Joined by room code alone, a viewer cannot hold attestations to a key, and
+  takes those of whoever announces itself as the filmer.
+- One attestation per second: shorter edits between two can go unnoticed.
+- Checking plays the copy at 8–16×: an hour of footage takes a few minutes.
+- The ladder shapes each link separately; a filming phone whose own upload is
+  throttled shares it among its direct viewers, so relaying viewers matter
+  more. Below ~50 kbit/s even sound breaks up.
+
+## Part 7 — round 8: one record out of many, blending in, and evidence that checks itself
+
+### 37. Each viewer's copy stood alone
+
+Every viewer records on its own, so when one phone is taken or drops out
+the others' copies have their gaps at different moments — and nothing put
+them together. **Combined records** (`lib/combine/`): copies of one stream
+are grouped by the filmer's key and stream id (by room without
+attestations), placed on the filmer's clock — exactly, from the picture
+check; roughly, from when the attestations arrived (their receipt times are
+now kept in the logs); as a last resort, from device clocks, tied to the
+placed copies — and covered with the fewest switches, best-aligned copy
+first. The timeline plays through one video element, switching copies, and
+renders into one signed recording through a canvas at the copies' own
+picture size (a letterboxed re-encode no longer matches the filmer's
+fingerprints), with gaps drawn at full length so the clock stays linear:
+the rendered video still checks out against the filmer. Its record names
+every source copy's signed root and key; a combined bundle carries each
+copy as its own evidence bundle under `sources/`, and importing one
+imports and verifies them all. Viewers' and the filmer's own recordings
+are now filed under the room, so copies group even without attestations.
+
+### 38. The app's traffic said what it was
+
+Deep packet inspection recognises WebRTC before it knows the app: STUN to
+public servers, DTLS between peers, TURN in the clear. **Blend in**
+(`lib/net/blendIn.ts`, Network page) needs a `turns:` relay on 443 and
+then: relay candidates only, only TLS relays in the configuration, no STUN
+servers, no NAT probe, discovery over Nostr/WSS only. Without a TLS relay
+the setting cannot apply, and says so. `docs/TRAFFIC.md` says what each
+component looks like on the wire and what still shows — hostnames, the
+steady shape of a live stream, TURN's TLS handshake without ALPN; no
+pluggable transports, which a web page cannot do.
+
+### 39. Evidence depended on the app that made it
+
+The README in a bundle described the check in words; actually doing it
+without the app meant writing code. Every bundle now carries
+`verify.html` — 49 KB, built from the same modules (`vite --mode verify`,
+inlined like the single-file app, handed to the app through a virtual
+module) — which checks the signature over every second, the filmer's
+attestations, a timestamp's presence and a combined record's sources, in
+any browser from disk, uploading nothing.
+
+### 40. Half a second to hide in
+
+Attestations were signed once a second, so an edit shorter than a second
+between two of them could pass. The filming device now signs twice a
+second (the logs allow six hours at that rate).
+
+### 41. Found on the way
+
+- **Chromium sends TURN over TCP/TLS through the system's HTTPS proxy.** On
+  this machine every outbound TCP went through the container's agent proxy,
+  which refused the relay: `turns:` "failed to establish connection" while
+  `turn:` over UDP worked. The harness launches the blend-in browsers with
+  `--no-proxy-server`. Worth knowing in the field: a phone with a configured
+  HTTP proxy routes `turns:` through it.
+- **Headless Chromium phones home.** With the proxy out of the way the net
+  log showed DNS and QUIC to Google (account checks, push registration, DoH
+  probes) — none of it the app's. The blend-in scenario refuses to resolve
+  anything but localhost and the relay, and classifies what remains by
+  Chromium's own net log.
+- **The test TURN server only spoke UDP.** `turn-tcp-bridge.mjs` fronts it
+  over TCP and TLS with RFC 5766 stream framing, so `turns:…:443` is
+  exercised for real (a self-signed certificate, accepted by the test
+  browser only).
+
+- **Sound only could stay sound only for minutes after the throttle lifted.**
+  With video switched off nothing is sent that could raise the link's
+  estimate, so the climb back is by timed tries — and the back-off between
+  tries had grown to two minutes. Now at most a minute (a few seconds of
+  broken picture a minute on a link that stays slow), and a link whose
+  estimate jumps two tiers above the current one steps up at once.
+
+### Round 8 verification
+
+- **Unit:** 412 tests (was 398). New: the combined timeline (fewest
+  switches, gaps, a copy inside another never played, alignment ranking),
+  grouping and placing copies (by stream and by room; picture, signals and
+  clock placements; a non-matching copy left out; clock copies tied to placed
+  ones), blend-in (TLS-relay detection incl. port 443, configuration
+  reduced to TLS relays and relay candidates, readiness levels), evidence
+  manifests with `combined`, and the link ladder's recovery rules.
+- **End to end, one run:** 32 of 33 scenarios pass; `throttled` brought the
+  picture back after the throttle lifted but not the full picture within the
+  budget (the ladder fix in §41 follows from it; its re-run is recorded
+  below the table). New:
+
+  | Check | Result |
+  |---|---|
+  | combine | two viewers, 10 s each with a 3 s pause, bundles imported on a third device: placed by the filmer's signals, then "Matched against the filmer" ×2; "0:23 covered, 0:05 in gaps, 2 stretches"; play-through switched copies and showed the gap; rendered 27 s [copy 11, gap 6, copy 12], signed, "rendered from 2 copies", 19 of 19 moments match the filmer; the combined record imported on a fourth device with both source copies verified |
+  | blend-in | every UDP packet from the host dropped and counted: on — video via RELAY, rooms ["nostr"], **0 UDP packets attempted**, the app's only host beyond localhost the TLS relay (Chromium net log); off, same relay — 58 UDP packets, rooms mqtt/nostr/torrent, every public tracker and broker contacted |
+  | self-check | a viewer's bundle unzipped; verify.html (49 KB) from disk in a plain browser: video + evidence.json → "Unaltered, 9 s", 16 moments matched against the filmer; the .zip → unaltered; one byte flipped → "Second 4 … does not match what was signed" |
+  | corroborate, -offline, -sealed, archive | pass at two attestations a second (20–21 kept in 10 s) |
+
+  `throttled` re-run with the ladder fix: **pass** — ~320 kbit/s: reduced and
+  small picture, moving in 10/10 samples, never sound only; ~56 kbit/s:
+  sound only on both ends, still recording, no "interrupted"; lifted: the
+  full picture back.
+
+  Plus pwa-offline, portable (the single file now 1.10 MB with the checker
+  inside), updates and extension — all passing on the round's build.
+- **Owed:** `docs/DEVICE_CHECKLIST.md` — everything across all rounds that
+  needs real phones, networks and services, in one list.
+
+### Round 8 known limits
+
+- Combining needs the copies on one device, and plays the record through in
+  real time to render it: an hour of footage takes an hour. Copies that
+  cannot be aligned by the filmer's signatures are placed by device clocks,
+  which can be seconds off; the result says which alignment it got.
+- A rendered video is a re-encode: evidence is the copies it names, which
+  is why a combined record carries them.
+- Blend in needs a `turns:` relay on 443 and makes everything go through
+  it; what still shows is in `TRAFFIC.md`. A device with a system HTTP proxy
+  sends `turns:` through that proxy.
+- `verify.html` needs a browser; it checks what the bundle carries, not
+  whose key it is. An app built without `npm run build:verify` makes bundles
+  without it.
+- Two attestations a second double their size (about 400 bytes a second);
+  an edit shorter than half a second between two can still pass.

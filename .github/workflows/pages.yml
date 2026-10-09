@@ -1,0 +1,62 @@
+# Publish the app on GitHub Pages from every push to main.
+#
+# What gets published is the single-file build (p2p-stream/dist-portable/
+# undepressable.html): it runs under any path, with its routes in the hash,
+# so it needs no server configuration — the same file "Pass the app on"
+# hands out. Alongside it: the evidence checker (verify.html).
+#
+# One-time setup in the repository: Settings → Pages → Source: GitHub Actions.
+# (A private repository needs a plan that includes Pages, or make it public.)
+# The site then lives at https://<owner>.github.io/<repo>/.
+
+name: pages
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: p2p-stream
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: p2p-stream/package-lock.json
+      - run: npm ci
+      - run: npm run build:verify
+      - run: npm run build:portable
+      - name: Lay out the site
+        run: |
+          mkdir -p site
+          cp dist-portable/undepressable.html site/index.html
+          cp dist-portable/undepressable.html site/404.html
+          cp dist-portable/undepressable.html site/undepressable.html
+          cp dist-verify/verify.html site/verify.html
+          touch site/.nojekyll
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: p2p-stream/site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

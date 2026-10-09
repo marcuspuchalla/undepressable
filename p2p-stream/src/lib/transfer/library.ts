@@ -116,8 +116,10 @@ export function recordingFromManifest(
     })),
     metadata: { resolution: r.resolution, bitrate: r.bitrate, codec: r.mimeType },
     proof: m.proof,
-    ...(m.sealed ? { sealed: { v: 1 as const, keys: m.sealed.keys, proof: m.sealed.proof } } : {}),
+    ...(m.sealed ? { sealed: { v: 1 as const, keys: m.sealed.keys, proof: m.sealed.proof, ...(m.sealed.attestations ? { attestations: m.sealed.attestations } : {}) } } : {}),
     ...(m.timestamp ? { timestamp: m.timestamp } : {}),
+    ...(m.attestations?.length ? { attestations: m.attestations } : {}),
+    ...(m.combined ? { combined: m.combined } : {}),
     origin,
   }
 }

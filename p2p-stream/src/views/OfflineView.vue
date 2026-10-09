@@ -140,6 +140,9 @@
             <div class="flex-1">
               <p class="text-sm font-medium text-slate-100">{{ watchTitle }}</p>
               <p class="text-xs text-slate-500">{{ recordingLabel }}</p>
+              <p v-if="attestedSeconds > 0" class="text-xs text-moss" data-testid="attested-count">
+                ✓ {{ attestedSeconds }} signed moments from the filming phone, kept with your copy
+              </p>
             </div>
           </div>
           <video ref="remoteVideo" autoplay playsinline muted class="w-full rounded-xl bg-black max-h-72" />
@@ -222,6 +225,9 @@
               </span>
               <button v-else-if="l.phase === 'timed-out' || l.phase === 'lost'" class="ml-auto text-xs text-slate-400 underline" @click="pair.closeLink(l.id)">remove</button>
             </div>
+            <p v-if="l.phase === 'connected' && l.tier !== 'full'" class="mt-1 text-xs text-yellow-300" data-testid="link-tier">
+              Slow link: sending {{ TIER_LABEL[l.tier] }}
+            </p>
             <ul v-if="l.phase === 'timed-out'" class="mt-2 text-xs text-slate-400 list-disc list-inside space-y-1">
               <li v-for="tip in tipsFor(l.internet)" :key="tip">{{ tip }}</li>
             </ul>
@@ -266,6 +272,9 @@ import { OFFLINE_CONNECT_TIPS, INTERNET_CONNECT_TIPS, type LinkPhase } from '../
 import { hasRelay } from '../lib/net/iceConfig'
 import { createStallMonitor } from '../lib/net/streamHealth'
 import PairCode from '../components/PairCode.vue'
+import { generateIdentity } from '../lib/integrity/identity'
+import { startAttestor, type Attestor } from '../lib/corroborate/frames'
+import { TIER_LABEL } from '../lib/net/linkShaping'
 
 // Paste box shared by both roles: accepts a pairing code as text.
 const CodeInput = defineComponent({
@@ -303,6 +312,30 @@ const CodeInput = defineComponent({
 })
 
 const pair = useOfflinePair()
+
+// The filmer's signed fingerprints (lib/corroborate): sent down every link
+// with the picture, and kept with every copy — ours included.
+let attestor: Attestor | null = null
+function attest(stream: MediaStream) {
+  if (attestor) {
+    attestor.setStream(stream)
+    return
+  }
+  attestor = startAttestor(stream, generateIdentity(), (a) => {
+    pair.sendAttestation(a)
+    recording.noteAttestation(a)
+  })
+}
+function stopAttesting() {
+  attestor?.stop()
+  attestor = null
+}
+const attestedSeconds = ref(0)
+pair.onAttestation((a) => {
+  // Only while the picture is arriving (see CollectView).
+  if (soundOnly.value || interrupted.value) return
+  if (recording.noteAttestation(a)) attestedSeconds.value++
+})
 
 // Next to each other (one hotspot, no internet) or far apart (codes over a
 // messenger, the internet carries the video, no discovery server involved).
@@ -425,6 +458,7 @@ async function startStreaming() {
     localStream = await navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS)
     role.value = 'stream'
     watchCamera(localStream)
+    attest(localStream)
     await nextTick()
     if (localVideo.value) localVideo.value.srcObject = localStream
     // The person filming keeps a copy too — as online. If their phone is
@@ -486,6 +520,7 @@ async function recoverCamera() {
     localStream?.getTracks().forEach((t) => t.stop())
     localStream = fresh
     watchCamera(fresh)
+    attest(fresh)
     if (localVideo.value) localVideo.value.srcObject = fresh
     await pair.replaceLocalStream(fresh)
     queueRecording(async () => {
@@ -516,7 +551,9 @@ async function shareOnward() {
   await newInvite()
 }
 const interrupted = ref(false)
+const soundOnly = ref(false)
 const watchTitle = computed(() => {
+  if (watchPhase.value === 'connected' && soundOnly.value && !interrupted.value) return 'Sound only — the link is too slow for the picture'
   if (watchPhase.value === 'connected') return interrupted.value ? 'Picture frozen — waiting for it to resume' : 'Connected — no internet involved'
   if (watchPhase.value === 'lost') return 'Connection lost'
   if (watchPhase.value === 'timed-out') return "Couldn't reach the filming device"
@@ -598,10 +635,11 @@ const stallTimer = window.setInterval(async () => {
   const sample = await pair.sampleInboundVideo()
   if (!sample) return
   const health = stall.observe({ ...sample, at: Date.now() })
+  soundOnly.value = health === 'audio-only'
   if (health === 'stalled' && !interrupted.value) {
     interrupted.value = true
     queueRecording(stopRecordingNow)
-  } else if (health === 'flowing' && interrupted.value) {
+  } else if ((health === 'flowing' || health === 'audio-only') && interrupted.value) {
     interrupted.value = false
     const stream = remoteStream.value
     queueRecording(() => startRecordingOf(stream))
@@ -639,6 +677,8 @@ function transferText(t: LinkTransfer | null): string {
 async function restart() {
   stopScan()
   await queueRecording(stopRecordingNow)
+  stopAttesting()
+  attestedSeconds.value = 0
   pair.reset()
   localStream?.getTracks().forEach((t) => t.stop())
   localStream = null
@@ -659,6 +699,8 @@ onUnmounted(() => {
   clearInterval(stallTimer)
   scanner.stopScanning()
   if (recording.isRecording.value) recording.stopRecording()
+  stopAttesting()
+  pair.onAttestation(null)
   localStream?.getTracks().forEach((t) => t.stop())
   wakeLock.release()
 })

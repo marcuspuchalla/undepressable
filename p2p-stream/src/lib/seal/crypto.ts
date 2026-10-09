@@ -126,6 +126,23 @@ export async function decryptChunk(contentKey: Uint8Array, sealed: Uint8Array): 
   return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: buf(iv) }, await aesKey(contentKey, ['decrypt']), buf(sealed.slice(IV_BYTES))))
 }
 
+function b64(bytes: Uint8Array): string {
+  let out = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) out += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(out)
+}
+
+/** A JSON value encrypted with the content key, as base64 (for metadata that must stay sealed too). */
+export async function sealJson(contentKey: Uint8Array, value: unknown): Promise<string> {
+  return b64(await encryptChunk(contentKey, new TextEncoder().encode(JSON.stringify(value))))
+}
+
+/** Open sealJson's output; throws on a wrong key or changed bytes. */
+export async function openJson(contentKey: Uint8Array, sealed: string): Promise<unknown> {
+  const bytes = Uint8Array.from(atob(sealed), (c) => c.charCodeAt(0))
+  return JSON.parse(new TextDecoder().decode(await decryptChunk(contentKey, bytes)))
+}
+
 async function passphraseKey(passphrase: string, salt: Uint8Array, rounds: number, usage: KeyUsage[]): Promise<CryptoKey> {
   const base = await crypto.subtle.importKey('raw', buf(new TextEncoder().encode(passphrase.normalize('NFC'))), 'PBKDF2', false, ['deriveKey'])
   return crypto.subtle.deriveKey({ name: 'PBKDF2', hash: 'SHA-256', salt: buf(salt), iterations: rounds }, base, { name: 'AES-GCM', length: 256 }, false, usage)

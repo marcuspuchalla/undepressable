@@ -152,6 +152,7 @@ import type { DiagnosisAction } from '../lib/net/diagnosis'
 import ConnectionDoctor from '../components/ConnectionDoctor.vue'
 import RelaySetup from '../components/RelaySetup.vue'
 import { RouterLink } from 'vue-router'
+import { createIntake } from '../lib/corroborate/log'
 
 const trystero = useTrystero()
 const recording = useRecording()
@@ -159,6 +160,16 @@ const recording = useRecording()
 // with no connection at all — once they can reach this device.
 const sync = useSyncReceiver(trystero)
 const incomingList = computed(() => Object.values(sync.incoming.value))
+
+// The filmer's signed fingerprints, passed on by the forwarding phone: kept
+// with the recording so this copy can be checked against the source too.
+const takeAttestation = createIntake({ isSource: (peerId) => trystero.isStreamerPeer(peerId) })
+const attestChannel = trystero.addChannel('attest', {
+  onData(data, peerId) {
+    const a = takeAttestation(data, peerId)
+    if (a) recording.noteAttestation(a)
+  },
+})
 
 const homeKey = ref('')
 
@@ -311,6 +322,7 @@ onUnmounted(() => {
   if (durationInterval) clearInterval(durationInterval)
   if (isRecording.value) recording.stopRecording()
   sync.stop()
+  attestChannel.remove()
   trystero.leaveRoom()
 })
 </script>

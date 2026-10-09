@@ -58,6 +58,19 @@ describe('channelWire', () => {
     expect(a.sent).toBeGreaterThan(10) // split into frames
   })
 
+  it('carries a message bigger than one data-channel message (the evidence of a long recording)', async () => {
+    const [a, b] = channelPair()
+    const got: any[] = []
+    const sender = channelWire(a, { onMsg: () => {}, onChunk: () => {} })
+    channelWire(b, { onMsg: (m) => got.push(m), onChunk: () => {} })
+    // An hour of chunk hashes plus attestations, with some non-ASCII text.
+    const manifest = { t: 'manifest', id: 'rec', manifest: { hashes: Array.from({ length: 3600 }, (_, i) => i.toString(16).padStart(64, '0')), note: 'Café ✓', atts: 'x'.repeat(700_000) } } as any
+    await sender.send(manifest, 'peer')
+    await sender.send({ t: 'have', id: 'rec' } as any, 'peer')
+    await new Promise((r) => setTimeout(r, 50))
+    expect(got).toEqual([manifest, { t: 'have', id: 'rec' }])
+  })
+
   it('waits for a full buffer to drain instead of queueing everything', async () => {
     const [a, b] = channelPair()
     let peak = 0

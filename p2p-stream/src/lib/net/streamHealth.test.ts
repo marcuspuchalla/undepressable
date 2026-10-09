@@ -60,6 +60,24 @@ describe("createStallMonitor", () => {
     expect(m.observe({ bytesReceived: 0, framesDecoded: 0, at: 20000 })).toBe("starting");
   });
 
+  it("tells sound-only (video switched off on a slow link) from a dead stream", () => {
+    const m = createStallMonitor(8000);
+    expect(m.observe({ bytesReceived: 100, framesDecoded: 5, audioBytesReceived: 10, at: 0 })).toBe("flowing");
+    // The picture stops; the sound keeps coming.
+    for (let t = 2000; t <= 10000; t += 2000) m.observe({ bytesReceived: 100, framesDecoded: 5, audioBytesReceived: 10 + t, at: t });
+    expect(m.observe({ bytesReceived: 100, framesDecoded: 5, audioBytesReceived: 20000, at: 12000 })).toBe("audio-only");
+    // Then the sound stops too.
+    expect(m.observe({ bytesReceived: 100, framesDecoded: 5, audioBytesReceived: 20000, at: 21000 })).toBe("stalled");
+    // And the picture returns.
+    expect(m.observe({ bytesReceived: 200, framesDecoded: 9, audioBytesReceived: 21000, at: 23000 })).toBe("flowing");
+  });
+
+  it("never calls a connection that only ever carried sound 'audio-only' before any video", () => {
+    const m = createStallMonitor(8000);
+    m.observe({ bytesReceived: 0, framesDecoded: 0, audioBytesReceived: 100, at: 0 });
+    expect(m.observe({ bytesReceived: 0, framesDecoded: 0, audioBytesReceived: 5000, at: 9000 })).toBe("stalled");
+  });
+
   it("ships a stall window tuned for bad mobile links, not instant hair-triggers", () => {
     expect(DEFAULT_STALL_MS).toBeGreaterThanOrEqual(5000);
     expect(DEFAULT_STALL_MS).toBeLessThanOrEqual(15000);

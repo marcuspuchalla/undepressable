@@ -278,6 +278,82 @@ const cases: { n: string; status: Status; title: string; body: string; svg: stri
       132,
     ),
   },
+  {
+    n: '09',
+    status: 'now',
+    title: 'Every copy checks back to the camera',
+    body: 'While you stream, your phone signs a small fingerprint of its picture twice a second, with a key made for this stream only — the share link carries it. Every viewer keeps those signatures with their copy. Later, anyone holding a copy can check it against them: does it show what your camera showed, second by second, and where does it not (a cut, a swap)? It works even when your phone and your own recording are gone.',
+    svg: svg(
+      person(60, 62, 'You', EMBER) +
+        note(60, 110, 'signs each second', '#fbbf24', 9) +
+        link(88, 40, 196, 28, GLOW, false) +
+        link(88, 62, 196, 84, GLOW, false) +
+        person(224, 38, 'Viewer', GLOW) +
+        person(224, 96, 'Viewer', GLOW) +
+        link(252, 30, 360, 54, MOSS, true) +
+        link(252, 88, 360, 58, MOSS, true) +
+        note(410, 50, 'copy ✓ matches', '#6ee7b7') +
+        note(410, 70, 'the camera', '#6ee7b7'),
+      132,
+    ),
+  },
+  {
+    n: '10',
+    status: 'now',
+    title: 'When the network is throttled',
+    body: 'Slowing mobile data to a crawl is a quieter way to stop a stream than cutting it. Each viewer’s connection is measured all the time: when it gets slow, that viewer gets a smaller picture; when it is too slow for any picture, sound only — and their copy keeps recording. The picture comes back by itself when the connection recovers. Viewers on good connections keep the full picture.',
+    svg: svg(
+      person(60, 84, 'You', EMBER) +
+        link(88, 76, 222, 28, MOSS, false) +
+        link(88, 80, 222, 80, GLOW, true) +
+        link(88, 84, 222, 130, '#fbbf24', true) +
+        person(250, 32, 'Wi-Fi', MOSS) +
+        person(250, 84, '3G', GLOW) +
+        person(250, 136, 'throttled', '#fbbf24') +
+        note(390, 30, 'full picture · recording', MOSS, 10) +
+        note(390, 82, 'small picture · recording', GLOW, 10) +
+        note(390, 134, 'sound only · recording', '#fbbf24', 10),
+      176,
+    ),
+  },
+  {
+    n: '11',
+    status: 'now',
+    title: 'Many copies, one record',
+    body: 'Every viewer records on their own, so when one phone is taken or drops out, the others’ copies have their gaps at different moments. Bring the copies to one device — the home archive, a laptop — and Combine copies lays them on the filmer’s clock: together they cover more than any single copy. Play them through as one, or render one signed video whose record names every copy it was made from, and which still checks out against the filmer.',
+    svg: svg(
+      person(60, 62, 'Viewer 1', GLOW) +
+        person(60, 126, 'Viewer 2', GLOW) +
+        `<rect x="110" y="48" width="130" height="10" rx="2" fill="#7dd3fc" opacity="0.7"/>` +
+        `<rect x="200" y="112" width="150" height="10" rx="2" fill="#7dd3fc" opacity="0.7"/>` +
+        note(175, 80, '0:00–0:45', '#64748b') +
+        note(275, 144, '0:30–1:20', '#64748b') +
+        link(360, 56, 420, 80, MOSS, false) +
+        link(360, 118, 420, 96, MOSS, false) +
+        `<rect x="430" y="82" width="80" height="12" rx="2" fill="#6ee7b7"/>` +
+        note(470, 112, 'one record', '#6ee7b7'),
+      160,
+    ),
+  },
+  {
+    n: '12',
+    status: 'now',
+    title: 'Evidence that checks itself',
+    body: 'An evidence bundle must outlive this website and this app. Every bundle therefore carries verify.html: one small page, built from the same code, that checks the recording on any computer — the signature over every second, the filmer’s signed moments, a timestamp, a combined record’s sources — with nothing uploaded anywhere. Double-click it. The README next to it says how to check with nothing but standard tools.',
+    svg: svg(
+      `<rect x="40" y="36" width="110" height="60" rx="6" fill="none" stroke="#7dd3fc" stroke-width="1.6"/>` +
+        note(95, 58, 'video.webm', '#7dd3fc') +
+        note(95, 74, 'evidence.json', '#7dd3fc') +
+        note(95, 90, 'verify.html', '#6ee7b7') +
+        link(156, 66, 250, 66, GLOW, true, 'any browser') +
+        `<rect x="258" y="36" width="120" height="60" rx="6" fill="none" stroke="#6ee7b7" stroke-width="1.6"/>` +
+        note(318, 60, '✓ unaltered', '#6ee7b7') +
+        note(318, 76, '✓ matches the camera', '#6ee7b7') +
+        note(318, 92, '⏱ existed by …', '#6ee7b7') +
+        note(455, 66, 'no website, no app', '#64748b'),
+      132,
+    ),
+  },
 ]
 
 // --- per-use-case walkthroughs, tailored to the reader's platform ---
@@ -497,6 +573,14 @@ const walks: Record<string, Walk> = {
         ],
       },
       {
+        who: 'If the network looks for WebRTC itself',
+        steps: [
+          'Network → “Blend in with ordinary web traffic”. It needs a turns: relay on port 443 (yours, or one you were given) — the card says whether one is set up.',
+          'From then on the app sends nothing but TLS to port 443: media through the relay, discovery over WSS, no STUN, no direct connections. Slower, and the relay carries everything.',
+          'What a watcher can still see — hostnames, the shape of a live stream — is in docs/TRAFFIC.md. Put the relay behind a name that means nothing.',
+        ],
+      },
+      {
         who: 'If devices can’t find each other (“can’t reach any discovery server”)',
         steps: [
           'Open “Pair by messenger” (Home, or the button on the status card).',
@@ -544,6 +628,87 @@ const walks: Record<string, Walk> = {
           'Send recordings home (Recordings → Send to home now), hand them to a friend, or share them as files. Sealed copies stay sealed on the way; everyone can check they are intact.',
           'At home they open automatically and are checked second by second.',
           'Timestamp them if you haven’t (the ⏱ button); after a few hours “Check now” shows the Bitcoin block. Evidence files then include root.txt and root.txt.ots for the standard “ots verify”.',
+        ],
+      },
+    ],
+  },
+  '09': {
+    roles: [
+      {
+        who: 'The person filming',
+        steps: [
+          'Nothing to switch on: the share sheet says “Twice a second this phone signs a fingerprint of its picture” and shows the start of the key.',
+          'Share the link (not just the code) where you can: it carries the key, so viewers only accept signatures made with it. Posting the link publicly also shows later which key was yours.',
+        ],
+      },
+      {
+        who: 'Viewers',
+        steps: [
+          'Join through the link. Under the player: “✓ The filming phone signs its picture twice a second — N kept with your copy”.',
+          'Your copy carries the signatures wherever it goes: to your home archive, to friends, in evidence files.',
+        ],
+      },
+      {
+        who: 'Anyone checking a copy later',
+        steps: [
+          'Recordings → “🎥 Check against the filmer”. The copy is played through quickly and compared with every signed second.',
+          '“✓ Shows what the filming phone’s camera showed: 58 of 60 signed moments match (key 3fa2…)” — and, if some do not, at which times. Compare the key with the one in the stream’s link.',
+          'A match means the same picture, not the same bytes: it survives re-encoding, and a picture that hardly changed says less (the result says so).',
+        ],
+      },
+    ],
+  },
+  '11': {
+    roles: [
+      {
+        who: 'Gathering the copies',
+        steps: [
+          'Copies reach one device the usual ways: the home archive records what phones watch and receives what they recorded alone; friends hand recordings over or share evidence files; Import them.',
+          'Recordings → “Combine copies” appears as soon as one stream has more than one copy there. Copies are grouped by the filmer’s key (or by room, for copies without the filmer’s signatures).',
+        ],
+      },
+      {
+        who: 'Combining',
+        steps: [
+          '“Check every copy against the filmer” aligns each copy exactly; until then they are placed by when the filmer’s signals arrived, or by device clocks (shown next to each copy).',
+          'The bar shows what the copies cover together, and the gaps nobody covers. “Play through” plays them as one; “Render one video” records that into one signed video (in real time — keep the screen open).',
+          'The rendered video shows “rendered from N copies”. Its record names every copy’s signed root and key; “Save combined record” bundles it with every copy, and importing that elsewhere brings all of them.',
+        ],
+      },
+    ],
+  },
+  '12': {
+    roles: [
+      {
+        who: 'Whoever receives a bundle',
+        steps: [
+          'Unzip it. Double-click verify.html — it opens in the browser, from disk. Choose the .zip, or the video together with evidence.json.',
+          'Read the result: “Unaltered: all N seconds match the signature”, then whether the picture matches what the filming device signed, and where it does not.',
+          'For a combined record, check each copy under sources/ the same way. For a timestamp, run ots verify root.txt.ots with the OpenTimestamps client.',
+        ],
+      },
+      {
+        who: 'If even that is gone',
+        steps: [
+          'README.txt in the bundle spells out the check with standard tools: SHA-256 each second, rebuild the Merkle root, verify the Ed25519 signature.',
+        ],
+      },
+    ],
+  },
+  '10': {
+    roles: [
+      {
+        who: 'The person filming',
+        steps: [
+          'Nothing to do. On the camera screen “🐢 1 slow link: 1 sound only” shows who is getting less, and why.',
+          'If everyone is slow, your own upload is the bottleneck: fewer direct viewers help — let viewers relay to each other (they do by default).',
+        ],
+      },
+      {
+        who: 'Watching on a slow connection',
+        steps: [
+          'A smaller picture, or “🔊 Sound only — the connection is too slow for the picture right now”. Your copy keeps recording either way.',
+          'Don’t reconnect: the picture comes back by itself when the connection allows.',
         ],
       },
     ],

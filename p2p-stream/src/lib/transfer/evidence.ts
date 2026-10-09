@@ -14,9 +14,10 @@
  * each one against the proof — no trust in whoever carried the file.
  */
 
-import type { Recording, RecordingTimestamp } from '../../types'
+import type { Recording, RecordingTimestamp, CombinedInfo } from '../../types'
 import { sha256, toHex, verifyProof, type RecordingProof } from '../integrity'
-import { decryptChunk, type SealedKey } from '../seal/crypto'
+import { decryptChunk, openJson, type SealedKey } from '../seal/crypto'
+import { isLogsShape, type AttestationLog } from '../corroborate/log'
 
 export const EVIDENCE_FORMAT = 'undepressable-evidence'
 
@@ -44,9 +45,20 @@ export interface EvidenceManifest {
    * encrypted chunks, so anyone can check the copy is intact; opening it
    * needs a private key matching one of `keys`.
    */
-  sealed?: { v: 1; keys: SealedKey[]; proof: RecordingProof }
+  sealed?: { v: 1; keys: SealedKey[]; proof: RecordingProof; attestations?: string }
   /** OpenTimestamps proof for root.txt (the footage proof's Merkle root), if one was made. */
   timestamp?: RecordingTimestamp
+  /**
+   * What the filming device signed while streaming (lib/corroborate): a
+   * fingerprint of its picture twice a second, to check this copy against.
+   */
+  attestations?: AttestationLog[]
+  /**
+   * Present when this video was rendered out of several copies of one stream
+   * (lib/combine): which copies, and which plays when. The copies themselves
+   * are the evidence; a combined bundle carries them under sources/.
+   */
+  combined?: CombinedInfo
 }
 
 export interface EvidenceCheck {
@@ -77,8 +89,12 @@ export function manifestFor(recording: Recording): EvidenceManifest | null {
     },
     chunkSizes: chunks.map((c) => c.size),
     proof: recording.proof,
-    ...(recording.sealed?.proof ? { sealed: { v: 1 as const, keys: recording.sealed.keys, proof: recording.sealed.proof } } : {}),
+    ...(recording.sealed?.proof
+      ? { sealed: { v: 1 as const, keys: recording.sealed.keys, proof: recording.sealed.proof, ...(recording.sealed.attestations ? { attestations: recording.sealed.attestations } : {}) } }
+      : {}),
     ...(recording.timestamp ? { timestamp: recording.timestamp } : {}),
+    ...(recording.attestations?.length ? { attestations: recording.attestations } : {}),
+    ...(recording.combined ? { combined: recording.combined } : {}),
   }
 }
 
@@ -100,13 +116,33 @@ export function parseManifest(text: string): EvidenceManifest | null {
   if (!Array.isArray(m.chunkSizes) || !m.chunkSizes.every((n: unknown) => Number.isInteger(n) && (n as number) > 0)) return null
   if (!isProofShape(p)) return null
   if (m.timestamp !== undefined && (!m.timestamp || typeof m.timestamp.ots !== 'string')) return null
+  if (m.attestations !== undefined && !isLogsShape(m.attestations)) return null
+  if (m.combined !== undefined && !isCombinedShape(m.combined)) return null
   if (m.sealed !== undefined) {
     const sd = m.sealed
     if (!sd || sd.v !== 1 || !Array.isArray(sd.keys) || sd.keys.length === 0 || !isProofShape(sd.proof)) return null
     const hex = (x: unknown) => typeof x === 'string' && /^[0-9a-f]+$/i.test(x)
     if (!sd.keys.every((k: any) => k && hex(k.to) && hex(k.eph) && hex(k.iv) && hex(k.wrapped))) return null
+    if (sd.attestations !== undefined && (typeof sd.attestations !== 'string' || sd.attestations.length > 16_000_000 || !/^[A-Za-z0-9+/]*={0,2}$/.test(sd.attestations))) return null
   }
   return m as EvidenceManifest
+}
+
+const ALIGNMENTS = ['picture', 'signals', 'clock']
+function isCombinedShape(c: any): boolean {
+  const ms = (x: unknown) => Number.isFinite(x)
+  return (
+    !!c &&
+    c.v === 1 &&
+    ALIGNMENTS.includes(c.alignment) &&
+    (c.stream === undefined || (c.stream && HEX64.test(c.stream.pk) && typeof c.stream.s === 'string')) &&
+    Array.isArray(c.sources) &&
+    c.sources.length <= 64 &&
+    c.sources.every((s: any) => s && typeof s.id === 'string' && HEX64.test(s.merkleRoot) && HEX64.test(s.pubKey) && ms(s.startMs) && ALIGNMENTS.includes(s.alignment)) &&
+    Array.isArray(c.segments) &&
+    c.segments.length <= 10_000 &&
+    c.segments.every((g: any) => g && ms(g.from) && ms(g.to) && ms(g.at) && (g.copy === null || typeof g.copy === 'string'))
+  )
 }
 
 function isProofShape(p: any): boolean {
@@ -186,8 +222,19 @@ export async function openSealedEvidence(
     parts.push(plain)
     sizes.push(plain.length)
   }
-  const { sealed: _sealed, ...rest } = manifest
-  return { manifest: { ...rest, chunkSizes: sizes }, video: new Blob(parts as BlobPart[], { type: manifest.recording.mimeType }) }
+  const { sealed, ...rest } = manifest
+  // The filmer's attestations were sealed with the footage. They are not part
+  // of the signed proof (each is signed by the filmer), so a blob that will
+  // not open is left out rather than failing the footage.
+  let attestations = rest.attestations
+  if (sealed.attestations) {
+    const opened = await openJson(contentKey, sealed.attestations).catch(() => null)
+    if (isLogsShape(opened) && opened.length) attestations = opened
+  }
+  return {
+    manifest: { ...rest, chunkSizes: sizes, ...(attestations?.length ? { attestations } : {}) },
+    video: new Blob(parts as BlobPart[], { type: manifest.recording.mimeType }),
+  }
 }
 
 // --- names ---
@@ -225,6 +272,23 @@ timestamp: root.txt holds proof.merkleRoot, and root.txt.ots is an
 OpenTimestamps proof that it existed by the time of a Bitcoin block. Check it
 with the OpenTimestamps client: "ots verify root.txt.ots" (and "ots upgrade"
 first if it was still pending when the bundle was made).
+
+If evidence.json has "attestations", the device that was filming signed
+a fingerprint of its picture twice a second while it streamed, and the
+device that made this copy received them live. Recordings → Check against
+the filmer compares them with this video: it shows whether this copy shows
+what the filming device's camera showed, second by second. Each fingerprint
+is a perceptual hash (two 64-bit hashes of a 64×64 grayscale thumbnail), so
+a match means "the same picture", not "the same bytes". Who signed them is
+the "pk" key: the stream's share link carries the same key as fk=…
+
+If evidence.json has "combined", this video was rendered out of several
+copies of one stream; the copies are the evidence, and a combined record
+carries each under sources/ as its own bundle (see "combined.sources").
+
+If verify.html is in this bundle, open it in any browser (double-click it):
+it checks all of the above on your computer, from the same code as the app,
+with no website and nothing uploaded.
 
 To check it: open Undepressable → Recordings → Import, and choose this
 .zip (or the .webm together with its evidence file). Every chunk is
@@ -372,7 +436,7 @@ export async function readZip(zip: Blob): Promise<ZipFileEntry[] | null> {
 }
 
 /** The bundle for a recording, given its chunk blobs in order. */
-export function buildBundle(manifest: EvidenceManifest, chunks: Blob[]): Promise<Blob> {
+export function buildBundle(manifest: EvidenceManifest, chunks: Blob[], extras: { name: string; parts: Blob[] }[] = []): Promise<Blob> {
   const json = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' })
   // With a timestamp: root.txt and its .ots proof, checkable with `ots verify root.txt.ots`.
   const stamped = manifest.timestamp
@@ -387,6 +451,7 @@ export function buildBundle(manifest: EvidenceManifest, chunks: Blob[]): Promise
       { name: 'evidence.json', parts: [json] },
       ...stamped,
       { name: 'README.txt', parts: [new Blob([README])] },
+      ...extras,
     ],
     new Date(manifest.recording.startedAt),
   )
