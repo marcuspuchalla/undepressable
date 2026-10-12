@@ -5,11 +5,10 @@
 # so it needs no server configuration — the same file "Pass the app on"
 # hands out. Alongside it: the evidence checker (verify.html).
 #
-# The workflow tries to create the Pages site itself (configure-pages with
-# enablement). If that is refused, the one-time setup is: Settings → Pages →
-# Source: GitHub Actions. (A private repository needs a plan that includes
-# Pages, or make it public.) The site then lives at
-# https://<owner>.github.io/<repo>/.
+# One-time setup in the repository (a workflow token cannot do it): Settings →
+# Pages → Build and deployment → Source: GitHub Actions. A private repository
+# needs a plan that includes Pages, or make it public. The site then lives at
+# https://<owner>.github.io/<repo>/ and redeploys on every push to main.
 
 name: pages
 on:
@@ -40,10 +39,12 @@ jobs:
           cache: npm
           cache-dependency-path: p2p-stream/package-lock.json
       - run: npm ci
-      # Creates the Pages site if the repository has none yet (the deploy step
-      # fails with 404 otherwise). If GitHub refuses this from the workflow's
-      # token, enable it by hand: Settings → Pages → Source: GitHub Actions.
+      # Would create the Pages site if the repository has none — but GitHub
+      # refuses that from a workflow token ("Resource not accessible by
+      # integration"), so the site must be enabled once by hand: Settings →
+      # Pages → Source: GitHub Actions. Until then the deploy step says so.
       - uses: actions/configure-pages@v5
+        continue-on-error: true
         with:
           enablement: true
       - run: npm run build:verify
