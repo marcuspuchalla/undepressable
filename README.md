@@ -24,8 +24,8 @@
 
 <p align="center">
   <a href="https://github.com/marcuspuchalla/undepressable/actions/workflows/pages.yml"><img src="https://github.com/marcuspuchalla/undepressable/actions/workflows/pages.yml/badge.svg" alt="pages" /></a>
-  <img src="https://img.shields.io/badge/unit_tests-412-6ee7b7" alt="412 unit tests" />
-  <img src="https://img.shields.io/badge/end--to--end_scenarios-33-6ee7b7" alt="33 end-to-end scenarios" />
+  <img src="https://img.shields.io/badge/unit_tests-418-6ee7b7" alt="418 unit tests" />
+  <img src="https://img.shields.io/badge/end--to--end_scenarios-34-6ee7b7" alt="34 end-to-end scenarios" />
   <img src="https://img.shields.io/badge/servers_required-0-7dd3fc" alt="no servers required" />
 </p>
 
@@ -111,8 +111,8 @@ Vue 3, TypeScript, Vite. [Trystero](https://github.com/dmotz/trystero) for serve
 
 | | |
 |---|---|
-| **Unit tests** | 412 — integrity, Merkle proofs, counts, relay tree, ICE and NAT handling, diagnosis, pairing codes, evidence transfer, releases, WHIP, sealing, timestamps, fingerprints and matching, link ladder, combining, blend-in |
-| **End to end, in Chromium** | 33 scenarios in one run: direct and relayed connections, strict NAT, a rejected relay, public relays, six viewers, discovery dying mid-stream, face-to-face pairing and chains, pairing by messenger (also 90 s late), home archive and sync, evidence files, hand-over, Amplify, sealed recordings three ways, timestamps, corroboration three ways, a throttled link (policed to 320 and 56 kbit/s), combined records, blend in (every UDP packet counted: zero), self-checking bundles |
+| **Unit tests** | 418 — integrity, Merkle proofs, counts, relay tree, ICE and NAT handling, diagnosis, pairing codes, evidence transfer, releases, WHIP, sealing, timestamps, fingerprints and matching, link ladder, combining, blend-in, the relay panel's advice |
+| **End to end, in Chromium** | 34 scenarios in one run: direct and relayed connections, strict NAT, a rejected relay, public relays and the relay panel, six viewers, discovery dying mid-stream, face-to-face pairing and chains, pairing by messenger (also 90 s late), home archive and sync, evidence files, hand-over, Amplify, sealed recordings three ways, timestamps, corroboration three ways, a throttled link (policed to 320 and 56 kbit/s), combined records, blend in (every UDP packet counted: zero), self-checking bundles |
 | **Standalone** | Offline install with the server gone; the single-file app from disk and from an arbitrary mirror path; signed updates accepted, unsigned refused; the extension streaming to the web app |
 | **Supply chain** | The published `undepressable.html` and `verify.html` are byte-identical to a clean build of the same commit |
 | **Against the live site** | The same suite against the published build on GitHub Pages: 32 of 33 scenarios pass (`public-relay` has no live variant). The run found one bug only the published build had — a second share link opened in place did not change the room — fixed and re-tested on the redeployed site. Discovery stayed on a local relay because the test sandbox cannot carry WebSockets to the public relays: that last step is the first line of the device checklist ([part 8 →](docs/RELIABILITY_AUDIT_3.md#part-8--against-the-live-site)) |

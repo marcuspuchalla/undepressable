@@ -83,6 +83,7 @@ The original six phases, with what each became.
 | 7 | Corroborated copies (filmer-signed fingerprints), throttled links | part 6 |
 | 8 | Combined records, blend in, self-checking bundles | part 7 |
 | 8, live | The whole suite against the published site; the use cases as a document | part 8 |
+| 9 | The first field report (VPN ↔ carrier): connection bursts, the relay panel, STUN advice, a relay the published site can carry | part 9 |
 
 ## Success metrics (from the original plan), with where they stand
 
