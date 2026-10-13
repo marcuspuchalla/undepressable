@@ -240,6 +240,8 @@ scenario* below.
   486/508 are named in the status ("the relay is out of capacity / at its
   quota") instead of "unreachable"; SELF_HOSTING.md recommends a generous
   `user-quota`. The real fix — trickle ICE and lazy offers — is upstream.
+  Round 9 (§44) cut the offer pools from 20 per transport to 4, and from 10
+  per tracker announce to 5: the churn is about a fifth of what it was.
 
 ## 12. Discovery infrastructure, re-verified
 
@@ -1121,3 +1123,151 @@ extension, which is its own build.
 - A `timestamp` request against the real calendars is only the request:
   the Bitcoin block arrives hours later, so the live run checks the
   request, the pending state and the bundle, not the completed proof.
+
+## Part 9 — round 9: the field report
+
+The first real cross-network test, on 2026-10-13: a phone on a German
+mobile carrier and a computer on a VPN with an Icelandic exit, both on the
+published site. What the reporter saw, in order: *found the streamer, but
+your networks block a direct connection* (right — two strict NATs); *Set up
+a relay* → *Test public relays* → "none answered from this network"; *More
+STUN servers* → "8 of 8 answered, using 4" → closed the panel → the app
+reconnected and said the same thing as before; the panel had to be opened
+and everything done again; *Test more STUN servers* again → "none of the 8
+answered"; *Get a fresh list* → "none of the 10 answered". The report ends:
+this needs a lot more work.
+
+Each line of that is a finding.
+
+### 44. A reconnect was a burst of sixty connections
+
+Trystero pre-builds **20 offers per discovery transport** — nostr, torrent
+and MQTT, so some sixty `RTCPeerConnection`s — the moment a room is joined,
+and again on every reconnect, and its torrent transport hands **10 fresh
+offers to every tracker on every announce**. Every one of those gathers
+ICE: with the four default STUN servers, the extras the user had just
+opted into, and two interfaces (a VPN tunnel and the Wi-Fi under it), a
+reconnect is several hundred STUN requests in the same second, and, with a
+relay configured, as many TURN allocations. The code had already noted
+this burst (the comment on `iceCandidatePoolSize` in `iceConfig.ts`), and
+the relay allocation churn of §11 was its relay-side face (that finding's mitigation now includes this one).
+
+It is the most plausible reading of "8 of 8, then 0 of 8": the STUN test
+that found eight servers answering was followed, when the panel closed, by
+exactly such a reconnect through the VPN, and the next test a few seconds
+later found nothing answering — the shape of a UDP burst being throttled,
+by the VPN provider or the carrier, not of a network that blocks UDP (it
+had just answered eight times). The sandbox cannot reproduce throttling,
+so this stays a diagnosis, and the device checklist now has the re-test
+that settles it.
+
+**Fix:** the pools are **4 offers per transport and 5 per tracker
+announce** — offers are made on demand when the pool runs low, so a
+handful is enough and a crowd still joins (`crowd-large` below). Trystero
+does not make the size configurable; `scripts/patch-deps.mjs` rewrites the
+two constants at install (`postinstall`, idempotent) and `vite.config.ts`
+refuses to build or serve an unpatched copy, so no build can ship the
+burst by accident.
+
+### 45. The panel forgot what it had just found
+
+The relay panel was a modal, and a modal's contents are created when it
+opens: close it, let the doctor offer it again, open it, and the relay
+results and the STUN note were gone — "I have to do all the same again".
+The result of a test is evidence (eight servers answered a minute ago),
+and losing it is what made the second STUN test read as a contradiction
+instead of a clue. **Fix:** the last relay test and the last STUN test are
+kept for the page's life (`publicRelays.ts`, `rememberRelayTest` and
+friends — not persisted: networks change) and shown again, with "Tested 3
+min ago", whenever the panel comes back, on any view.
+
+### 46. STUN servers were offered where they cannot help
+
+The *More STUN servers* section sat under the public relays with the same
+tone, whatever the network check had found. On a **symmetric** NAT — what
+"both devices are behind strict NAT" means — the public address a STUN
+server reports is useless to the other side, and no number of STUN servers
+changes that; only a relay does. The reporter did what the panel invited:
+tested, got "8 of 8 answered — using 4", watched the app reconnect, and
+got the same verdict. **Fix:** the panel knows the NAT kind. On a strict
+network the section's title reads "will not help here", its text says why,
+and a test that finds servers answering says "STUN works from here, so that
+is not what blocks you" and does **not** reconnect (`stunVerdict`,
+`useful: false`). Where UDP looked blocked, nothing changed: more servers
+are the right remedy there.
+
+### 47. "None answered" read as "this network blocks UDP"
+
+The second STUN test's note — "this network seems to block UDP entirely" —
+was wrong twice: the network had just answered eight STUN requests, and the
+remedy it then pointed to (a relay over TCP/TLS) was already the remedy.
+**Fix:** a test that finds nothing, minutes after one that found servers
+answering, now says so: "None of 10 answered now, but 8 did 2 min ago. The
+app had just opened a burst of connections, and networks throttle that for
+a while: wait a minute and test again. This network does not block UDP."
+The STUN test timeout is 5 s (was 4).
+
+### 48. The public relays, and what to do when they are gone
+
+The two candidates are volunteer relays with shared credentials, on port
+3478 only; "none answered" is the likeliest outcome on any given day, and
+the panel's reply was a line. It now lists each relay with its reason
+(rejected, could not be reached, no answer in 8 s) and, when none answer,
+what actually works: a free account at a relay provider (fixed credentials
+pasted into *Server address*, or a credentials link), one's own `coturn`,
+and the point that **only one side needs it** — whoever shares the link.
+Which brings the fix that makes the rest unnecessary for the people at a
+scene:
+
+### 49. The published site can carry a relay
+
+Nobody filming at a protest should set up a TURN relay. Whoever publishes
+the site can: the Pages workflow now builds the relay from repository
+secrets (`VITE_TURN_URL`, `VITE_TURN_USERNAME`, `VITE_TURN_CREDENTIAL`, or
+`VITE_ICE_SERVERS_URL`), the build already knew how to carry one ("This
+build ships a relay"), and the single file saved from the site hands it
+on. The credentials are public by construction — they are in the HTML —
+so the doc (`SELF_HOSTING.md`, "A relay for the published site") says to
+use a quota one can afford to lose and how to rotate it. Until the secrets
+are set, the site carries none, and the README says so.
+
+### 50. A combined record drifted off the filmer's clock at the second copy
+
+Found by the full run of this round, twice: `combine`'s rendered video
+checked against the filmer at 20 of 39 moments — the first copy's all
+matched, the second copy's none. Earlier runs had passed the same check
+with 24 of 39: three lucky matches past the threshold, which is to say
+the second half had never been right. The cause is in the timeline: a
+copy's length there is the sum of its chunks' nominal lengths
+(`durationOf`), and the media can end a few hundred milliseconds before
+that; the player moved on the moment the media ended, so the gap started
+early and everything after it sat that much ahead of the filmer's clock —
+past the matcher's 700 ms window. **Fix:** when a copy's media ends before
+its segment does, the player holds the last frame until the common clock
+reaches the segment's end, and it loads the next copy during a gap so the
+switch is instant. Verified: the same scenario now checks out at **41 of 41** moments (0:23 covered, 0:05 in gaps, rendered 27 s, imported elsewhere with both sources verified).
+
+### Round 9 verification
+
+- **Unit:** 418 tests pass; new: the STUN verdict by NAT kind and by a
+  recent success, the test memory, "n min ago".
+- **End to end, dev server, with the small pools:** open (video 1.2 s), blocked, relay-link (1.3 s), public-relay (the local test relay answered, the dead one "no answer in 8 s", "Tested just now"; viewer video 6.5 s after opting in), crowd-large (six viewers, video 0.1–0.4 s on each, counts 6/7 everywhere, the streamer uploading to 2 with 4 served by seeds), crowd (3 viewers), internet-drops — all pass with a pool of 4.
+- **relay-panel-remembers** (new): pass — on a viewer told its NAT is symmetric: the STUN section reads "More STUN servers — will not help here" with its explanation; the public relay test lists the dead relay with "no answer in 8 s" and "Tested just now" and shows the provider guidance; the STUN test reads "None of 8 answered: this network seems to block UDP entirely…" (the sandbox has no STUN); the panel closed and re-opened from the status card shows all of it again without a click
+- **Full suite:** 34 scenarios, one process: 33 pass; `combine` failed on the rendered record's check (20 of 39), reproduced on a re-run (20 of 39), which is §50 — with that fix it passes at 41 of 41. Also passing in that run: throttled, blend-in (0 UDP packets on, 60 off), messenger-pair-late (90 s), corroborate three ways, self-check.
+- **Owed on real networks** (`DEVICE_CHECKLIST.md`): the VPN ↔ carrier pair
+  again — the panel's behaviour, the STUN test twice in a row after a
+  reconnect (the throttling diagnosis), and the pair with the built-in
+  relay once the secrets are set, which is the one that matters.
+
+### Round 9 known limits
+
+- Throttling after a burst is a diagnosis from the report's shape, not a
+  reproduction: the sandbox has no VPN and no carrier. The smaller pools
+  cut the burst by about fifteen times; they do not remove it.
+- Smaller pools mean a large crowd joining in the same second waits for
+  offers to be made (tens of milliseconds each); verified to six viewers.
+- The torrent change (5 offers per announce) could not be exercised here —
+  the sandbox reaches no public tracker — and is verified only by reading.
+- No free public relay is known to work today; the candidates stay as
+  best-effort, tested on the user's own network, and the real answer is a
+  relay in the published site.
