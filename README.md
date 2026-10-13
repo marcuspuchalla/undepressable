@@ -44,6 +44,25 @@ It is a web app: nothing to install for a viewer, no account for anyone, no serv
 
 Two phones on different networks usually connect directly. A VPN or two mobile carriers can need a relay: the status card says so, and a relay set on the **Network** page travels inside your share links. Nothing works without a camera, so use a phone, or a computer with one.
 
+## Ways to use it
+
+The app's guide walks through twelve situations. In short:
+
+1. **One to one** — hand the stream to one trusted person; they watch and record a signed copy.
+2. **One to many** — one code for a group; everyone records; viewers pass the stream on, so the phone's upload stays small however many join.
+3. **Your personal hotspot** — friends on your hotspot keep getting the picture when the mobile internet is cut; with no internet at all, pair face to face.
+4. **Relay to a safe place** — a friend's phone forwards to a home computer that records; what did not make it home follows later, or as a file.
+5. **Off-grid mesh** *(partly now)* — phones on one hotspot pair face to face and share onward in chains; Bluetooth and Wi-Fi Direct need a native app.
+6. **When the website is blocked or seized** — the one-file app passes hand to hand and mirrors anywhere; updates must be signed; pair by messenger when discovery is blocked; blend in when WebRTC itself is watched.
+7. **Reach everyone: amplify** — any device pushes the stream to a WHIP broadcast server; a viewer abroad can do it for you.
+8. **Evidence that holds up** — signed recordings, sealed (encrypted) ones the phone itself cannot open, and timestamps anchored in Bitcoin.
+9. **Every copy checks back to the camera** — the phone signs its picture twice a second; any copy can be checked against those signatures later.
+10. **When the network is throttled** — smaller picture, then sound only, and back up when it recovers; recording throughout.
+11. **Many copies, one record** — copies from several viewers laid on the filmer's clock, played or rendered as one.
+12. **Evidence that checks itself** — every bundle carries `verify.html`, which checks it on any computer with no website and no app.
+
+Each one in full, with the step-by-step walkthrough the app shows for iPhone, Android and computer: [docs/USE_CASES.md](docs/USE_CASES.md).
+
 ## What it does, by threat
 
 | If they… | Then… |
@@ -124,6 +143,7 @@ Phones need HTTPS: use the published site or an HTTPS tunnel to the dev server (
 
 | | |
 |---|---|
+| [docs/USE_CASES.md](docs/USE_CASES.md) | The twelve ways to use it, with every step, as the app's guide shows them |
 | [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) | Where it came from, what each phase became, metrics against targets, what is next |
 | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) · [docs/TRAFFIC.md](docs/TRAFFIC.md) | Who can do what, and what the traffic looks like on the wire |
 | [docs/TEST_PLAN.md](docs/TEST_PLAN.md) · [docs/DEVICE_CHECKLIST.md](docs/DEVICE_CHECKLIST.md) | Every scenario, how it is checked, what still needs real devices |

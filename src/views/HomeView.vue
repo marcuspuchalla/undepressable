@@ -233,6 +233,10 @@
         Built for human-rights documentation, community accountability, and public-interest reporting. Designed to
         reduce censorship and data loss — not to incite harm. Know your local laws and prioritise safety.
       </p>
+      <p class="text-xs text-slate-500 text-center px-4 leading-relaxed">
+        Free and open source. The code, the threat model and every test:
+        <a href="https://github.com/marcuspuchalla/undepressable" target="_blank" rel="noopener" class="text-glow hover:underline" data-testid="repo-link">github.com/marcuspuchalla/undepressable</a>
+      </p>
 
       <ShareModal ref="shareModal" />
     </div>

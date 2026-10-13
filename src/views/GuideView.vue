@@ -89,6 +89,12 @@
         Diagrams are simplified. “Signed copy” means each recording is hashed and signed so it can be proven unaltered
         — see <RouterLink to="/recordings" class="text-glow">Recordings</RouterLink>.
       </p>
+      <p class="text-xs text-slate-500 text-center px-6 leading-relaxed">
+        These use cases, with every step, are also in the repository:
+        <a href="https://github.com/marcuspuchalla/undepressable/blob/main/docs/USE_CASES.md" target="_blank" rel="noopener" class="text-glow hover:underline">docs/USE_CASES.md</a>
+        · source code and documentation at
+        <a href="https://github.com/marcuspuchalla/undepressable" target="_blank" rel="noopener" class="text-glow hover:underline">github.com/marcuspuchalla/undepressable</a>
+      </p>
     </div>
   </div>
 </template>
