@@ -661,8 +661,12 @@ async function joinStream(shortCode: string, key?: string | null) {
     console.error('Invalid room code:', shortCode)
     return
   }
-  if (key !== undefined) filmerKey.value = key
-  
+  if (key !== undefined) {
+    // A new link, not a retry: the count of moments kept starts over.
+    filmerKey.value = key
+    attestedSeconds.value = 0
+  }
+
   const fullRoomId = getFullRoomId(shortCode)
   console.log('[CollectView] Joining room:', shortCode, '->', fullRoomId)
   
