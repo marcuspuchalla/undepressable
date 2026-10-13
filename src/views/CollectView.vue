@@ -643,6 +643,18 @@ onMounted(async () => {
   }
 })
 
+// Another share link opened while this view is up — on the single-file build
+// a link that differs only after the # does not reload the page, so the view
+// sees a new room code instead: leave the old room and join the new one.
+watch(
+  () => props.roomCode,
+  async (code, prev) => {
+    if (!code || code === prev || !isValidShortRoomId(code)) return
+    if (isConnected.value || isConnecting.value || remoteStream.value) disconnect()
+    await joinStream(code, filmerKeyFrom(linkSearch()))
+  },
+)
+
 /** `key`: the filmer's key from the link (null: none; left out: keep the current one, e.g. on a retry). */
 async function joinStream(shortCode: string, key?: string | null) {
   if (!shortCode || !isValidShortRoomId(shortCode)) {

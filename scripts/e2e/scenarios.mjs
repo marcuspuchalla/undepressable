@@ -1380,8 +1380,12 @@ function udpPacketsDropped() {
  * is counted is the app's traffic; the browser's net log shows the hosts.
  */
 const TLS_RELAY_ARGS = [
-  // A live run still needs the proxy for the site itself; only the relay goes direct.
-  LIVE ? `--proxy-bypass-list=${HOST_IP};localhost;127.0.0.1` : '--no-proxy-server',
+  // A live run behind a proxy still needs it for the site itself; only the
+  // relay goes direct — and Chromium honours a bypass list only next to an
+  // explicit --proxy-server, not with the proxy taken from the environment.
+  ...(LIVE && process.env.HTTPS_PROXY
+    ? [`--proxy-server=${process.env.HTTPS_PROXY}`, `--proxy-bypass-list=${HOST_IP};localhost;127.0.0.1`]
+    : ['--no-proxy-server']),
   '--ignore-certificate-errors',
   // Refuse every name but the test hosts' (and the loopback the proxy lives on:
   // the rules catch IP literals too).
