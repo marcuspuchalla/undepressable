@@ -1254,6 +1254,14 @@ switch is instant. Verified: the same scenario now checks out at **41 of 41** mo
 - **End to end, dev server, with the small pools:** open (video 1.2 s), blocked, relay-link (1.3 s), public-relay (the local test relay answered, the dead one "no answer in 8 s", "Tested just now"; viewer video 6.5 s after opting in), crowd-large (six viewers, video 0.1–0.4 s on each, counts 6/7 everywhere, the streamer uploading to 2 with 4 served by seeds), crowd (3 viewers), internet-drops — all pass with a pool of 4.
 - **relay-panel-remembers** (new): pass — on a viewer told its NAT is symmetric: the STUN section reads "More STUN servers — will not help here" with its explanation; the public relay test lists the dead relay with "no answer in 8 s" and "Tested just now" and shows the provider guidance; the STUN test reads "None of 8 answered: this network seems to block UDP entirely…" (the sandbox has no STUN); the panel closed and re-opened from the status card shows all of it again without a click
 - **Full suite:** 34 scenarios, one process: 33 pass; `combine` failed on the rendered record's check (20 of 39), reproduced on a re-run (20 of 39), which is §50 — with that fix it passes at 41 of 41. Also passing in that run: throttled, blend-in (0 UDP packets on, 60 off), messenger-pair-late (90 s), corroborate three ways, self-check.
+- **Published:** the deploy of this round (Pages run 10, commit `e9b4813`)
+  is byte-identical to a clean build of that commit (`undepressable.html`
+  1,157,695 bytes, SHA-256 `00e09014…`), so the site carries the small
+  pools — the build guard would have failed the workflow otherwise. The
+  deploy before it had differed from a clean build by 87 bytes: the four
+  relay secrets, unset, reached Vite as empty strings and were embedded as
+  such; the config now drops empty `VITE_` variables (§49's reproducibility
+  note holds: a build *with* a relay differs by the relay).
 - **Owed on real networks** (`DEVICE_CHECKLIST.md`): the VPN ↔ carrier pair
   again — the panel's behaviour, the STUN test twice in a row after a
   reconnect (the throttling diagnosis), and the pair with the built-in
