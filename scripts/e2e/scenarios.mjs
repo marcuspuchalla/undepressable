@@ -83,11 +83,11 @@ let netlogs = 0
 async function newPage(storage, extraArgs = []) {
   // NETLOG=<dir>: Chromium's own log of every DNS lookup and socket, per browser.
   const netlog = process.env.NETLOG ? [`--log-net-log=${join(process.env.NETLOG, `netlog-${++netlogs}.json`)}`, '--net-log-capture-mode=Default'] : []
-  // A live run reaches the site through whatever proxy this machine has; one
-  // that intercepts TLS (as a sandbox's does) needs its certificate accepted.
-  const live = LIVE && process.env.HTTPS_PROXY ? { proxy: { server: process.env.HTTPS_PROXY } } : {}
+  // A live run reaches the site through whatever proxy the environment sets
+  // (Chromium reads it, and leaves localhost alone); one that intercepts TLS,
+  // as a sandbox's does, needs its certificate accepted.
   const liveArgs = LIVE ? ['--ignore-certificate-errors'] : []
-  const browser = await chromium.launch({ args: [...launchArgs, ...liveArgs, ...extraArgs, ...netlog], ...live, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) })
+  const browser = await chromium.launch({ args: [...launchArgs, ...liveArgs, ...extraArgs, ...netlog], ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) })
   browsers.push(browser)
   const ctx = await browser.newContext({ viewport: { width: 400, height: 860 }, ...(LIVE ? { ignoreHTTPSErrors: true } : {}) })
   if (process.env.TRACE)
@@ -884,6 +884,36 @@ Object.assign(scenarios, {
     const { readFileSync, mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const { createHash } = await import('node:crypto')
+    if (LIVE) {
+      // A built copy ignores the stand-in calendars: this asks the real
+      // OpenTimestamps calendars. Anchoring takes hours, so what can be seen
+      // is the request landing, the proof pending, and the bundle's .ots
+      // stamping root.txt and naming a real calendar.
+      const phone = await newPage({})
+      await phone.goto(route('/recordings'))
+      await recordOnDevice(phone, 3)
+      await phone.reload()
+      await phone.locator('[data-testid=timestamp]').first().click()
+      const appeared = await phone.locator('[data-testid=timestamp-status]').first().waitFor({ timeout: 30000 }).then(() => true).catch(() => false)
+      const row = (await phone.locator('[data-testid=timestamp-row]').first().innerText().catch(() => '?')).replace(/\s+/g, ' ')
+      if (!appeared) return [false, `no timestamp from the real calendars: "${row.slice(0, 160)}"`]
+      await phone.locator('[data-testid=timestamp-check]').first().click()
+      await phone.waitForTimeout(3000)
+      const after = (await phone.locator('[data-testid=timestamp-status]').first().innerText()).replace(/\s+/g, ' ')
+      await phone.locator('[data-testid=send-evidence]').first().click()
+      const [download] = await Promise.all([phone.waitForEvent('download'), phone.locator('[data-testid=save-evidence]').first().click()])
+      const dir = mkdtempSync(join(tmpdir(), 'und-ots-live-'))
+      const zip = join(dir, download.suggestedFilename())
+      await download.saveAs(zip)
+      execFileSync('unzip', ['-q', zip, '-d', dir])
+      const root = readFileSync(join(dir, 'root.txt'))
+      const ots = readFileSync(join(dir, 'root.txt.ots'))
+      const evidence = JSON.parse(readFileSync(join(dir, 'evidence.json'), 'utf8'))
+      const digestMatches = ots.subarray(33, 65).equals(createHash('sha256').update(root).digest())
+      const calendar = (ots.toString('latin1').match(/https?:\/\/[a-z0-9.-]*opentimestamps[a-z0-9./-]*/) ?? [''])[0]
+      const ok = /requested/.test(row) && /requested/.test(after) && root.toString() === `${evidence.proof.merkleRoot}\n` && digestMatches && /opentimestamps/.test(calendar)
+      return [ok, `real calendars: "${row.slice(0, 70)}" → after Check now: "${after.slice(0, 50)}"; bundle: root.txt = proof root ${root.toString().trim() === evidence.proof.merkleRoot}, .ots digest matches ${digestMatches}, calendar ${calendar || 'none named'}`]
+    }
     const cal = await otsServer()
     try {
       const phone = await newPage({ undepressable_ots_calendars: JSON.stringify([cal.base]), undepressable_ots_explorer: JSON.stringify(`${cal.base}/api`) })
@@ -1495,6 +1525,10 @@ Object.assign(scenarios, {
 })
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']
 const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'offline-isolated', 'messenger-pair', 'messenger-pair-late'])
+
+// A run killed mid-scenario leaves its firewall rule behind, and the next run
+// then fails on "no direct path": clear any such leftovers first.
+for (const rule of [BLOCK_RULE, BLOCK_ALL_RULE, NO_UDP_RULE]) while (block(false, rule)) {}
 
 relayProcess = startHelper('nostr-relay.mjs', '7777')
 startHelper('turn-server.mjs', HOST_IP)
