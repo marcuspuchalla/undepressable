@@ -1025,3 +1025,99 @@ second (the logs allow six hours at that rate).
   without it.
 - Two attestations a second double their size (about 400 bytes a second);
   an edit shorter than half a second between two can still pass.
+
+## Part 8 — against the live site
+
+### 42. Every check had run against the dev server
+
+Through round 8 the suite drove the app as Vite serves it on localhost:
+sources loaded as modules, routes in the path, discovery on the local test
+relay. The thing people actually open — the single file the Pages workflow
+publishes at `https://marcuspuchalla.github.io/undepressable/`, on a real
+HTTPS origin — had never been under the same tests.
+
+**Harness, `LIVE=1`** (`APP_URL` picks the site): routes move into the hash;
+the app's modules come from `window.__und`, which `src/lib/testHooks.ts`
+installs in every build (the same storage, recordings and manifest code the
+dev runs imported from `/src`); share and pairing links are used exactly as
+the app produced them; the browser goes through the environment's proxy and
+accepts its interception certificate; firewall rules a killed run left
+behind are cleared at start; `timestamp` requests from the real
+OpenTimestamps calendars instead of the stand-in; `public-relay` is skipped
+with its reason, since the published build ignores the dev-only candidate
+override it leans on; `blend-in`'s resolver rules exclude the loopback the
+proxy lives on (they caught the IP literal too, and the page could not load
+at all), the proxy is passed to Chromium explicitly (a bypass list for the
+relay is honoured only next to `--proxy-server`, not with the proxy taken
+from the environment — without it the TURN-TLS connection went through the
+proxy and died), and the site's own host counts among the app's permitted
+hosts.
+Discovery uses the real public relays unless `LOCAL_RELAY=1`.
+
+**Where it ran, and what that means.** The sandbox the suite ran in has no
+inbound connections, no UDP to the internet, and outbound HTTPS only through
+a TLS-intercepting proxy — which answers a WebSocket upgrade to the public
+Nostr relays with a plain `200`, so the public introductions cannot be
+exercised from here (`LOCAL_RELAY=1` kept discovery on the local test
+relay). Everything else ran as in the dev runs: media between the browsers,
+the local TURN server and its TLS front, the firewall simulation of strict
+NAT and policing, the real calendars over HTTPS.
+
+**The site under test:** Pages workflow run 6, built from commit
+`031b9f6`; `undepressable.html` 1,153,076 bytes
+(SHA-256 `34aa18a3…7014ea`), `verify.html` 50,156 bytes
+(`5acc9199…68430d`); `index.html` is the same file as
+`undepressable.html`. A clean build of that commit in a fresh worktree
+(`npm run build:verify && npm run build:portable`) gives the same two
+files, byte for byte: what Pages serves is what the source builds. The
+redeploy that carried the fixes below (run 7, commit `803b36c`,
+`undepressable.html` 1,154,082 bytes, `765b75cc…`) was live 50 s after the
+push and is again byte-identical to a build of that commit.
+
+### 43. A second share link on the single-file build did not change the room
+
+Found by `corroborate` against the live site: the viewer opens two
+filmers' links one after the other, and the second recording never
+started. On the published single file the routes live in the hash, so a
+share link that differs only after the `#` is a same-document navigation:
+the collect view received the new room code as a changed prop and did
+nothing with it — it stayed in the first room. The dev build's path routes
+always reload the page, which is why the suite had never seen it, and a
+viewer who opens a second link in a new tab never would. Fix: the view
+watches its room code and, when it changes, leaves the old room and joins
+the new one with the key from the new link (`CollectView.vue`).
+
+### Round 8 verification — the live run
+
+33 scenarios against the published site, one process, discovery on the
+local relay:
+
+| | |
+|---|---|
+| **Pass, first run** | 30: open (video 0.9 s), blocked, relay-link (1.0 s), relay-one-side, relay-rejected, relay-added-live (1.3 s), crowd-large (six viewers, video 0.1–0.3 s on each, counts 6/7 everywhere, the streamer uploading to 2 with 4 served by seeds), crowd, internet-drops (still playing 15 s after discovery died), offline-two-viewers, offline-isolated, archive, evidence-file, home-sync (delivered in 0.35 s), offline-handover, offline-chain, offline-chain-repair, messenger-pair, messenger-pair-late (reply pasted after 90 s), amplify-streamer, amplify-viewer, sealed-home, sealed-passphrase, sealed-blind-carrier, timestamp, corroborate-offline (21 of 21 moments), throttled (reduced and small picture at ~320 kbit/s, sound only at ~56 kbit/s, full picture back), corroborate-sealed (20 of 20 at home), combine (0:24 covered, 0:05 in gaps, rendered 27 s and imported elsewhere with both sources verified), self-check (the published bundle's `verify.html`, 49 KB, from disk: unaltered, 17 moments matched, one flipped byte caught at second 5) |
+| **Skipped** | public-relay: a published build ignores the dev-only candidate list; the real public relays need UDP to the internet (owed on a real network, `DEVICE_CHECKLIST.md`) |
+| **Failed, then re-run** | blend-in: the harness's resolver rules refused the proxy's loopback address, so the first page never loaded (`ERR_PROXY_CONNECTION_FAILED`) — a harness bug, fixed above; re-run against the live site: **pass** — video in 1.2 s via RELAY, discovery rooms ["nostr"], **0 UDP packets attempted**, the app's hosts beyond localhost the TLS relay and the site itself; the same relay with blend-in off: 56 UDP packets, rooms mqtt/nostr/torrent, every public tracker and broker contacted. corroborate: one 20 s wait for the viewer's recording to start timed out (`corroborate-offline` and `-sealed` passed in the same run); it failed the same way on a re-run, which made it the finding in §43 — the published build did not re-join on the second link, so the second recording never started. With the fix, the scenario passes against a local copy of the single-file build in live mode (21 and 21 moments kept — the count had also run on across the two streams, now it starts over with a new link — 20 of 20 matched for each filmer, a copy carrying the other stream's attestations refused with 0 of 21); against the published site once this deploy carried the fix: **pass** (21 and 20 moments kept, the signers the links' keys) |
+| **timestamp, real calendars** | "Timestamp requested — anchoring it in Bitcoin takes a few hours"; *Check now* still pending; the bundle's `root.txt` is the proof root and `root.txt.ots` carries the same digest and names `bob.btc.calendar.opentimestamps.org` |
+
+What this proves: the artefact people open — built by the workflow, served
+by GitHub Pages over HTTPS, routes in the hash, the checker inside every
+bundle — behaves like the dev build under every scenario the suite has,
+and the real calendars accept its requests. What it does not: the public
+introductions from a real network (`LIVE=1` without `LOCAL_RELAY` from an
+ordinary connection; `DEVICE_CHECKLIST.md`), and three things that do not
+apply to the Pages deployment — the offline install and signed updates,
+because the published single file carries no service worker and no
+`release.json` (the PWA build is what a self-hosted mirror serves), and the
+extension, which is its own build.
+
+### Round 8 live known limits
+
+- The live suite does not test what the sandbox could not reach: the
+  public Nostr relays, trackers and brokers. A pass with `LOCAL_RELAY=1`
+  says the published build connects, streams, records and verifies; it says
+  nothing about whether strangers' relays introduce two phones today.
+- `public-relay` has no live variant: the opt-in through the Network page
+  on a strict network is a hand check.
+- A `timestamp` request against the real calendars is only the request:
+  the Bitcoin block arrives hours later, so the live run checks the
+  request, the pending state and the bundle, not the completed proof.

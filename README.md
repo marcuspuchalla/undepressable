@@ -115,7 +115,7 @@ Vue 3, TypeScript, Vite. [Trystero](https://github.com/dmotz/trystero) for serve
 | **End to end, in Chromium** | 33 scenarios in one run: direct and relayed connections, strict NAT, a rejected relay, public relays, six viewers, discovery dying mid-stream, face-to-face pairing and chains, pairing by messenger (also 90 s late), home archive and sync, evidence files, hand-over, Amplify, sealed recordings three ways, timestamps, corroboration three ways, a throttled link (policed to 320 and 56 kbit/s), combined records, blend in (every UDP packet counted: zero), self-checking bundles |
 | **Standalone** | Offline install with the server gone; the single-file app from disk and from an arbitrary mirror path; signed updates accepted, unsigned refused; the extension streaming to the web app |
 | **Supply chain** | The published `undepressable.html` and `verify.html` are byte-identical to a clean build of the same commit |
-| **Against the live site** | *(the live run is recorded in `docs/RELIABILITY_AUDIT_3.md`, part 8)* |
+| **Against the live site** | The same suite against the published build on GitHub Pages: 32 of 33 scenarios pass (`public-relay` has no live variant). The run found one bug only the published build had — a second share link opened in place did not change the room — fixed and re-tested on the redeployed site. Discovery stayed on a local relay because the test sandbox cannot carry WebSockets to the public relays: that last step is the first line of the device checklist ([part 8 →](docs/RELIABILITY_AUDIT_3.md#part-8--against-the-live-site)) |
 
 The audits ([round 3 →](docs/RELIABILITY_AUDIT_3.md)) record every finding, what was wrong, what changed, and what each test proves.
 

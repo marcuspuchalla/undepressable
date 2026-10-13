@@ -82,6 +82,7 @@ The original six phases, with what each became.
 | 6 | Sealed recordings, trusted timestamps | part 5 |
 | 7 | Corroborated copies (filmer-signed fingerprints), throttled links | part 6 |
 | 8 | Combined records, blend in, self-checking bundles | part 7 |
+| 8, live | The whole suite against the published site; the use cases as a document | part 8 |
 
 ## Success metrics (from the original plan), with where they stand
 
