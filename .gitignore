@@ -60,3 +60,7 @@ site
 
 # Vite dep cache when run from the root
 .vite/
+
+# Research scratch (deep-research skill); reports are copied into docs/ when kept
+research_notes/
+reports/
