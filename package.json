@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && npm run build:verify && npm run build:portable && vite build && node scripts/build-portable.js --copy-to dist && node scripts/sign-release.mjs",
+    "postinstall": "node scripts/patch-deps.mjs",
     "docs:use-cases": "node scripts/gen-use-cases.mjs",
     "build:verify": "vite build --mode verify && node scripts/build-portable.js --app-dir dist-verify/app --out dist-verify/verify.html",
     "build:portable": "vite build --mode portable && node scripts/build-portable.js",

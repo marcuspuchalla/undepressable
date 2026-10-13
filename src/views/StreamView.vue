@@ -232,7 +232,7 @@
       </div>
     </Teleport>
 
-    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" :show-stun="diag.natKind.value === 'blocked'" @saved="onRelaySaved" @share-changed="settingsTick++" />
+    <RelaySetup v-model:open="showRelay" :auto-test="relayAutoTest" :show-stun="diag.natKind.value === 'blocked'" :nat-kind="diag.natKind.value" @saved="onRelaySaved" @share-changed="settingsTick++" />
   </div>
 </template>
 

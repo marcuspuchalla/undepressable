@@ -31,7 +31,7 @@
         </p>
 
         <!-- The quick option for people without a relay: free public ones, tested first -->
-        <PublicRelayHelper :show-stun="showStun" @applied="onPublicApplied" />
+        <PublicRelayHelper :show-stun="showStun" :nat-kind="natKind" @applied="onPublicApplied" />
 
         <p class="text-xs uppercase tracking-wide text-slate-500 pt-1">Or use your own relay</p>
 
@@ -162,10 +162,10 @@ import {
   type TurnConfig,
   type RelaySetup,
 } from '../lib/net/iceConfig'
-import { testRelay, describeRelayError, type RelayTestResult, type RelayProtocol } from '../lib/net/natProbe'
+import { testRelay, describeRelayError, type RelayTestResult, type RelayProtocol, type NatKind } from '../lib/net/natProbe'
 import PublicRelayHelper from './PublicRelayHelper.vue'
 
-const props = defineProps<{ open?: boolean; inline?: boolean; autoTest?: boolean; showStun?: boolean }>()
+const props = defineProps<{ open?: boolean; inline?: boolean; autoTest?: boolean; showStun?: boolean; natKind?: NatKind | null }>()
 // 'saved': ICE servers changed — connections must be re-made to use them.
 // 'share-changed': only what goes into share links changed.
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void; (e: 'saved'): void; (e: 'share-changed'): void }>()

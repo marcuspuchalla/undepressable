@@ -199,6 +199,48 @@ const scenarios = {
     const s = await videoWithin(B, 40000)
     return [s !== null && /✓ local test relay/.test(results) && /✗ dead relay/.test(results), `tests: ${results}; viewer video ${s}s after opting in`]
   },
+  // The field report (round 9): what the relay panel found stays on screen
+  // after the panel was closed and re-opened, and on a strict network the
+  // STUN section says it will not help instead of offering a remedy.
+  async 'relay-panel-remembers'() {
+    const candidates = JSON.stringify([
+      { id: 'dead', label: 'dead relay', server: { urls: [`turn:${HOST_IP}:3479`], username: 'x', credential: 'y' } },
+    ])
+    const { code } = await startStream({ undepressable_dev_public_relay_candidates: candidates })
+    const B = await newPage({ undepressable_dev_public_relay_candidates: candidates })
+    // The network check cannot see STUN from here; tell the viewer what a VPN or carrier would show it.
+    await B.addInitScript(() => sessionStorage.setItem('undepressable_nat_kind', JSON.stringify({ kind: 'hard', at: Date.now() })))
+    await B.goto(`${route(`/collect/${code}`)}`)
+    await B.waitForSelector('text=your networks block a direct connection', { timeout: 60000 })
+    await B.getByRole('button', { name: 'Set up a relay' }).click()
+    // The STUN section is folded on a strict network (it opens by itself only where UDP looked blocked).
+    const openStun = async () => {
+      if (!(await B.locator('[data-testid=stun-section]').evaluate((d) => d.open))) await B.locator('[data-testid=stun-section] summary').click()
+    }
+    const summary = (await B.locator('[data-testid=stun-section] summary').innerText()).replace(/\s+/g, ' ')
+    await openStun()
+    const explainer = (await B.locator('[data-testid=stun-explainer]').innerText()).replace(/\s+/g, ' ')
+    await B.locator('[data-testid=test-public-relays]').click()
+    await B.locator('[data-testid=no-public-relay]').waitFor({ timeout: 20000 })
+    const results = (await B.locator('[data-testid=public-relay-results]').innerText()).replace(/\s+/g, ' ')
+    await B.locator('[data-testid=test-stun]').click()
+    await B.locator('[data-testid=stun-note]').waitFor({ timeout: 20000 })
+    const stunNote = (await B.locator('[data-testid=stun-note]').innerText()).replace(/\s+/g, ' ')
+    // Close the panel, let the doctor offer it again, re-open: nothing has to be redone.
+    await B.locator('button[aria-label=Close]').click()
+    await B.locator('[data-testid=public-relay-results]').waitFor({ state: 'detached', timeout: 5000 })
+    await B.getByRole('button', { name: 'Set up a relay' }).click()
+    const again = (await B.locator('[data-testid=public-relay-results]').innerText().catch(() => '')).replace(/\s+/g, ' ')
+    const guidance = await B.locator('[data-testid=no-public-relay]').isVisible().catch(() => false)
+    await openStun()
+    const stunAgain = (await B.locator('[data-testid=stun-note]').innerText().catch(() => '')).replace(/\s+/g, ' ')
+    const ok =
+      /will not help here/.test(summary) && /strict NAT on both sides/.test(explainer) &&
+      /✗ dead relay/.test(results) && /Tested just now/.test(results) &&
+      /None of 8 answered/.test(stunNote) &&
+      /✗ dead relay/.test(again) && /Tested just now/.test(again) && guidance && /None of 8 answered/.test(stunAgain) && /tested just now/.test(stunAgain)
+    return [ok, `STUN section: "${summary}" / "${explainer.slice(0, 60)}…"; relay test: "${results}"; STUN test: "${stunNote.slice(0, 70)}…"; after close and re-open: "${again}", guidance ${guidance}, STUN note kept ${/None of 8 answered/.test(stunAgain)}`]
+  },
   async 'relay-added-live'() {
     const { page: A, code } = await startStream({})
     const B = await newPage({})
@@ -1535,8 +1577,9 @@ const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']
 // Scenarios a published build cannot run: they lean on a dev-only override.
 const NOT_ON_LIVE = {
   'public-relay': 'the published build ignores the dev-only relay candidate list, so this would test the real public relays (UDP to the internet; run it from outside a sandbox, or check the opt-in by hand)',
+  'relay-panel-remembers': 'the published build ignores the dev-only relay candidate list this scenario relies on',
 }
-const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'offline-isolated', 'messenger-pair', 'messenger-pair-late'])
+const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'relay-panel-remembers', 'offline-isolated', 'messenger-pair', 'messenger-pair-late'])
 
 // A run killed mid-scenario leaves its firewall rule behind, and the next run
 // then fails on "no direct path": clear any such leftovers first.

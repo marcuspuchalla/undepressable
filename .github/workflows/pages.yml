@@ -45,7 +45,17 @@ jobs:
         with:
           enablement: true
       - run: npm run build:verify
+      # A relay for everyone who opens the site: add repository secrets
+      # VITE_TURN_URL (turn:/turns: addresses, comma-separated),
+      # VITE_TURN_USERNAME and VITE_TURN_CREDENTIAL — or VITE_ICE_SERVERS_URL
+      # for a provider's credentials link. Unset, the build carries none
+      # (docs/SELF_HOSTING.md, "A relay for the published site").
       - run: npm run build:portable
+        env:
+          VITE_TURN_URL: ${{ secrets.VITE_TURN_URL }}
+          VITE_TURN_USERNAME: ${{ secrets.VITE_TURN_USERNAME }}
+          VITE_TURN_CREDENTIAL: ${{ secrets.VITE_TURN_CREDENTIAL }}
+          VITE_ICE_SERVERS_URL: ${{ secrets.VITE_ICE_SERVERS_URL }}
       - name: Lay out the site
         run: |
           mkdir -p site

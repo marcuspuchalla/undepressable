@@ -1,3 +1,4 @@
+import { isPatched } from './scripts/patch-deps.mjs'
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 import { VitePWA } from 'vite-plugin-pwa'
@@ -46,6 +47,10 @@ function verifierPlugin() {
     },
   }
 }
+
+// The installed Trystero must carry the small offer pools (scripts/patch-deps.mjs):
+// an unpatched copy would ship the connection burst the field report found.
+if (!isPatched()) throw new Error('trystero is not patched — run `npm install` (scripts/patch-deps.mjs)')
 
 export default defineConfig(({ mode }) => {
   const portable = mode === 'portable'

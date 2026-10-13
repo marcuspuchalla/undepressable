@@ -113,6 +113,45 @@ of them):
 Verify it works: chrome://webrtc-internals while connecting should show
 `relay` candidate pairs when direct paths are blocked.
 
+## A relay for the published site
+
+Two strict networks — a VPN exit on one side, a mobile carrier's CGNAT on the
+other — cannot connect without a relay, whatever the app does, and the free
+public relays the app can test are volunteer-run and often gone. Whoever
+publishes the site can build a relay into it, so every copy people open
+carries one and nobody at a scene has to set anything up.
+
+1. **Get a relay.** Your own `coturn` (above), or a provider with a free
+   plan — at the time of writing ExpressTURN hands out a fixed username and
+   password, Metered a credentials link. Prefer an address on port 443
+   (`turns:…:443`) next to the plain one.
+2. **Put it in the repository's secrets** (Settings → Secrets and variables →
+   Actions → New repository secret):
+   - `VITE_TURN_URL` — the address(es), comma-separated, e.g.
+     `turn:relay.example.org:3478,turns:relay.example.org:443`
+   - `VITE_TURN_USERNAME` and `VITE_TURN_CREDENTIAL`
+   - or `VITE_ICE_SERVERS_URL` — a provider's HTTPS credentials link
+3. **Push to `main`** (or run the Pages workflow by hand). The next deploy
+   builds the relay in; on the published site, Network → *Relay* reads
+   "This build ships a relay", and the connection status card no longer
+   asks viewers to set one up.
+
+What to know before you do:
+
+- **The credentials are public.** They sit in the HTML for anyone to read,
+  so the relay is open to anyone who finds them. Use a provider plan whose
+  quota you can afford to lose, or a `coturn` with a bandwidth cap, and
+  rotate the secret when needed — the next deploy carries the new one, and
+  installed copies pick it up with their next signed update.
+- **The single-file app hands it on.** A copy saved from the site (*Pass the
+  app on*) carries the same relay, which is the point: the people who get
+  the file from a phone at a scene get the relay with it.
+- **Reproducibility.** A build with the secrets differs from a build without
+  them; to reproduce the published file byte for byte, build with the same
+  values (`VITE_TURN_URL=… npm run build:portable`).
+- Anything a device sets by hand (Network → Relay) replaces the built-in
+  relay on that device.
+
 ## Broadcast server (WHIP) for everyone without the app
 
 *Amplify* (share sheet while streaming, or under the player while watching)

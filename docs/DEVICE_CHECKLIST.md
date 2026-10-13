@@ -14,13 +14,17 @@ Status: ⬜ not tried · ✅ passed · ❌ failed (open an issue) · 🟡 partly
 |---|---|---|---|
 | ⬜ | **Signed releases** | `npm run release:keygen` on an offline machine; put the public key in `src/lib/update/trustedKeys.ts`; build with `UNDEPRESSABLE_RELEASE_KEY` | Network → *This copy of the app* reads "signed by the developers"; an update signed by another key is refused (THREAT_MODEL §2) |
 | ⬜ | **A relay you run** | coturn with `turns:` on 443 (`SELF_HOSTING.md`); add it on the Network page; *Include in share links* | Network → *Check* shows the relay answering over TLS |
+| ⬜ | **A relay in the published site** | Repository secrets `VITE_TURN_URL`, `VITE_TURN_USERNAME`, `VITE_TURN_CREDENTIAL` (or `VITE_ICE_SERVERS_URL`); push to `main` (`SELF_HOSTING.md`, "A relay for the published site") | Network → *Relay* on the live site reads "This build ships a relay"; the VPN ↔ mobile pair below connects with nothing set up on either device |
 | ⬜ | **Your own discovery relay** | strfry behind TLS on 443; add it under *Discovery relays* | Two devices find each other with *Only use my relays* on |
 
 ## Connecting across real networks (the field report, rounds 3–5)
 
 | | What | How | Pass |
 |---|---|---|---|
-| ⬜ | VPN ↔ mobile data, no relay | Laptop on a VPN (exit abroad) streams; phone on mobile data scans the QR | Both say "your networks block a direct connection" within ~30 s, with *Set up a relay* — not endless "connecting" |
+| 🟡 | VPN ↔ mobile data, no relay | Laptop on a VPN (exit abroad) streams; phone on mobile data scans the QR | Both say "your networks block a direct connection" within ~30 s, with *Set up a relay* — not endless "connecting". **Seen 2026-10-13** (Iceland VPN ↔ German carrier): the message came; the public relays did not answer, and STUN was offered as a remedy — round 9 (`RELIABILITY_AUDIT_3.md`, part 9) changed both |
+| ⬜ | Same, after round 9 | The same pair, no relay | *Set up a relay* → *Test public relays* lists each relay with its reason; *More STUN servers* reads "will not help here" and its test, if run, says STUN works and a relay is needed; close the panel, re-open it: the results are still there with "Tested … ago" |
+| ⬜ | Same, with the built-in relay | After the secrets above are set | Connects with nothing set up on either device; status `RELAY` |
+| ⬜ | STUN test twice in a row | On the VPN side: *Test more STUN servers*, close, let the app reconnect, test again | The second test answers too; if it does not, the note says the servers answered a minute ago and blames throttling, not a blocked network |
 | ⬜ | Same, relay on the streamer only | Add `turns:…:443` on the laptop; the phone re-scans | Connects without touching the phone; status `RELAY` |
 | ⬜ | Share link from the camera app | Phone opens the QR with its camera app, not the in-app scanner | Joins (relay and discovery relays carried in the link) |
 | ⬜ | Wi-Fi ↔ mobile handover mid-stream | Walk the viewer out of Wi-Fi range | Short blip: same recording segment; long: reconnects, new segment |

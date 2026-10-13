@@ -14,6 +14,8 @@
 // then even easy NATs cannot be crossed. A few more servers in other
 // jurisdictions and on other ports often get through.
 
+import type { NatKind } from "./natProbe";
+
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
 export interface PublicRelayCandidate {
@@ -179,4 +181,93 @@ export function relayCandidates(storage: Pick<Storage, "getItem"> | null = safeS
   } catch {
     return PUBLIC_RELAY_CANDIDATES;
   }
+}
+
+// --- what the last tests found ---
+// Kept for the life of the page (not persisted: networks change), so the
+// panel shows the last result again after it was closed, after a reconnect
+// and on another view — nobody should have to redo a test because the panel
+// was re-opened, and a result from a minute ago is evidence in its own right.
+export interface TestMemory<T> {
+  at: number;
+  results: CandidateResult<T>[];
+}
+let lastRelayTest: TestMemory<PublicRelayCandidate> | null = null;
+let lastStunTest: TestMemory<string> | null = null;
+
+export function rememberRelayTest(results: CandidateResult<PublicRelayCandidate>[], now = Date.now()): void {
+  lastRelayTest = { at: now, results };
+}
+export function recallRelayTest(): TestMemory<PublicRelayCandidate> | null {
+  return lastRelayTest;
+}
+export function rememberStunTest(results: CandidateResult<string>[], now = Date.now()): void {
+  lastStunTest = { at: now, results };
+}
+export function recallStunTest(): TestMemory<string> | null {
+  return lastStunTest;
+}
+export function forgetTests(): void {
+  lastRelayTest = null;
+  lastStunTest = null;
+}
+
+/** "just now", "3 min ago", "2 h ago". */
+export function agoText(at: number, now = Date.now()): string {
+  const s = Math.max(0, Math.round((now - at) / 1000));
+  if (s < 45) return "just now";
+  const m = Math.round(s / 60);
+  if (m < 60) return `${m} min ago`;
+  return `${Math.round(m / 60)} h ago`;
+}
+
+export interface StunVerdict {
+  tone: "good" | "warn" | "none";
+  /** Worth reconnecting with the servers that answered. */
+  useful: boolean;
+  text: string;
+}
+
+/** A test that found servers answering this recently says the network does not block UDP, whatever a later test found. */
+const THROTTLE_MEMORY_MS = 15 * 60_000;
+
+/**
+ * What a STUN test means — which depends on what the network check found
+ * and on what an earlier test saw. Two strict NATs are not helped by any
+ * number of STUN servers; and servers that answered a few minutes ago and
+ * fall silent right after the app opened a burst of connections point to
+ * throttling, not to a network that blocks UDP. Pure.
+ */
+export function stunVerdict(input: {
+  answered: number;
+  tested: number;
+  using: number;
+  natKind: NatKind | null;
+  previous: TestMemory<string> | null;
+  now?: number;
+}): StunVerdict {
+  const now = input.now ?? Date.now();
+  if (input.answered > 0) {
+    if (input.natKind === "hard") {
+      return {
+        tone: "warn",
+        useful: false,
+        text: `${input.answered} of ${input.tested} answered — STUN works from here, so that is not what blocks you. Two strict networks need a relay; more STUN servers change nothing.`,
+      };
+    }
+    return { tone: "good", useful: true, text: `${input.answered} of ${input.tested} answered — using ${input.using}.` };
+  }
+  const before = input.previous ? input.previous.results.filter((r) => r.ok).length : 0;
+  if (input.previous && before > 0 && now - input.previous.at < THROTTLE_MEMORY_MS) {
+    return {
+      tone: "warn",
+      useful: false,
+      text: `None of ${input.tested} answered now, but ${before} did ${agoText(input.previous.at, now)}. The app had just opened a burst of connections, and networks throttle that for a while: wait a minute and test again. This network does not block UDP.`,
+    };
+  }
+  return {
+    tone: "none",
+    useful: false,
+    text: `None of ${input.tested} answered: this network seems to block UDP entirely. Only a relay reachable over TCP/TLS (turns: on port 443) can connect you.`,
+  };
 }
