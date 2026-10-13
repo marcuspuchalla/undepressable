@@ -147,6 +147,7 @@ Phones need HTTPS: use the published site or an HTTPS tunnel to the dev server (
 | [docs/USE_CASES.md](docs/USE_CASES.md) | The twelve ways to use it, with every step, as the app's guide shows them |
 | [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) | Where it came from, what each phase became, metrics against targets, what is next |
 | [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) · [docs/TRAFFIC.md](docs/TRAFFIC.md) | Who can do what, and what the traffic looks like on the wire |
+| [docs/STUN_RESEARCH.md](docs/STUN_RESEARCH.md) | Public STUN servers in 2026, the alternatives to using any, and what only a relay solves |
 | [docs/TEST_PLAN.md](docs/TEST_PLAN.md) · [docs/DEVICE_CHECKLIST.md](docs/DEVICE_CHECKLIST.md) | Every scenario, how it is checked, what still needs real devices |
 | [docs/RELIABILITY_AUDIT_3.md](docs/RELIABILITY_AUDIT_3.md) | The findings and fixes of rounds 3–8, with results |
 | [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) · [docs/STANDALONE.md](docs/STANDALONE.md) | A relay and a discovery relay of your own; the single-file app and mirrors |
