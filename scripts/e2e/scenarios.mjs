@@ -1383,7 +1383,9 @@ const TLS_RELAY_ARGS = [
   // A live run still needs the proxy for the site itself; only the relay goes direct.
   LIVE ? `--proxy-bypass-list=${HOST_IP};localhost;127.0.0.1` : '--no-proxy-server',
   '--ignore-certificate-errors',
-  `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE ${HOST_IP}`,
+  // Refuse every name but the test hosts' (and the loopback the proxy lives on:
+  // the rules catch IP literals too).
+  `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE 127.0.0.1, EXCLUDE ${HOST_IP}`,
 ]
 /** Distinct hosts a Chromium net log shows connections or lookups to. */
 function netlogHosts(file) {
@@ -1459,7 +1461,9 @@ Object.assign(scenarios, {
       // only host either browser touched is the TLS relay.
       const browserOwn = /(^|\.)(google\.com|googleapis\.com|gvt1\.com|gstatic\.com)$|^dns\.google$|^~notfound$/
       const appHosts = on.hosts.filter((h) => !browserOwn.test(h))
-      const onlyRelay = appHosts.length > 0 && appHosts.every((h) => h === HOST_IP || h === `${HOST_IP}:443`)
+      // A live run also loads the page itself from the site (through the proxy).
+      const site = LIVE ? new URL(APP).host : null
+      const onlyRelay = appHosts.length > 0 && appHosts.every((h) => h === HOST_IP || h === `${HOST_IP}:443` || (site && (h === site || h === `${site}:443`)))
       const ok =
         on.video !== null && on.dropped === 0 && onlyRelay && /RELAY/.test(on.streamer) && on.rooms.join() === 'nostr' && /✓ A TLS relay on port 443/.test(on.status) &&
         off.dropped > 0
