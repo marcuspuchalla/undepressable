@@ -48,6 +48,11 @@ function verifierPlugin() {
   }
 }
 
+// A relay the deploy builds in comes from repository secrets (pages.yml); an
+// unset secret arrives as an empty string. Treat those as absent, so a build
+// without a relay is the same bytes as a build of the same commit anywhere.
+for (const k of Object.keys(process.env)) if (k.startsWith('VITE_') && process.env[k] === '') delete process.env[k]
+
 // The installed Trystero must carry the small offer pools (scripts/patch-deps.mjs):
 // an unpatched copy would ship the connection burst the field report found.
 if (!isPatched()) throw new Error('trystero is not patched — run `npm install` (scripts/patch-deps.mjs)')
