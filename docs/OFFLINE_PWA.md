@@ -154,7 +154,7 @@ and running from a secure origin when the network is gone.
 
 1. **On laptop, build and serve:**
    ```bash
-   # In p2p-stream folder
+   # In the repository root
    npm run build
    
    # Serve the dist folder

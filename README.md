@@ -33,7 +33,7 @@ to delete in one place.
 - **The app spreads without any website.** The whole app is one HTML file
   (Home → *Pass the app on*): it runs from disk on a computer (Chrome/Edge) and as a mirror
   under any path — IPFS, a subfolder, anyone's website. See
-  [STANDALONE.md](./STANDALONE.md).
+  [docs/STANDALONE.md](./docs/STANDALONE.md).
 - **A seized domain cannot silently swap the code.** Updates are never
   installed silently; an installed copy checks that a new version is signed
   by the developers' key and warns loudly if it is not
@@ -187,7 +187,7 @@ still owed on real phones and networks: [docs/DEVICE_CHECKLIST.md](./docs/DEVICE
 - **TURN is a relay.** A direct P2P path is preferred; TURN only relays
   (still end-to-end encrypted) when strict NAT blocks a direct connection. It is
   the one optional "central" component and can be self-hosted.
-- **Not yet built** (see `../PROJECT_PLAN.md`): the native Bluetooth /
+- **Not yet built** (see `docs/PROJECT_PLAN.md`): the native Bluetooth /
   Wi-Fi Direct mesh ([docs/NATIVE_MESH.md](./docs/NATIVE_MESH.md)) — the web
   app can neither find nearby devices by radio nor connect them without a
   shared network.

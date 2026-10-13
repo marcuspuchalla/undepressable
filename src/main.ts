@@ -12,10 +12,14 @@ import { autoTimestamp, stampRecording } from './lib/timestamp/recordingStamp'
 import { getRecording } from './lib/recordingDb'
 
 import './assets/main.css'
+import { installTestHooks } from './lib/testHooks'
 
 // The portable single-file copy shares itself: keep its HTML as loaded,
 // before the app renders into the page.
 capturePristineCopy()
+
+// window.__und: the app's modules for tests of a built copy (lib/testHooks.ts).
+installTestHooks()
 
 // A share link can carry a relay (?turn=urls|user|pass or ?ice=credentials-url)
 // and custom discovery relays (?relays=wss://…), so an organizer can hand out

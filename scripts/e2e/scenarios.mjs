@@ -34,7 +34,21 @@ import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const APP = process.env.APP_URL || 'http://localhost:4400'
+// LIVE=1: run against a deployed single-file build (routes in the hash, the
+// app's modules via window.__und) with the real public discovery relays —
+// APP_URL defaults to the GitHub Pages site. LOCAL_RELAY=1 keeps discovery on
+// the local test relay even then.
+const LIVE = !!process.env.LIVE
+const APP = process.env.APP_URL || (LIVE ? 'https://marcuspuchalla.github.io/undepressable/' : 'http://localhost:4400')
+const route = (path) => (LIVE ? `${APP.replace(/\/?$/, '/')}#${path}` : `${APP}${path}`)
+/** A query parameter of a link, whether it sits in the search part or after the route in the hash. */
+function linkParam(url, name) {
+  const u = new URL(url)
+  const q = u.hash.indexOf('?')
+  return u.searchParams.get(name) ?? (q >= 0 ? new URLSearchParams(u.hash.slice(q + 1)).get(name) : null)
+}
+/** The app's modules inside a page: the dev server's sources, or a built copy's window.__und. */
+const LIB = `(window.__und ?? (window.__und ?? await import('/src/lib/recordingDb.ts')))`
 const HOST_IP =
   process.env.HOST_IP ||
   Object.values(networkInterfaces()).flat().find((i) => i && i.family === 'IPv4' && !i.internal)?.address
@@ -83,13 +97,11 @@ async function newPage(storage, extraArgs = []) {
         }
       }
     })
+  // The local test relay for discovery — unless a live run uses the public ones.
+  const discovery = LIVE && !process.env.LOCAL_RELAY ? {} : { undepressable_nostr_relays: JSON.stringify([RELAY]), undepressable_nostr_relays_only: '1' }
   await ctx.addInitScript((entries) => {
     for (const [k, v] of entries) localStorage.setItem(k, v)
-  }, Object.entries({
-    undepressable_nostr_relays: JSON.stringify([RELAY]),
-    undepressable_nostr_relays_only: '1',
-    ...storage,
-  }))
+  }, Object.entries({ ...discovery, ...storage }))
   return ctx.newPage()
 }
 async function closeAll() {
@@ -101,13 +113,13 @@ const turn = (credential = 'test') =>
 
 async function startStream(storage, extraArgs = []) {
   const page = await newPage(storage, extraArgs)
-  await page.goto(`${APP}/stream`)
+  await page.goto(`${route('/stream')}`)
   await page.waitForSelector('text=Share Stream', { timeout: 30000 })
   const code = (await page.textContent('.font-mono.text-lg')).trim()
   const share = await page.evaluate(() => [...document.querySelectorAll('code')].map((c) => c.textContent.trim()).find((t) => t.includes('/collect/')))
   await page.locator('.fixed.inset-0 button').first().click() // close the share sheet
   const u = new URL(share)
-  return { page, code, shareUrl: `${APP}${u.pathname}${u.search}` }
+  return { page, code, shareUrl: LIVE ? share : `${APP}${u.pathname}${u.search}` }
 }
 async function videoWithin(page, ms) {
   const t = Date.now()
@@ -129,14 +141,14 @@ const scenarios = {
   async open() {
     const { page: A, code } = await startStream({})
     const B = await newPage({})
-    await B.goto(`${APP}/collect/${code}`)
+    await B.goto(`${route(`/collect/${code}`)}`)
     const s = await videoWithin(B, 40000)
     return [s !== null && /connected/.test(await statusOf(A)), `video ${s}s; streamer: ${await statusOf(A)}`]
   },
   async blocked() {
     const { page: A, code } = await startStream({})
     const B = await newPage({})
-    await B.goto(`${APP}/collect/${code}`)
+    await B.goto(`${route(`/collect/${code}`)}`)
     await B.waitForSelector('text=your networks block a direct connection', { timeout: 60000 }).catch(() => {})
     const b = await statusOf(B)
     return [/block a direct connection/.test(b) && /Set up a relay/.test(b), `viewer: ${b}`]
@@ -151,7 +163,7 @@ const scenarios = {
   async 'relay-one-side'() {
     const { page: A, code } = await startStream({ ...turn(), undepressable_relay_share: '0' })
     const B = await newPage({})
-    await B.goto(`${APP}/collect/${code}`)
+    await B.goto(`${route(`/collect/${code}`)}`)
     const s = await videoWithin(B, 40000)
     return [s !== null, `video ${s}s; streamer: ${await statusOf(A)}`]
   },
@@ -173,7 +185,7 @@ const scenarios = {
     ])
     const { page: A, code } = await startStream({ undepressable_dev_public_relay_candidates: candidates })
     const B = await newPage({})
-    await B.goto(`${APP}/collect/${code}`)
+    await B.goto(`${route(`/collect/${code}`)}`)
     await A.waitForSelector('text=your networks block a direct connection', { timeout: 60000 })
     await A.getByRole('button', { name: 'Set up a relay' }).click()
     await A.locator('[data-testid=test-public-relays]').click()
@@ -186,7 +198,7 @@ const scenarios = {
   async 'relay-added-live'() {
     const { page: A, code } = await startStream({})
     const B = await newPage({})
-    await B.goto(`${APP}/collect/${code}`)
+    await B.goto(`${route(`/collect/${code}`)}`)
     await A.waitForSelector('text=your networks block a direct connection', { timeout: 60000 })
     await A.getByRole('button', { name: 'Set up a relay' }).click()
     await A.getByPlaceholder('turns:relay.example.org:443').fill(`turn:${HOST_IP}:3478`)
@@ -210,7 +222,7 @@ const scenarios = {
     const viewers = []
     for (let i = 0; i < N; i++) {
       const p = await newPage({})
-      await p.goto(`${APP}/collect/${code}`)
+      await p.goto(`${route(`/collect/${code}`)}`)
       viewers.push(p)
       await p.waitForTimeout(800)
     }
@@ -234,7 +246,7 @@ const scenarios = {
     const viewers = []
     for (let i = 0; i < 3; i++) {
       const p = await newPage({})
-      await p.goto(`${APP}/collect/${code}`)
+      await p.goto(`${route(`/collect/${code}`)}`)
       viewers.push(p)
     }
     const times = await Promise.all(viewers.map((p) => videoWithin(p, 45000)))
@@ -250,7 +262,7 @@ async function pasteCode(p, text) {
 }
 async function offlineViewer(streamer) {
   const v = await newPage({})
-  await v.goto(`${APP}/offline`)
+  await v.goto(`${route('/offline')}`)
   await v.getByText("I'm receiving").click()
   await pasteCode(v, await codeOf(streamer)) // the codes travel as text: no cameras needed
   await v.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
@@ -266,7 +278,7 @@ Object.assign(scenarios, {
   async 'internet-drops'() {
     const { code } = await startStream({})
     const B = await newPage({})
-    await B.goto(`${APP}/collect/${code}`)
+    await B.goto(`${route(`/collect/${code}`)}`)
     const s = await videoWithin(B, 40000)
     relayProcess.kill() // discovery (the "internet" here) disappears
     let advancing, interrupted
@@ -288,7 +300,7 @@ Object.assign(scenarios, {
   },
   async 'offline-two-viewers'() {
     const A = await newPage({})
-    await A.goto(`${APP}/offline`)
+    await A.goto(`${route('/offline')}`)
     await A.getByText("I'm filming").click()
     await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
     const codeLength = (await codeOf(A)).length
@@ -305,7 +317,7 @@ Object.assign(scenarios, {
   },
   async 'offline-isolated'() {
     const A = await newPage({})
-    await A.goto(`${APP}/offline`)
+    await A.goto(`${route('/offline')}`)
     await A.getByText("I'm filming").click()
     await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
     await offlineViewer(A)
@@ -315,14 +327,14 @@ Object.assign(scenarios, {
   },
   async archive() {
     const home = await newPage({})
-    await home.goto(`${APP}/archive`)
+    await home.goto(`${route('/archive')}`)
     await home.waitForFunction(() => /\/pair-home\//.test(document.body.innerText), null, { timeout: 15000 })
     const pairLink = await home.evaluate(() => document.body.innerText.match(/\S*\/pair-home\/\S+/)[0])
     const { code } = await startStream({})
     const phone = await newPage({})
     const u = new URL(pairLink)
-    await phone.goto(`${APP}${u.pathname}${u.search}`) // pair once
-    await phone.goto(`${APP}/collect/${code}`) // then watch at the scene
+    await phone.goto(LIVE ? pairLink : `${APP}${u.pathname}${u.search}`) // pair once
+    await phone.goto(`${route(`/collect/${code}`)}`) // then watch at the scene
     const watched = await videoWithin(phone, 40000)
     const archived = await videoWithin(home, 40000)
     await home.waitForSelector('text=Recording a forwarded stream', { timeout: 15000 }).catch(() => {})
@@ -344,7 +356,7 @@ Object.assign(scenarios, {
 // server serves source modules, so the page can import them directly).
 async function recordOnDevice(page, seconds) {
   return page.evaluate(async (ms) => {
-    const { useRecording } = await import('/src/composables/useRecording.ts')
+    const { useRecording } = (window.__und ?? await import('/src/composables/useRecording.ts'))
     const rec = useRecording()
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     await rec.startRecording(stream, 'low')
@@ -371,7 +383,7 @@ Object.assign(scenarios, {
     const { readFileSync, writeFileSync, mkdtempSync } = await import('node:fs')
     const { tmpdir } = await import('node:os')
     const phone = await newPage({})
-    await phone.goto(`${APP}/recordings`)
+    await phone.goto(`${route('/recordings')}`)
     const rec = await recordOnDevice(phone, 4)
     await phone.reload()
     await phone.locator('[data-testid=recording]').first().waitFor()
@@ -388,7 +400,7 @@ Object.assign(scenarios, {
     await download.saveAs(bundle)
 
     const other = await newPage({})
-    await other.goto(`${APP}/recordings`)
+    await other.goto(`${route('/recordings')}`)
     const imported = await importFiles(other, bundle)
     const listed = await other.locator('[data-testid=recording]').count()
     const again = await importFiles(other, bundle)
@@ -399,7 +411,7 @@ Object.assign(scenarios, {
     const tampered = join(dir, 'tampered.zip')
     writeFileSync(tampered, bytes)
     const third = await newPage({})
-    await third.goto(`${APP}/recordings`)
+    await third.goto(`${route('/recordings')}`)
     const refused = await importFiles(third, tampered)
     const thirdListed = await third.locator('[data-testid=recording]').count()
 
@@ -415,9 +427,9 @@ Object.assign(scenarios, {
   async 'home-sync'() {
     const HOME = 'HQMRT7XP'
     const home = await newPage({ undepressable_home_key: HOME })
-    await home.goto(`${APP}/archive`)
+    await home.goto(`${route('/archive')}`)
     const phone = await newPage({ undepressable_paired_home: HOME })
-    await phone.goto(`${APP}/recordings`)
+    await phone.goto(`${route('/recordings')}`)
     const a = await recordOnDevice(phone, 3)
     const b = await recordOnDevice(phone, 5)
     await phone.reload()
@@ -432,7 +444,7 @@ Object.assign(scenarios, {
     const homeCard = await home.locator('[data-testid=archive-received]').innerText().catch(() => '')
     const atHome = await phone.locator('[data-testid=at-home]').count()
     // The home device now holds complete, verifiable copies.
-    await home.goto(`${APP}/recordings`)
+    await home.goto(`${route('/recordings')}`)
     await home.locator('[data-testid=recording]').first().waitFor({ timeout: 10000 }).catch(() => {})
     const homeRecs = await home.locator('[data-testid=recording]').count()
     const verdicts = []
@@ -450,7 +462,7 @@ Object.assign(scenarios, {
   // other over the pairing link — e.g. to someone leaving the scene.
   async 'offline-handover'() {
     const A = await newPage({})
-    await A.goto(`${APP}/offline`)
+    await A.goto(`${route('/offline')}`)
     await A.getByText("I'm filming").click()
     await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
     const B = await offlineViewer(A)
@@ -469,7 +481,7 @@ Object.assign(scenarios, {
     const aStatus = await statusOf(A)
     const bStatus = await statusOf(B)
     // What arrived is a complete, verifiable recording on the other device.
-    await B.goto(`${APP}/recordings`)
+    await B.goto(`${route('/recordings')}`)
     const fromA = B.locator('[data-testid=recording]', { hasText: 'from a paired phone' }).first()
     await fromA.locator('[data-testid=verify]').click().catch(() => {})
     const verdict = await fromA.locator('[data-testid=verify-result]').innerText({ timeout: 15000 }).catch(() => 'no verdict')
@@ -482,7 +494,7 @@ Object.assign(scenarios, {
   // full), so C pairs with viewer B, who passes A's picture on.
   async 'offline-chain'() {
     const A = await newPage({})
-    await A.goto(`${APP}/offline`)
+    await A.goto(`${route('/offline')}`)
     await A.getByText("I'm filming").click()
     await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
     const B = await offlineViewer(A)
@@ -490,7 +502,7 @@ Object.assign(scenarios, {
     await B.locator('[data-testid=share-onward]').click()
     await B.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
     const C = await newPage({})
-    await C.goto(`${APP}/offline`)
+    await C.goto(`${route('/offline')}`)
     await C.getByText("I'm receiving").click()
     await pasteCode(C, await codeOf(B))
     await C.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
@@ -514,7 +526,7 @@ Object.assign(scenarios, {
   // the device watching through it must get the new picture, untouched.
   async 'offline-chain-repair'() {
     const A = await newPage({})
-    await A.goto(`${APP}/offline`)
+    await A.goto(`${route('/offline')}`)
     await A.getByText("I'm filming").click()
     await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
     const B = await offlineViewer(A)
@@ -522,7 +534,7 @@ Object.assign(scenarios, {
     await B.locator('[data-testid=share-onward]').click()
     await B.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
     const C = await newPage({})
-    await C.goto(`${APP}/offline`)
+    await C.goto(`${route('/offline')}`)
     await C.getByText("I'm receiving").click()
     await pasteCode(C, await codeOf(B))
     await C.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
@@ -535,7 +547,7 @@ Object.assign(scenarios, {
     await pairAgain.click().catch(() => {})
     // A second filming phone; B pairs with it, C does nothing.
     const A2 = await newPage({})
-    await A2.goto(`${APP}/offline`)
+    await A2.goto(`${route('/offline')}`)
     await A2.getByText("I'm filming").click()
     await A2.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
     await pasteCode(B, await codeOf(A2))
@@ -560,14 +572,14 @@ Object.assign(scenarios, {
 // (pasted here), the relay on one side carries the video.
 async function messengerPair(replyDelayMs) {
   const A = await newPage({ ...turn(), undepressable_nostr_relays: JSON.stringify(['ws://127.0.0.1:9']) })
-  await A.goto(`${APP}/offline`)
+  await A.goto(`${route('/offline')}`)
   await A.locator('[data-testid=mode-internet]').click()
   await A.getByText("I'm filming").click()
   await A.waitForSelector('[data-testid=pair-code]', { timeout: 20000 })
   const invite = await codeOf(A)
   // The viewer opens the ordinary face-to-face screen: the code itself says it came over the internet.
   const B = await newPage({ undepressable_nostr_relays: JSON.stringify(['ws://127.0.0.1:9']) })
-  await B.goto(`${APP}/offline`)
+  await B.goto(`${route('/offline')}`)
   await B.getByText("I'm receiving").click()
   await pasteCode(B, invite)
   await B.waitForSelector('[data-testid=pair-code]', { timeout: 20000 })
@@ -650,7 +662,7 @@ Object.assign(scenarios, {
     const srv = await whipServer()
     try {
       const A = await newPage({})
-      await A.goto(`${APP}/stream`)
+      await A.goto(`${route('/stream')}`)
       await A.waitForSelector('text=Share Stream', { timeout: 30000 })
       const wrong = await amplifyFrom(A, srv.url, 'bad-token')
       const status = await amplifyFrom(A, srv.url, 'good-token')
@@ -671,7 +683,7 @@ Object.assign(scenarios, {
     try {
       const { code } = await startStream({})
       const B = await newPage({})
-      await B.goto(`${APP}/collect/${code}`)
+      await B.goto(`${route(`/collect/${code}`)}`)
       const watching = await videoWithin(B, 40000)
       const status = await amplifyFrom(B, srv.url, 'good-token')
       const got = await srv.receiving()
@@ -684,8 +696,8 @@ Object.assign(scenarios, {
 // Is the first stored chunk of a recording plain WebM (EBML header) or sealed?
 const firstChunkIsWebm = (page, id) =>
   page.evaluate(async (rid) => {
-    const { getRecording } = await import('/src/lib/recordingDb.ts')
-    const { useOPFS } = await import('/src/composables/useOPFS.ts')
+    const { getRecording } = (window.__und ?? await import('/src/lib/recordingDb.ts'))
+    const { useOPFS } = (window.__und ?? await import('/src/composables/useOPFS.ts'))
     const r = await getRecording(rid)
     const blob = await useOPFS().readChunk(r.campaignId, r.id, 0)
     const b = new Uint8Array(await blob.slice(0, 4).arrayBuffer())
@@ -700,11 +712,11 @@ async function verifyFirst(page, hasText) {
   return card.locator('[data-testid=verify-result]').innerText({ timeout: 15000 }).catch(() => 'no verdict')
 }
 async function pairPhoneWithHome(home, phone) {
-  await home.goto(`${APP}/archive`)
+  await home.goto(`${route('/archive')}`)
   await home.waitForFunction(() => /\/pair-home\//.test(document.body.innerText), null, { timeout: 15000 })
   const link = await home.evaluate(() => document.body.innerText.match(/\S*\/pair-home\/\S+/)[0])
   const u = new URL(link)
-  await phone.goto(`${APP}${u.pathname}${u.search}`)
+  await phone.goto(LIVE ? link : `${APP}${u.pathname}${u.search}`)
   return phone.locator('text=receive sealed recordings').waitFor({ timeout: 5000 }).then(() => true).catch(() => false)
 }
 Object.assign(scenarios, {
@@ -714,8 +726,8 @@ Object.assign(scenarios, {
     const home = await newPage({ undepressable_home_key: 'HQMRT7XP' })
     const phone = await newPage({})
     const sealingOffered = await pairPhoneWithHome(home, phone)
-    await home.goto(`${APP}/archive`)
-    await phone.goto(`${APP}/recordings`)
+    await home.goto(`${route('/archive')}`)
+    await phone.goto(`${route('/recordings')}`)
     await openProtect(phone)
     await phone.locator('[data-testid=seal-home]').check()
     const rec = await recordOnDevice(phone, 3)
@@ -730,7 +742,7 @@ Object.assign(scenarios, {
       .waitForFunction(() => /Everything is at home/.test(document.querySelector('[data-testid=home-sync-status]')?.textContent ?? ''), null, { timeout: 60000 })
       .then(() => true)
       .catch(() => false)
-    await home.goto(`${APP}/recordings`)
+    await home.goto(`${route('/recordings')}`)
     await home.locator('[data-testid=recording]').first().waitFor({ timeout: 10000 }).catch(() => {})
     const opened = await home.locator('text=arrived sealed · opened here').count()
     const homeVerdict = await verifyFirst(home)
@@ -742,7 +754,7 @@ Object.assign(scenarios, {
   // Locked with a passphrase: unreadable after a reload until unlocked.
   async 'sealed-passphrase'() {
     const phone = await newPage({})
-    await phone.goto(`${APP}/recordings`)
+    await phone.goto(`${route('/recordings')}`)
     await openProtect(phone)
     await phone.locator('[data-testid=seal-passphrase]').check()
     await phone.locator('[data-testid=pass-new]').fill('correct horse battery')
@@ -783,8 +795,8 @@ Object.assign(scenarios, {
     const home = await newPage({ undepressable_home_key: HOME })
     const phone = await newPage({})
     await pairPhoneWithHome(home, phone)
-    await home.goto(`${APP}/archive`)
-    await phone.goto(`${APP}/recordings`)
+    await home.goto(`${route('/archive')}`)
+    await phone.goto(`${route('/recordings')}`)
     await openProtect(phone)
     await phone.locator('[data-testid=seal-home]').check()
     await recordOnDevice(phone, 3)
@@ -795,7 +807,7 @@ Object.assign(scenarios, {
     await download.saveAs(file)
     // The friend: paired with the same home (by code — no key of their own).
     const friend = await newPage({ undepressable_paired_home: HOME })
-    await friend.goto(`${APP}/recordings`)
+    await friend.goto(`${route('/recordings')}`)
     const imported = await importFiles(friend, file)
     const intact = await verifyFirst(friend)
     await friend.getByTitle('Play').first().click()
@@ -805,7 +817,7 @@ Object.assign(scenarios, {
       .waitForFunction(() => /Everything is at home/.test(document.querySelector('[data-testid=home-sync-status]')?.textContent ?? ''), null, { timeout: 60000 })
       .then(() => true)
       .catch(() => false)
-    await home.goto(`${APP}/recordings`)
+    await home.goto(`${route('/recordings')}`)
     await home.locator('[data-testid=recording]').first().waitFor({ timeout: 10000 }).catch(() => {})
     const homeVerdict = await verifyFirst(home)
     const ok = /\.zip$/.test(file) && /Verified and imported/.test(imported) && /Intact \(sealed/.test(intact) && /someone else/.test(cannot) && sent && /Unaltered/.test(homeVerdict)
@@ -871,7 +883,7 @@ Object.assign(scenarios, {
     const cal = await otsServer()
     try {
       const phone = await newPage({ undepressable_ots_calendars: JSON.stringify([cal.base]), undepressable_ots_explorer: JSON.stringify(`${cal.base}/api`) })
-      await phone.goto(`${APP}/recordings`)
+      await phone.goto(`${route('/recordings')}`)
       await recordOnDevice(phone, 3)
       await phone.reload()
       const status = () => phone.locator('[data-testid=timestamp-status]').first().innerText().catch(() => '')
@@ -963,7 +975,7 @@ async function checkCard(page, card) {
 /** In a page: the stored recordings, newest first, with attestation counts. */
 const storedRecordings = (page) =>
   page.evaluate(async () => {
-    const { getAllRecordings } = await import('/src/lib/recordingDb.ts')
+    const { getAllRecordings } = (window.__und ?? await import('/src/lib/recordingDb.ts'))
     const all = await getAllRecordings()
     return all
       .sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime())
@@ -992,10 +1004,10 @@ Object.assign(scenarios, {
     }
     const keptA = await watchAndRecord(A.shareUrl, 10)
     const keptC = await watchAndRecord(C.shareUrl, 10)
-    const fkA = new URL(A.shareUrl).searchParams.get('fk')
-    const fkC = new URL(C.shareUrl).searchParams.get('fk')
+    const fkA = linkParam(A.shareUrl, 'fk')
+    const fkC = linkParam(C.shareUrl, 'fk')
 
-    await V.goto(`${APP}/recordings`)
+    await V.goto(`${route('/recordings')}`)
     const recs = await storedRecordings(V)
     if (!(await V.waitForSelector('[data-testid=corroborate]', { timeout: 15000 }).catch(() => null)))
       return [false, `viewer has no checkable copy; kept: "${keptA}" / "${keptC}"; stored: ${JSON.stringify(recs)}`]
@@ -1008,7 +1020,7 @@ Object.assign(scenarios, {
 
     // A carrier attaches another stream's attestations to copy A.
     await V.evaluate(async ([a, c]) => {
-      const db = await import('/src/lib/recordingDb.ts')
+      const db = (window.__und ?? await import('/src/lib/recordingDb.ts'))
       const recA = await db.getRecording(a)
       const recC = await db.getRecording(c)
       await db.putRecording({ ...recA, attestations: recC.attestations, corroboration: undefined })
@@ -1019,15 +1031,15 @@ Object.assign(scenarios, {
 
     // The evidence file carries them.
     const inManifest = await V.evaluate(async (id) => {
-      const db = await import('/src/lib/recordingDb.ts')
-      const { manifestFor } = await import('/src/lib/transfer/evidence.ts')
+      const db = (window.__und ?? await import('/src/lib/recordingDb.ts'))
+      const { manifestFor } = (window.__und ?? await import('/src/lib/transfer/evidence.ts'))
       return manifestFor(await db.getRecording(id))?.attestations?.[0]?.a.length ?? 0
     }, recC.id)
 
     // The filmer's own recording, checked on the filming phone.
     await A.page.locator('button[title="End Stream"]').click()
     await A.page.waitForTimeout(3000)
-    await A.page.goto(`${APP}/recordings`)
+    await A.page.goto(`${route('/recordings')}`)
     await A.page.waitForSelector('[data-testid=corroborate]', { timeout: 15000 })
     const own = await checkCard(A.page, A.page.locator('[data-testid=recording]').first())
 
@@ -1046,7 +1058,7 @@ Object.assign(scenarios, {
   async 'corroborate-offline'() {
     const cams = await cameraFiles()
     const A = await newPage({}, camera(cams.a))
-    await A.goto(`${APP}/offline`)
+    await A.goto(`${route('/offline')}`)
     await A.getByText("I'm filming").click()
     await A.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
     const B = await offlineViewer(A)
@@ -1054,7 +1066,7 @@ Object.assign(scenarios, {
     await B.locator('[data-testid=share-onward]').click()
     await B.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
     const C = await newPage({})
-    await C.goto(`${APP}/offline`)
+    await C.goto(`${route('/offline')}`)
     await C.getByText("I'm receiving").click()
     await pasteCode(C, await codeOf(B))
     await C.waitForSelector('[data-testid=pair-code]', { timeout: 15000 })
@@ -1064,7 +1076,7 @@ Object.assign(scenarios, {
     const kept = (await C.locator('[data-testid=attested-count]').innerText().catch(() => 'none')).replace(/\s+/g, ' ')
     await C.getByRole('button', { name: 'Stop', exact: true }).click()
     await C.waitForTimeout(1500)
-    await C.goto(`${APP}/recordings`)
+    await C.goto(`${route('/recordings')}`)
     const recs = await storedRecordings(C)
     if (!(await C.waitForSelector('[data-testid=corroborate]', { timeout: 15000 }).catch(() => null))) return [false, `C has no checkable copy; kept "${kept}"; ${JSON.stringify(recs)}`]
     const verdict = await checkCard(C, C.locator('[data-testid=recording]').first())
@@ -1110,7 +1122,7 @@ Object.assign(scenarios, {
   async throttled() {
     const A = await startStream({})
     const B = await newPage({})
-    await B.goto(`${APP}/collect/${A.code}`)
+    await B.goto(`${route(`/collect/${A.code}`)}`)
     if ((await videoWithin(B, 40000)) === null) return [false, 'no video before throttling']
     const pill = () => A.page.locator('[data-testid=slow-links]').innerText().catch(() => '')
     const notes = []
@@ -1179,10 +1191,10 @@ Object.assign(scenarios, {
     const home = await newPage({ undepressable_home_key: 'HQMRT7XQ' })
     const phone = await newPage({})
     await pairPhoneWithHome(home, phone)
-    await phone.goto(`${APP}/recordings`)
+    await phone.goto(`${route('/recordings')}`)
     await openProtect(phone)
     await phone.locator('[data-testid=seal-home]').check()
-    await home.goto(`${APP}/archive`)
+    await home.goto(`${route('/archive')}`)
     const A = await startStream({}, camera(cams.a))
     await phone.goto(A.shareUrl)
     if ((await videoWithin(phone, 40000)) === null) return [false, 'phone got no video']
@@ -1190,13 +1202,13 @@ Object.assign(scenarios, {
     await phone.waitForTimeout(10000)
     await phone.getByText('Stop Recording').click()
     await phone.waitForTimeout(1500)
-    await phone.goto(`${APP}/recordings`)
+    await phone.goto(`${route('/recordings')}`)
     const onPhone = await phone.evaluate(async () => {
-      const { getAllRecordings } = await import('/src/lib/recordingDb.ts')
+      const { getAllRecordings } = (window.__und ?? await import('/src/lib/recordingDb.ts'))
       const r = (await getAllRecordings()).find((x) => x.sealed)
       return r && { id: r.id, clear: (r.attestations ?? []).length, sealed: typeof r.sealed.attestations === 'string', raw: JSON.stringify(r) }
     })
-    const fk = new URL(A.shareUrl).searchParams.get('fk')
+    const fk = linkParam(A.shareUrl, 'fk')
     const keyHidden = !!onPhone && !onPhone.raw.includes(fk)
     const phoneCard = phone.locator('[data-testid=recording]', { has: phone.locator('[data-testid=sealed-badge]') }).first()
     const phoneCheck = await checkCard(phone, phoneCard)
@@ -1205,7 +1217,7 @@ Object.assign(scenarios, {
       .waitForFunction(() => /Everything is at home/.test(document.querySelector('[data-testid=home-sync-status]')?.textContent ?? ''), null, { timeout: 90000 })
       .then(() => true)
       .catch(() => false)
-    await home.goto(`${APP}/recordings`)
+    await home.goto(`${route('/recordings')}`)
     await home.locator('[data-testid=recording]').first().waitFor({ timeout: 10000 }).catch(() => {})
     const homeCard = home.locator('[data-testid=recording]', { hasText: 'arrived sealed · opened here' }).first()
     const atHome = await checkCard(home, homeCard)
@@ -1218,7 +1230,7 @@ Object.assign(scenarios, {
 
 /** Save the first recording's evidence bundle from the Recordings screen; returns its path. */
 async function saveFirstBundle(page, dir) {
-  await page.goto(`${APP}/recordings`)
+  await page.goto(`${route('/recordings')}`)
   await page.locator('[data-testid=send-evidence]').first().click()
   const [download] = await Promise.all([page.waitForEvent('download'), page.locator('[data-testid=save-evidence]').first().click()])
   const file = join(dir, download.suggestedFilename())
@@ -1255,11 +1267,11 @@ Object.assign(scenarios, {
     const b2 = await saveFirstBundle(V2, dir)
 
     const H = await newPage({})
-    await H.goto(`${APP}/recordings`)
+    await H.goto(`${route('/recordings')}`)
     await importFiles(H, b1)
     await importFiles(H, b2)
     const linkShown = await H.locator('[data-testid=combine-link]').isVisible().catch(() => false)
-    await H.goto(`${APP}/combine`)
+    await H.goto(`${route('/combine')}`)
     const group = H.locator('[data-testid=group]').first()
     await group.waitFor({ timeout: 10000 })
     const before = (await group.locator('[data-testid=alignment]').allInnerTexts()).join(' | ')
@@ -1285,12 +1297,12 @@ Object.assign(scenarios, {
     // Render one video (real time), then check it against the filmer.
     await group.locator('[data-testid=render]').click()
     await group.locator('[data-testid=rendered]').waitFor({ timeout: 120000 })
-    await H.goto(`${APP}/recordings`)
+    await H.goto(`${route('/recordings')}`)
     const renderedCard = H.locator('[data-testid=recording]', { has: H.locator('[data-testid=combined-badge]') }).first()
     const badge = await renderedCard.locator('[data-testid=combined-badge]').innerText()
     const checked = await checkCard(H, renderedCard)
     const rendered = await H.evaluate(async () => {
-      const { getAllRecordings } = await import('/src/lib/recordingDb.ts')
+      const { getAllRecordings } = (window.__und ?? await import('/src/lib/recordingDb.ts'))
       const r = (await getAllRecordings()).find((x) => x.combined)
       return r && { seconds: r.chunks.length, signed: !!r.proof, sources: r.combined.sources.length, segments: r.combined.segments.map((s) => [s.copy ? 'copy' : 'gap', Math.round((s.to - s.from) / 1000)]), alignment: r.combined.alignment }
     })
@@ -1301,7 +1313,7 @@ Object.assign(scenarios, {
     const combinedZip = join(dir, download.suggestedFilename())
     await download.saveAs(combinedZip)
     const F = await newPage({})
-    await F.goto(`${APP}/recordings`)
+    await F.goto(`${route('/recordings')}`)
     const importedText = await importFiles(F, combinedZip)
     const onF = await F.locator('[data-testid=recording]').count()
 
@@ -1333,7 +1345,12 @@ function udpPacketsDropped() {
  * which send UDP) are silenced by refusing to resolve any other host, so what
  * is counted is the app's traffic; the browser's net log shows the hosts.
  */
-const TLS_RELAY_ARGS = ['--no-proxy-server', '--ignore-certificate-errors', `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE ${HOST_IP}`]
+const TLS_RELAY_ARGS = [
+  // A live run still needs the proxy for the site itself; only the relay goes direct.
+  LIVE ? `--proxy-bypass-list=${HOST_IP};localhost;127.0.0.1` : '--no-proxy-server',
+  '--ignore-certificate-errors',
+  `--host-resolver-rules=MAP * ~NOTFOUND, EXCLUDE localhost, EXCLUDE ${HOST_IP}`,
+]
 /** Distinct hosts a Chromium net log shows connections or lookups to. */
 function netlogHosts(file) {
   const { readFileSync } = require('node:fs')
@@ -1383,14 +1400,14 @@ Object.assign(scenarios, {
         const t = /\[Trystero\] Created (\w+) room/.exec(m.text())
         if (t) rooms.push(t[1])
       })
-      await A.goto(`${APP}/network`)
+      await A.goto(`${route('/network')}`)
       const status = (await A.locator('[data-testid=blend-in-status]').innerText().catch(() => '')).replace(/\s+/g, ' ')
-      await A.goto(`${APP}/stream`)
+      await A.goto(`${route('/stream')}`)
       await A.waitForSelector('text=Share Stream', { timeout: 30000 })
       const code = (await A.textContent('.font-mono.text-lg')).trim()
       await A.locator('.fixed.inset-0 button').first().click()
       const B = await newPage(storage, [...TLS_RELAY_ARGS, `--log-net-log=${logs[1]}`])
-      await B.goto(`${APP}/collect/${code}`)
+      await B.goto(`${route(`/collect/${code}`)}`)
       const video = await videoWithin(B, 45000)
       await B.waitForTimeout(3000)
       const dropped = (udpPacketsDropped() ?? 0) - before

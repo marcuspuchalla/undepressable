@@ -32,11 +32,11 @@ rounds and for re-verification as public infrastructure rots.
 ## Where the code is
 
 - Project root: `/Users/tk/projects/undepressable-kimi/`
-- **App (work here): `/Users/tk/projects/undepressable-kimi/p2p-stream/`**
+- **App (work here): `<repository root>/`**
 - Git repo on branch `main`, remote `github.com/marcuspuchalla/undepressable` (private).
 
 ⚠️ **Your shell may start in a different project** (`/Users/tk/projects/camCut`).
-Always `cd /Users/tk/projects/undepressable-kimi/p2p-stream` first, and use
+Always `cd <repository root>` first, and use
 absolute paths. A previous session wasted time debugging the wrong app.
 
 ## What the app is (and who it's for)
@@ -171,7 +171,7 @@ From `RELIABILITY_AUDIT.md` — ranked by real-world impact, not ease:
 ## How to test in this environment (learned the hard way)
 
 ```bash
-cd /Users/tk/projects/undepressable-kimi/p2p-stream
+cd <repository root>
 npm run test:unit      # vitest (81+ tests)
 npm run type-check     # vue-tsc --noEmit
 npm run build          # typecheck + vite build

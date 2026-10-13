@@ -155,7 +155,7 @@ Two routes:
      - versionName: "1.0"
        versionCode: 1
        commit: v1.0
-       subdir: p2p-stream/android/app
+       subdir: android/app
        sudo: []
        init: []
        prebuild:

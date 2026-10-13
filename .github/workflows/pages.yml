@@ -1,6 +1,6 @@
 # Publish the app on GitHub Pages from every push to main.
 #
-# What gets published is the single-file build (p2p-stream/dist-portable/
+# What gets published is the single-file build (dist-portable/
 # undepressable.html): it runs under any path, with its routes in the hash,
 # so it needs no server configuration — the same file "Pass the app on"
 # hands out. Alongside it: the evidence checker (verify.html).
@@ -28,16 +28,13 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: p2p-stream
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: p2p-stream/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
       # Would create the Pages site if the repository has none — but GitHub
       # refuses that from a workflow token ("Resource not accessible by
@@ -59,7 +56,7 @@ jobs:
           touch site/.nojekyll
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: p2p-stream/site
+          path: site
   deploy:
     needs: build
     runs-on: ubuntu-latest

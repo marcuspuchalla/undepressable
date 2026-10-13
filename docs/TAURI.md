@@ -128,7 +128,6 @@ You need to build on a Windows machine:
 2. Clone the repository:
    ```powershell
    git clone <repo-url>
-   cd p2p-stream
    ```
 
 3. Install dependencies:
