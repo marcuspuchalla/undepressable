@@ -1,199 +1,139 @@
-# Undepressable
+<p align="center">
+  <img src="docs/img/share.png" width="220" alt="The share sheet: a room code and QR code for viewers" />
+  &nbsp;&nbsp;
+  <img src="docs/img/stream.png" width="220" alt="Filming: viewers and recording copies counted live" />
+  &nbsp;&nbsp;
+  <img src="docs/img/home.png" width="220" alt="The home screen" />
+</p>
 
-**Live truth that can't be erased.**
+<h1 align="center">Undepressable</h1>
 
-Censorship-resistant, peer-to-peer live streaming for human-rights documentation
-and citizen journalism. A streamer goes live from their phone; trusted people
-scan a QR code to watch and keep their own signed copy. Even if the streamer's
-phone is seized, the footage already lives on other devices — there is nothing
-to delete in one place.
+<p align="center">
+  <strong>Live video that cannot be stopped by taking the phone, blocking the website, or throttling the network — and whose every copy can prove what it is.</strong>
+</p>
 
-> Built for public-interest documentation. Designed to reduce censorship and data
-> loss, not to incite harm. Know your local laws and prioritise safety.
+<p align="center">
+  <a href="https://marcuspuchalla.github.io/undepressable/"><strong>Open the app →</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://marcuspuchalla.github.io/undepressable/#/guide">Guide</a>
+  &nbsp;·&nbsp;
+  <a href="docs/THREAT_MODEL.md">Threat model</a>
+  &nbsp;·&nbsp;
+  <a href="docs/DEVICE_CHECKLIST.md">What still needs real phones</a>
+</p>
 
-## What it does
+<p align="center">
+  <a href="https://github.com/marcuspuchalla/undepressable/actions/workflows/pages.yml"><img src="https://github.com/marcuspuchalla/undepressable/actions/workflows/pages.yml/badge.svg" alt="pages" /></a>
+  <img src="https://img.shields.io/badge/unit_tests-412-6ee7b7" alt="412 unit tests" />
+  <img src="https://img.shields.io/badge/end--to--end_scenarios-33-6ee7b7" alt="33 end-to-end scenarios" />
+  <img src="https://img.shields.io/badge/servers_required-0-7dd3fc" alt="no servers required" />
+</p>
 
-- **Go live with no central server.** Signaling rides Trystero over the
-  BitTorrent DHT and Nostr relays; media flows directly between peers over
-  WebRTC (DTLS/SRTP encrypted). There is no media server to block or subpoena.
-- **Join by QR or code.** A short room code and QR are generated ahead of time;
-  collectors scan or type it. Late joiners still receive the live stream.
-- **Everyone keeps a copy.** The streamer and every collector record locally in
-  1-second chunks to the Origin Private File System (OPFS).
-- **Live watching / recording counts.** Every peer broadcasts a tiny stat over a
-  data channel, so all peers see how many are watching and how many are
-  recording — in real time.
-- **Tamper-evident recordings.** Each recording's chunks are SHA-256 hashed into
-  a Merkle tree; the root is signed with an anonymous Ed25519 key. Anyone can
-  later verify the footage is unaltered.
-- **Use it once, then without the site.** An installable PWA: after one
-  visit it opens with no network and even with the web server gone (verified
-  by `scripts/e2e/pwa-offline.mjs`). Also packaged as a **browser extension**
-  that carries its own copy of the app (`npm run build:extension`).
-- **The app spreads without any website.** The whole app is one HTML file
-  (Home → *Pass the app on*): it runs from disk on a computer (Chrome/Edge) and as a mirror
-  under any path — IPFS, a subfolder, anyone's website. See
-  [docs/STANDALONE.md](./docs/STANDALONE.md).
-- **A seized domain cannot silently swap the code.** Updates are never
-  installed silently; an installed copy checks that a new version is signed
-  by the developers' key and warns loudly if it is not
-  ([docs/THREAT_MODEL.md](./docs/THREAT_MODEL.md) §2).
-- **No discovery server needed.** If the servers that introduce devices are
-  blocked, *Pair by messenger*: two short codes over Signal, SMS or e-mail, and
-  the devices connect directly (or through your relay).
-- **A seized phone gives nothing away.** Recordings can be *sealed*:
-  encrypted as they are recorded, to the home archive's key (the phone itself
-  cannot open them) and/or a passphrase. Sealed copies can still be checked
-  and carried by anyone.
-- **Proof of when.** OpenTimestamps anchors a recording's proof in Bitcoin;
-  evidence files include `root.txt.ots` for the standard `ots verify`.
-- **Every copy checks back to the camera.** While streaming, the filming phone
-  signs a fingerprint of its picture every second (a key per stream, carried
-  in the share link). Viewers keep the signatures with their copies, and
-  *Check against the filmer* shows, second by second, whether a copy shows
-  what the camera showed — and where it does not.
-- **Throttled, not stopped.** Each viewer's link is measured all the time and
-  steps down — smaller picture, then sound only — and back up when it
-  recovers; a viewer on a crawling connection keeps recording.
-- **Many copies, one record.** Copies of one stream from different viewers
-  are laid on the filmer's clock (*Combine copies*): together they cover
-  more than any single copy; rendered into one signed video, the record names
-  every copy it was made from and still checks out against the filmer.
-- **Blend in.** With a `turns:` relay on 443, the app sends nothing but TLS to
-  port 443 — no STUN, no UDP, discovery over WSS only. What a watcher can
-  still see: [docs/TRAFFIC.md](./docs/TRAFFIC.md).
-- **Evidence that checks itself.** Every evidence bundle carries
-  `verify.html`: a 50 KB page from the same code that checks the recording on
-  any computer, with no website and no app.
-- **Reach everyone.** *Amplify* pushes the stream — from the phone filming or
-  from any viewer, e.g. one abroad — to a WHIP broadcast server (MediaMTX,
-  Owncast, Cloudflare Stream…) that serves it on the open web.
-- **No internet at all.** Devices on one hotspot pair face to face by
-  swapping two short codes (QR, or text via AirDrop / Nearby Share); one
-  filming phone can serve several viewers, any viewer can **share onward**
-  (chains A → B → C), and every device keeps a signed copy.
-- **Get footage to a safe place.** A paired home device records what a phone
-  watches, and later receives what the phone recorded on its own. Recordings
-  travel as **evidence files** (video + proof) over AirDrop / Quick Share /
-  Bluetooth, or are **handed over** face to face. Every copy is checked
-  against its signature, chunk by chunk, on arrival.
-- **Cross-network.** A TURN relay (shared via a `?turn=` link, or self-hosted)
-  lets peers connect across strict/carrier NAT, not just the same network. No
-  relay of your own: the app can test volunteer-run public ones and use those
-  that answer (opt-in, no guarantees). See
-  [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md).
+---
 
-## Architecture
+Someone films a protest. The phone is taken. With Undepressable, every person who was watching already holds a **signed copy** of everything up to that second; the filming phone itself may hold **nothing readable**; a home computer may already have it all; and later, anyone with one of those copies can show it is **unaltered**, **signed by a known device**, and — through fingerprints the filming phone signed live — **the picture the camera saw**. Blocking the website does not stop installed copies, the one-file app that passes from phone to phone, or the browser extension. Blocking the servers that introduce devices does not stop two codes over a messenger, or two phones on one hotspot. Throttling the network degrades the picture down to sound before it stops anything.
+
+It is a web app: nothing to install for a viewer, no account for anyone, no server that sees the video.
+
+## Try it in two minutes
+
+1. Open **https://marcuspuchalla.github.io/undepressable/** on a phone and tap **Stream**. A room code and QR code appear.
+2. On another device, open the same site, tap **Collect**, and scan the code (or open the share link). The picture arrives; both devices are recording.
+3. On the viewer: **Recordings** → the copy is there with its signature, the filmer's signed moments, and a *Send* button that makes an evidence bundle.
+4. Unzip a bundle anywhere and double-click **verify.html**: the recording checks itself, with no website and no app.
+
+Two phones on different networks usually connect directly. A VPN or two mobile carriers can need a relay: the status card says so, and a relay set on the **Network** page travels inside your share links. Nothing works without a camera, so use a phone, or a computer with one.
+
+## What it does, by threat
+
+| If they… | Then… |
+|---|---|
+| **take the phone** | Every viewer holds a signed copy. A paired **home archive** records what the phone watched and later receives what it recorded alone. Recordings can be **sealed**: encrypted while recording, to the home archive's key (the phone cannot open them) and/or a passphrase. |
+| **edit the footage** | Each second is hashed; a Merkle root is **signed** by the recording device's anonymous key. One changed byte is caught. Evidence bundles carry the proof, and **verify.html** to check it anywhere. |
+| **say it was made later** | **OpenTimestamps** anchors the proof in Bitcoin: `ots verify root.txt.ots` with the standard client. |
+| **say the viewer's copy is not what the camera saw** | The filming phone signs a **fingerprint of its picture twice a second**, with a key the share link carries. Every copy keeps them. *Check against the filmer* says, second by second, where a copy matches and where it does not. |
+| **block the website** | Installed copies run with the site gone. The **single-file app** runs from disk and from any path (a subfolder, IPFS, anyone's site), and hands itself on by AirDrop or Bluetooth. The **browser extension** is another copy. |
+| **seize the domain** | Updates are never installed silently: an installed copy accepts only releases **signed by the developers' key** and warns about anything else. |
+| **block the discovery servers** | Your own Nostr relay on 443; or **pair by messenger** — two short codes over Signal or SMS, no server at all. |
+| **block the internet** | Phones on one hotspot pair **face to face**; viewers **share onward** in chains; recordings are **handed over** or carried as files. |
+| **look for WebRTC itself** | **Blend in**: with a `turns:` relay on 443, the app sends nothing but TLS to port 443 — no STUN, no UDP, discovery over WSS only. What a watcher can still see: [docs/TRAFFIC.md](docs/TRAFFIC.md). |
+| **throttle the network** | Each viewer's link is measured all the time and steps down — smaller picture, then **sound only** — and back up when it recovers. The viewer keeps recording throughout. |
+| **drop a viewer mid-stream** | Copies of one stream from different viewers are laid on the filmer's clock (**Combine copies**): together they cover more than any single one, and render into one signed video that still checks out against the filmer. |
+| **need the whole world to see it** | **Amplify** pushes the stream to any WHIP broadcast server — from the filmer, or from a viewer abroad where the server is reachable. |
+
+Every line above is verified end to end in Chromium, with the network conditions simulated (strict NAT, policers, dead discovery, stand-in calendars and broadcast servers). What that cannot prove — real phones, real carriers, real messengers — is listed line by line in [docs/DEVICE_CHECKLIST.md](docs/DEVICE_CHECKLIST.md).
+
+<p align="center">
+  <img src="docs/img/guide.png" width="220" alt="The in-app guide" />
+  &nbsp;&nbsp;
+  <img src="docs/img/offline.png" width="220" alt="Face-to-face pairing with no internet" />
+  &nbsp;&nbsp;
+  <img src="docs/img/network.png" width="220" alt="The Network page: relay, blend in, discovery" />
+</p>
+
+## How it works
 
 ```
-Streamer ──WebRTC──▶ Collector A  (watches + records)
-    │                Collector B  (watches + records)
-    │                Collector C  (watches + records)
-    └── signaling: Trystero (BitTorrent DHT + Nostr) — no server
-        counts:    Trystero data-channel "stat" action
-        media:     RTCPeerConnection, STUN + TURN for NAT traversal
+   filming phone ──WebRTC──▶ direct viewers ──WebRTC──▶ further viewers        relay tree: the phone
+         │                        │                          │                  uploads a few copies,
+      records                  record                     record                viewers pass them on
+         │                        │                          │
+         └─ signs a fingerprint of its picture, twice a second ──▶ kept with every copy
+
+   discovery   Nostr relays · BitTorrent trackers · MQTT brokers · your own relay · two codes over a
+               messenger · face to face on a hotspot
+   media       direct, or through a TURN relay (turns: on 443 to blend in); DTLS-SRTP everywhere
+   evidence    1-second chunks → SHA-256 → Merkle root → Ed25519; AES-256-GCM sealing to X25519 keys;
+               OpenTimestamps; perceptual fingerprints (dHash + aHash) signed live
+   copies      home archive (store and forward) · hand-over · evidence bundles (video + proof + verify.html)
 ```
 
-Key modules:
+Vue 3, TypeScript, Vite. [Trystero](https://github.com/dmotz/trystero) for serverless discovery, WebRTC for media, OPFS for storage, `@noble` and WebCrypto for the cryptography. No backend of any kind; an optional TURN relay is the one server you may run ([docs/SELF_HOSTING.md](docs/SELF_HOSTING.md)).
 
-| Path | Responsibility |
-|------|----------------|
-| `src/composables/useTrystero.ts` | Room lifecycle, media, and the swarm-stat channel |
-| `src/lib/swarm/stats.ts` | Pure reducer for watching/recording counts |
-| `src/composables/useRecording.ts` | MediaRecorder → OPFS + integrity proof |
-| `src/lib/integrity/` | SHA-256 + Merkle + Ed25519 tamper-evidence (framework-agnostic) |
-| `src/composables/useQRScanner.ts` | Native BarcodeDetector with a jsQR fallback |
-| `src/views/{Stream,Collect,Recordings}View.vue` | The three screens |
+## Verified
 
-Stack: Vue 3 + TypeScript + Vite + Pinia + Tailwind, Trystero for P2P, optional
-Tauri desktop shell.
+| | |
+|---|---|
+| **Unit tests** | 412 — integrity, Merkle proofs, counts, relay tree, ICE and NAT handling, diagnosis, pairing codes, evidence transfer, releases, WHIP, sealing, timestamps, fingerprints and matching, link ladder, combining, blend-in |
+| **End to end, in Chromium** | 33 scenarios in one run: direct and relayed connections, strict NAT, a rejected relay, public relays, six viewers, discovery dying mid-stream, face-to-face pairing and chains, pairing by messenger (also 90 s late), home archive and sync, evidence files, hand-over, Amplify, sealed recordings three ways, timestamps, corroboration three ways, a throttled link (policed to 320 and 56 kbit/s), combined records, blend in (every UDP packet counted: zero), self-checking bundles |
+| **Standalone** | Offline install with the server gone; the single-file app from disk and from an arbitrary mirror path; signed updates accepted, unsigned refused; the extension streaming to the web app |
+| **Supply chain** | The published `undepressable.html` and `verify.html` are byte-identical to a clean build of the same commit |
+| **Against the live site** | *(the live run is recorded in `docs/RELIABILITY_AUDIT_3.md`, part 8)* |
 
-## Quick start
+The audits ([round 3 →](docs/RELIABILITY_AUDIT_3.md)) record every finding, what was wrong, what changed, and what each test proves.
+
+## Run it yourself
 
 ```bash
-npm install
-npm run dev -- --host      # open the printed LAN URL on your phone
+npm ci
+npm run dev                 # http://localhost:4400 — the camera needs localhost or HTTPS
+npm run test:unit
+npm run build               # dist/ (PWA), the single-file app, verify.html, release.json
+sudo node scripts/e2e/scenarios.mjs       # the end-to-end scenarios (root: it simulates NATs with iptables)
+LIVE=1 node scripts/e2e/scenarios.mjs     # the same, against the published site
 ```
 
-- **Go live:** open **Stream**, allow the camera, share the code/QR.
-- **Watch & keep a copy:** open **Collect**, scan the QR or type the code.
-- **Verify later:** open **Recordings** → **Verify integrity**.
+Phones need HTTPS: use the published site or an HTTPS tunnel to the dev server ([docs/ON_DEVICE_TESTING.md](docs/ON_DEVICE_TESTING.md)). Every push to `main` publishes the single-file build to GitHub Pages ([.github/workflows/pages.yml](.github/workflows/pages.yml)).
 
-```bash
-npm run build            # production PWA build (+ the single-file app and release.json, signed if a key is set)
-npm run build:portable   # just the single-file app: dist-portable/undepressable.html
-npm run build:extension  # browser extension: dist-extension/{chrome,firefox}/ + zips
-npm run release:keygen   # a release signing key pair (see docs/THREAT_MODEL.md §2)
-npm run test:unit        # 411 unit tests (integrity, counts, routing, ICE/NAT, diagnosis, pairing codes, evidence transfer, releases, WHIP, sealing, timestamps, corroboration, link shaping, combining, blend-in)
-npm run tauri:build      # optional native desktop app
-```
+## Before you rely on it
 
-**Browser extension.** Load `dist-extension/chrome` unpacked
-(chrome://extensions → Developer mode → *Load unpacked*), or in Firefox
-about:debugging → *Load Temporary Add-on* → `dist-extension/firefox/manifest.json`
-(a permanent Firefox install needs Mozilla's signing). The Chromium zip can be
-passed around and loaded where a store is blocked. Tested in Chromium; the
-Firefox package is built but not run here. It needs no
-permissions; the toolbar button opens the app in a tab. Share links from the
-extension only open inside it — set the app's public address on the Network
-page, or have viewers use the in-app scanner.
+- Read [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md): what it resists, and what it does not. Sealing is off by default. Signed releases are built but **no developer key is compiled in yet**. The app does no traffic obfuscation beyond TLS on 443.
+- Participants see each other's addresses unless everything goes through a relay. A broadcast server sees what it is sent.
+- A match against the filmer means the same picture, not the same bytes; whose key it is has to be known from the link the filmer shared.
+- Nothing here has been through an external security review.
 
-See [TESTING.md](./TESTING.md) for the test map and the two-peer / two-phone
-verification procedure.
+## Documentation
 
-## Configuration
+| | |
+|---|---|
+| [docs/PROJECT_PLAN.md](docs/PROJECT_PLAN.md) | Where it came from, what each phase became, metrics against targets, what is next |
+| [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md) · [docs/TRAFFIC.md](docs/TRAFFIC.md) | Who can do what, and what the traffic looks like on the wire |
+| [docs/TEST_PLAN.md](docs/TEST_PLAN.md) · [docs/DEVICE_CHECKLIST.md](docs/DEVICE_CHECKLIST.md) | Every scenario, how it is checked, what still needs real devices |
+| [docs/RELIABILITY_AUDIT_3.md](docs/RELIABILITY_AUDIT_3.md) | The findings and fixes of rounds 3–8, with results |
+| [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md) · [docs/STANDALONE.md](docs/STANDALONE.md) | A relay and a discovery relay of your own; the single-file app and mirrors |
+| [docs/NATIVE_MESH.md](docs/NATIVE_MESH.md) · [docs/ANDROID_FDROID.md](docs/ANDROID_FDROID.md) · [docs/IOS_CAPACITOR.md](docs/IOS_CAPACITOR.md) | Where a web page ends: radio meshing needs a native app |
+| [docs/RELAY_TREE_DESIGN.md](docs/RELAY_TREE_DESIGN.md) · [docs/DECISIONS.md](docs/DECISIONS.md) | Design notes |
 
-**Can't connect across networks?** Open **Network** in the app (tap the
-*Online* pill). It checks what kind of network this device is on, and lets you
-add and test a relay. Two devices that are both behind strict NAT — a VPN on
-one side and a mobile carrier on the other is the classic case — cannot
-connect directly at all; the Stream/Collect status card says when that is what
-is happening. See [docs/RELIABILITY_AUDIT_3.md](./docs/RELIABILITY_AUDIT_3.md).
+## Status
 
-There is deliberately **no default TURN relay** — the free public one this app
-once bundled died and was silently slowing every connection (see
-[docs/RELIABILITY_AUDIT.md](./docs/RELIABILITY_AUDIT.md) §1). When both peers
-sit behind strict NAT, supply a relay one of three ways (highest precedence
-first — full guide in [docs/SELF_HOSTING.md](./docs/SELF_HOSTING.md)):
-
-1. On the device: the **Network** page (server + credentials, or a provider's
-   credentials link). The stream's share link then carries it automatically.
-2. Share link param, persisted on the device:
-   `/collect/CODE?turn=turns%3Ayour-relay%3A443|user|pass` or `?ice=<https credentials link>`
-3. Build-time env vars:
-
-   ```
-   VITE_TURN_URL=turns:your-relay:443
-   VITE_TURN_USERNAME=user
-   VITE_TURN_CREDENTIAL=pass
-   # or short-lived credentials from an HTTPS endpoint:
-   VITE_ICE_SERVERS_URL=https://…
-   # where share links should point (needed when running from localhost/app shells):
-   VITE_PUBLIC_URL=https://app.example.org
-   ```
-
-Prefer `turns:` on port 443 — it survives networks that block UDP/plain TURN.
-
-## Notes & honest limitations
-
-**Read [docs/THREAT_MODEL.md](./docs/THREAT_MODEL.md)** before relying on the
-app: what it resists, and what it does not (sealing recordings is off by
-default; signed releases are built but no developer key is set yet). What is
-still owed on real phones and networks: [docs/DEVICE_CHECKLIST.md](./docs/DEVICE_CHECKLIST.md).
-
-- **Privacy-first fonts.** The UI does **not** load web fonts from a CDN (that
-  would leak every viewer's IP and break offline); it uses a system font stack.
-  Self-hosted Fraunces/Archivo woff2 can be dropped into `tailwind.config.js`.
-- **TURN is a relay.** A direct P2P path is preferred; TURN only relays
-  (still end-to-end encrypted) when strict NAT blocks a direct connection. It is
-  the one optional "central" component and can be self-hosted.
-- **Not yet built** (see `docs/PROJECT_PLAN.md`): the native Bluetooth /
-  Wi-Fi Direct mesh ([docs/NATIVE_MESH.md](./docs/NATIVE_MESH.md)) — the web
-  app can neither find nearby devices by radio nor connect them without a
-  shared network.
-
-## Provenance
-
-This is the consolidation of several prototype attempts; see
-[docs/DECISIONS.md](./docs/DECISIONS.md) for why this base was chosen and what
-was ported in.
+Working, tested in simulation, published — and not yet carried through a protest. If you can test it on real phones and real networks, [docs/DEVICE_CHECKLIST.md](docs/DEVICE_CHECKLIST.md) says exactly what to try and what counts as a pass; please open an issue with what you find. The repository does not carry a license file yet.

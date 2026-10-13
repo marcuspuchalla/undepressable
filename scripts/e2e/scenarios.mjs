@@ -83,9 +83,13 @@ let netlogs = 0
 async function newPage(storage, extraArgs = []) {
   // NETLOG=<dir>: Chromium's own log of every DNS lookup and socket, per browser.
   const netlog = process.env.NETLOG ? [`--log-net-log=${join(process.env.NETLOG, `netlog-${++netlogs}.json`)}`, '--net-log-capture-mode=Default'] : []
-  const browser = await chromium.launch({ args: [...launchArgs, ...extraArgs, ...netlog], ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) })
+  // A live run reaches the site through whatever proxy this machine has; one
+  // that intercepts TLS (as a sandbox's does) needs its certificate accepted.
+  const live = LIVE && process.env.HTTPS_PROXY ? { proxy: { server: process.env.HTTPS_PROXY } } : {}
+  const liveArgs = LIVE ? ['--ignore-certificate-errors'] : []
+  const browser = await chromium.launch({ args: [...launchArgs, ...liveArgs, ...extraArgs, ...netlog], ...live, ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}) })
   browsers.push(browser)
-  const ctx = await browser.newContext({ viewport: { width: 400, height: 860 } })
+  const ctx = await browser.newContext({ viewport: { width: 400, height: 860 }, ...(LIVE ? { ignoreHTTPSErrors: true } : {}) })
   if (process.env.TRACE)
     await ctx.addInitScript(() => {
       const Orig = window.RTCPeerConnection
