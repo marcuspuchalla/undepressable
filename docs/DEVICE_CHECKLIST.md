@@ -27,6 +27,7 @@ Status: ⬜ not tried · ✅ passed · ❌ failed (open an issue) · 🟡 partly
 | ⬜ | Network → *Check* on each device | VPN, carrier, home Wi-Fi | Verdicts read as expected (strict / standard) |
 | ⬜ | Pair by messenger over a real messenger | Codes over Signal or WhatsApp, both devices on strict networks | Connects within the code's lifetime; also when the reply comes 90 s late |
 | ⬜ | Public relays | Network → *Test public relays* on a strict network | Only answering ones offered; a stream works through one |
+| ⬜ | Public discovery from the published site | `LIVE=1 node scripts/e2e/scenarios.mjs` from an ordinary network (the sandbox the suite was run in could not carry WSS to the public relays: `RELIABILITY_AUDIT_3.md`, part 8) | Every scenario passes with the real Nostr relays, trackers and brokers doing the introductions |
 
 ## One phone to many, and face to face (rounds 2–4)
 

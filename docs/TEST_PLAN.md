@@ -83,6 +83,15 @@ versions itself) and `scripts/e2e/extension.mjs` (needs
 logic under a faithful ICE-level simulation; it is **not** a substitute for
 the real-network pass below (E4).
 
+The same scenarios run against a **published build** with `LIVE=1`
+(`APP_URL` picks the site; the default is the GitHub Pages deployment):
+routes move into the hash, the app's modules come from the single file's
+`window.__und`, and discovery uses the real public relays unless
+`LOCAL_RELAY=1` keeps it on the local test relay. The dev-only
+`public-relay` candidate override has no effect on a published build, so
+that scenario is skipped there. Results of the live run:
+[`RELIABILITY_AUDIT_3.md`](RELIABILITY_AUDIT_3.md), part 8.
+
 ### Cross-network pass owed on real devices (E4)
 
 The field report that triggered round 3, to be re-run by hand:

@@ -1524,6 +1524,10 @@ Object.assign(scenarios, {
   },
 })
 const BLOCK_ALL_RULE = ['-p', 'udp', '-s', HOST_IP, '-d', HOST_IP, '-j', 'DROP']
+// Scenarios a published build cannot run: they lean on a dev-only override.
+const NOT_ON_LIVE = {
+  'public-relay': 'the published build ignores the dev-only relay candidate list, so this would test the real public relays (UDP to the internet; run it from outside a sandbox, or check the opt-in by hand)',
+}
 const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'offline-isolated', 'messenger-pair', 'messenger-pair-late'])
 
 // A run killed mid-scenario leaves its firewall rule behind, and the next run
@@ -1540,6 +1544,10 @@ let failures = 0
 const wanted = process.argv.slice(2).length ? process.argv.slice(2) : Object.keys(scenarios)
 try {
   for (const name of wanted) {
+    if (LIVE && NOT_ON_LIVE[name]) {
+      console.log(`SKIP ${name}: ${NOT_ON_LIVE[name]}`)
+      continue
+    }
     const needsBlock = NEEDS_BLOCK.has(name)
     const rule = name === 'offline-isolated' ? BLOCK_ALL_RULE : BLOCK_RULE
     if (needsBlock && !block(true, rule)) {

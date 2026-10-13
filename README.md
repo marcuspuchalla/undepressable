@@ -1,9 +1,9 @@
 <p align="center">
   <img src="docs/img/share.png" width="220" alt="The share sheet: a room code and QR code for viewers" />
   &nbsp;&nbsp;
-  <img src="docs/img/stream.png" width="220" alt="Filming: viewers and recording copies counted live" />
-  &nbsp;&nbsp;
   <img src="docs/img/home.png" width="220" alt="The home screen" />
+  &nbsp;&nbsp;
+  <img src="docs/img/guide.png" width="220" alt="The in-app guide" />
 </p>
 
 <h1 align="center">Undepressable</h1>
@@ -64,8 +64,6 @@ Two phones on different networks usually connect directly. A VPN or two mobile c
 Every line above is verified end to end in Chromium, with the network conditions simulated (strict NAT, policers, dead discovery, stand-in calendars and broadcast servers). What that cannot prove — real phones, real carriers, real messengers — is listed line by line in [docs/DEVICE_CHECKLIST.md](docs/DEVICE_CHECKLIST.md).
 
 <p align="center">
-  <img src="docs/img/guide.png" width="220" alt="The in-app guide" />
-  &nbsp;&nbsp;
   <img src="docs/img/offline.png" width="220" alt="Face-to-face pairing with no internet" />
   &nbsp;&nbsp;
   <img src="docs/img/network.png" width="220" alt="The Network page: relay, blend in, discovery" />
