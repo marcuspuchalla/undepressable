@@ -23,8 +23,7 @@ export interface PlayerOptions extends PlayerEvents {
 export class TimelinePlayer {
   private urls = new Map<string, string>()
   private seg: Segment | null = null
-  private gapTimer: number | undefined
-  private gapStartedAt = 0
+  private holdTimer: number | undefined
   private stopped = false
   position = 0
   playing = false
@@ -56,7 +55,45 @@ export class TimelinePlayer {
     if (this.position >= s.to - 40) this.advance()
   }
   private onEnded = () => {
-    if (this.seg?.copy) this.advance()
+    const s = this.seg
+    if (!s?.copy || this.stopped) return
+    // A copy's length on the timeline is the sum of its chunks' nominal
+    // lengths, and the media can end some hundreds of milliseconds before
+    // that. Moving on at once would pull everything after it forward — the
+    // rendered video would no longer sit on the filmer's clock. Hold the
+    // last frame until the clock reaches the segment's end instead.
+    const remaining = s.to - this.position
+    if (remaining > 60) this.holdThen(s, remaining, () => this.advance())
+    else this.advance()
+  }
+
+  /** Let the common clock run for `ms` (the element paused), then `then`. */
+  private holdThen(seg: Segment, ms: number, then: () => void) {
+    clearTimeout(this.holdTimer)
+    const startedAt = performance.now()
+    const from = this.position
+    const tick = () => {
+      if (this.stopped || this.seg !== seg) return
+      const elapsed = performance.now() - startedAt
+      this.position = Math.min(seg.to, from + elapsed)
+      this.opts.onPosition?.(this.position)
+      if (elapsed >= ms) then()
+      else this.holdTimer = window.setTimeout(tick, 100)
+    }
+    this.holdTimer = window.setTimeout(tick, Math.min(100, ms))
+  }
+
+  /** Put a copy into the element, at a source time, and leave it paused. */
+  private async load(copyId: string, atMs: number) {
+    const url = this.urlFor(copyId)
+    if (this.el.src !== url) {
+      this.el.src = url
+      await new Promise<void>((resolve) => {
+        if (this.el.readyState >= 1) return resolve()
+        this.el.addEventListener('loadedmetadata', () => resolve(), { once: true })
+      })
+    }
+    if (Math.abs(this.el.currentTime - atMs / 1000) > 0.05) this.el.currentTime = atMs / 1000
   }
 
   private advance() {
@@ -77,35 +114,22 @@ export class TimelinePlayer {
   }
 
   private async start(seg: Segment, at: number) {
-    clearTimeout(this.gapTimer)
+    clearTimeout(this.holdTimer)
     this.seg = seg
     this.position = at
     this.opts.onSegment?.(seg)
     if (!seg.copy) {
       this.el.pause()
-      this.gapStartedAt = performance.now()
       const hold = Math.min(seg.to - at, this.opts.gapHoldMs ?? 1500)
-      const tick = () => {
-        if (this.stopped || this.seg !== seg) return
-        const elapsed = performance.now() - this.gapStartedAt
-        this.position = Math.min(seg.to, at + elapsed)
-        this.opts.onPosition?.(this.position)
-        if (elapsed >= hold) this.advance()
-        else this.gapTimer = window.setTimeout(tick, 100)
-      }
-      tick()
+      this.holdThen(seg, hold, () => this.advance())
+      // The gap is drawn, not played: use it to get the next copy ready, so
+      // the switch to it is instant.
+      const next = this.timeline.segments[this.timeline.segments.indexOf(seg) + 1]
+      if (next?.copy) void this.load(next.copy, next.at).catch(() => {})
       return
     }
-    const url = this.urlFor(seg.copy)
-    if (this.el.src !== url) {
-      this.el.src = url
-      await new Promise<void>((resolve) => {
-        if (this.el.readyState >= 1) return resolve()
-        this.el.addEventListener('loadedmetadata', () => resolve(), { once: true })
-      })
-      if (this.stopped || this.seg !== seg) return
-    }
-    this.el.currentTime = (seg.at + (at - seg.from)) / 1000
+    await this.load(seg.copy, seg.at + (at - seg.from))
+    if (this.stopped || this.seg !== seg) return
     try {
       await this.el.play()
     } catch {
@@ -128,7 +152,7 @@ export class TimelinePlayer {
 
   pause(): void {
     this.playing = false
-    clearTimeout(this.gapTimer)
+    clearTimeout(this.holdTimer)
     this.el.pause()
   }
 
@@ -143,7 +167,7 @@ export class TimelinePlayer {
   destroy(): void {
     this.stopped = true
     this.playing = false
-    clearTimeout(this.gapTimer)
+    clearTimeout(this.holdTimer)
     this.el.removeEventListener('timeupdate', this.onTime)
     this.el.removeEventListener('ended', this.onEnded)
     this.el.pause()
