@@ -108,7 +108,7 @@ npm run dev             # http://localhost:4400 (camera needs localhost or HTTPS
 npm run test:unit       # unit tests
 npm run build           # dist/, the single-file app, the evidence checker, release.json
 sudo node scripts/e2e/scenarios.mjs            # end-to-end scenarios in Chromium (needs a dev server)
-LIVE=1 node scripts/e2e/scenarios.mjs          # the same against the published site
+sudo LIVE=1 node scripts/e2e/scenarios.mjs     # the same against the published site
 ```
 
 Phones need HTTPS: use the published site, or an HTTPS tunnel to the dev

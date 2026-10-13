@@ -108,7 +108,7 @@ npm run dev                 # http://localhost:4400 — the camera needs localho
 npm run test:unit
 npm run build               # dist/ (PWA), the single-file app, verify.html, release.json
 sudo node scripts/e2e/scenarios.mjs       # the end-to-end scenarios (root: it simulates NATs with iptables)
-LIVE=1 node scripts/e2e/scenarios.mjs     # the same, against the published site
+sudo LIVE=1 node scripts/e2e/scenarios.mjs  # the same, against the published site
 ```
 
 Phones need HTTPS: use the published site or an HTTPS tunnel to the dev server ([docs/ON_DEVICE_TESTING.md](docs/ON_DEVICE_TESTING.md)). Every push to `main` publishes the single-file build to GitHub Pages ([.github/workflows/pages.yml](.github/workflows/pages.yml)).
