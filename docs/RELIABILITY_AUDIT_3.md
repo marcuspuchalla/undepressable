@@ -1279,3 +1279,104 @@ switch is instant. Verified: the same scenario now checks out at **41 of 41** mo
 - No free public relay is known to work today; the candidates stay as
   best-effort, tested on the user's own network, and the real answer is a
   relay in the published site.
+
+## Part 10 — round 10: the STUN research applied
+
+`docs/STUN_RESEARCH.md` (October 2026) answered two questions: which public
+STUN servers still deserve a place in the defaults, and whether the app can
+do without them. The answers, in code:
+
+### 51. The app asked Google for its address even when it had a relay
+
+A TURN server answers STUN Binding requests on the same port, and browsers
+know it: libwebrtc puts every UDP TURN server on its STUN list, Firefox
+takes the public address from the allocation itself. So a device with a
+relay configured — its own, the one its share link carried, the one built
+into the site — had no reason to contact a public STUN server at all, and
+did, on every connection. **Fix:** `applyStunPolicy` (`iceConfig.ts`): when
+any `turn:` address over UDP is in the configuration, the pure-STUN entries
+are removed; the relay is the only party that learns the device's address.
+A setting keeps the public servers as a fallback for when the relay is
+down (Network → *Also ask public STUN servers*, off by default). A relay
+with only `turns:` or `transport=tcp` addresses cannot do this; public
+STUN stays, and the relay panel says to add a `turn:host:3478` address.
+The NAT check asks the relay too (`natProbeServers`), and since a single
+server cannot show a symmetric NAT's different ports, the verdict says so
+when only one answered (`withServerCount`).
+
+### 52. Two of four default STUN servers were the wrong ones
+
+`stun.nextcloud.com:443` was in the defaults because port 443 "survives
+networks that block everything but HTTPS ports". The OONI data say the
+opposite now: Russia (95–98 % failure since July 2026) and Iran (98–100 %
+since June) drop unknown UDP on 443 while the same host on 3478 keeps
+answering. `stun1.l.google.com` resolves to the same address as
+`stun.l.google.com` and protected against nothing. **Fix:** the defaults
+are `stun.l.google.com:19302`, `stun.cloudflare.com:3478`,
+`stun.telnyx.com:3478` and `stun.epygi.com:3478` — Google for reach
+everywhere but Russia, Cloudflare documented free and unlimited, Telnyx
+and Epygi from Tor's 2026 Snowflake list with under 2 % failure from
+Russia, Iran and China. The opt-in extras are Tor's remaining 2026 hosts
+(minus the two that geoblock Russia and China), three hourly-validated
+ones and Twilio's, all on 3478. With a relay, none of this is contacted.
+
+### 53. IPv6 was a line in the details
+
+The NAT check had recorded a global IPv6 address and shown it as
+"IPv6: yes" under *Details*. It is the only path that needs neither STUN
+nor relay: two devices with global IPv6 connect with nothing in between,
+and libwebrtc tries those pairs first. **Fix:** the Network page states it
+as a verdict of its own.
+
+### 54. The public relay candidates could not be shown to exist
+
+`freestun.net` sits behind a bot wall and `relay.backups.cz` has no
+documentation anywhere; neither could be verified to answer in 2026.
+The one shared pool still alive is Metered's Open Relay Project, which
+publishes a shared secret instead of a password (TURN REST API: username
+`expiry:name`, password the HMAC-SHA1 of it). **Fix:** it is the candidate;
+the app mints the credentials (`credentialsFor`), stores them with their
+expiry and re-mints before they run out (`refreshMintedRelays`, on every
+connection), and tests the relay on the user's network before using it,
+as before. Addresses on 80 and 443 over UDP, TCP and TLS.
+
+### 55. Nobody said what only a relay solves
+
+Every surface that mentioned STUN or relays left the boundary implicit.
+**Fix:** the Network page, the threat model and the README say it in one
+breath: two strict networks with no IPv6 between them, a side that blocks
+outgoing UDP, and a network that recognises STUN or WebRTC itself connect
+only through a relay — which needs no STUN. `SELF_HOSTING.md` adds the
+caps that make public credentials survivable (`user-quota`, `total-quota`,
+`max-bps`, `bps-capacity`, denied peer ranges) and how `turns:` shares
+port 443 with a web server.
+
+### Round 10 verification
+
+- **Unit:** 427 tests pass; new: the STUN policy (dropped with a UDP relay,
+  kept for a TLS-only one or with the fallback setting), the relay-as-STUN
+  URL mapping, the NAT-check server list, the defaults' shape, credential
+  minting against a known HMAC-SHA1 vector, the refresh before expiry, the
+  one-server caveat.
+- **End to end:** `stun-from-relay` (new) — with a UDP relay: the relay card reads "Public address: learned from your relay", the fallback setting is offered, **0 UDP packets to the STUN ports anywhere but the relay** during a stream (video 1.6 s); the fallback on: 212 packets; a TLS-only relay: "from public STUN servers, because your relay has no turn: UDP address", the panel's note shown, 212 packets. In the same run: open, relay-link, blocked, public-relay (the Open Relay candidate is replaced by the dev-only local one; "Tested just now"), relay-panel-remembers, blend-in (0 UDP packets on, 62 off) — all pass.
+- **Full suite:** 35 scenarios, one process, all pass — including combine at 41 of 41 moments again, throttled, blend-in, messenger-pair-late and self-check (the checker inlined from a fresh `build:verify`; a dev server on a fresh clone without that build used to fail every page, fixed in `vite.config.ts`).
+- **Owed on real networks** (`DEVICE_CHECKLIST.md`): a packet capture
+  during a stream with a UDP relay set (STUN only to the relay), two
+  devices with IPv6 connecting `direct`, and the Open Relay pool from a
+  strict network.
+
+### Round 10 known limits
+
+- With the relay as the only STUN server, a relay that is down takes the
+  device's public address with it: direct connections that public STUN
+  would have found are lost until the fallback setting is on or the relay
+  is back. The status card already reports a silent relay.
+- The NAT check cannot tell a symmetric NAT from a standard one through
+  one server; it says so rather than guessing.
+- Whether the Open Relay pool answers today, and from where, is for the
+  in-app test to say; the sandbox cannot reach it.
+- The sandbox has no NAT: the relay answers STUN with the device's own
+  address, which browsers fold into the host candidate, so the verdict
+  there reads "blocked". The scenario proves the traffic (no packet to a
+  public STUN port with a UDP relay; packets with the fallback or a
+  TLS-only relay), not the verdict.
