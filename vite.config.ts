@@ -36,10 +36,12 @@ function verifierPlugin() {
     resolveId: (source: string) => (source === id ? '\0' + id : null),
     load(this: any, source: string) {
       if (source !== '\0' + id) return null
-      this.addWatchFile?.(VERIFY_HTML)
       let html = ''
       try {
         html = readFileSync(VERIFY_HTML, 'utf8')
+        // Watching a file that does not exist makes the dev server fail every
+        // page with "failed to resolve import": only watch one that is there.
+        this.addWatchFile?.(VERIFY_HTML)
       } catch {
         /* not built yet (npm run build:verify): bundles then carry no checker */
       }
