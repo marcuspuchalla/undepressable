@@ -73,6 +73,19 @@ export function classifyNat(cands: ParsedCandidate[]): NatVerdict {
 
 export interface NatProbeResult extends NatVerdict {
   durationMs: number;
+  /** How many distinct STUN servers answered. */
+  servers: number;
+}
+
+/**
+ * A symmetric NAT shows as different public ports from different servers:
+ * with a single server answering, "standard" is the most the check can say.
+ */
+export function withServerCount(v: NatVerdict, servers: number): NatVerdict {
+  if (v.kind === "easy" && servers < 2) {
+    return { ...v, evidence: `${v.evidence} Only one STUN server answered, so a symmetric NAT cannot be ruled out.` };
+  }
+  return v;
 }
 
 function collectCandidates(
@@ -128,8 +141,12 @@ function collectCandidates(
 /** Ask the STUN servers what our network looks like. Takes up to `timeoutMs`. */
 export async function probeNat(stunServers: RTCIceServer[], timeoutMs = 5000): Promise<NatProbeResult> {
   const started = Date.now();
-  const cands = await collectCandidates({ iceServers: stunServers, iceCandidatePoolSize: 0 }, timeoutMs);
-  return { ...classifyNat(cands), durationMs: Date.now() - started };
+  const answered = new Set<string>();
+  const cands = await collectCandidates({ iceServers: stunServers, iceCandidatePoolSize: 0 }, timeoutMs, (ev) => {
+    const url = (ev as RTCPeerConnectionIceEvent & { url?: string | null }).url;
+    if (ev.candidate?.type === "srflx" && url) answered.add(url);
+  });
+  return { ...withServerCount(classifyNat(cands), answered.size), servers: answered.size, durationMs: Date.now() - started };
 }
 
 export type RelayProtocol = "udp" | "tcp" | "tls";

@@ -16,7 +16,7 @@ here lets anyone watch the stream.
 | **Discovery: Nostr** | public relays, or your own | WSS 443 | TLS to well-known relay hostnames — a short list a censor can block, which is why your own relay on 443 behind a boring domain exists. Inside: nothing readable. |
 | **Discovery: BitTorrent trackers** | public trackers | WSS 443 | TLS to tracker hostnames (`tracker.webtorrent.dev`, …): recognisable as WebTorrent. |
 | **Discovery: MQTT** | public brokers | WSS 443 | TLS to broker hostnames. |
-| **STUN** (finding your public address) | Google, Cloudflare, Nextcloud | UDP 19302 / 3478 / 443 | STUN binding requests in the clear: unmistakably WebRTC, to hosts every WebRTC app uses. |
+| **STUN** (finding your public address) | your relay, when one speaks UDP (then no public server at all); else Google, Cloudflare, Telnyx, Epygi | UDP 3478 / 19302 | STUN binding requests in the clear: unmistakably WebRTC. Russia's DPI matches the STUN magic cookie itself, and Russia and Iran drop unknown UDP on 443 — hence no port-443 STUN in the defaults (`STUN_RESEARCH.md`). |
 | **Direct peer-to-peer media** | the other device | UDP, random ports | A DTLS handshake (its ClientHello is a known fingerprint) then SRTP: unmistakably WebRTC. Both devices' addresses are visible to each other and to the path. |
 | **TURN relay, `turn:` UDP or TCP** | your relay | UDP/TCP 3478 (or any) | TURN messages in the clear around encrypted payloads: recognisable as TURN, to your relay's address. |
 | **TURN relay, `turns:` on 443** | your relay | TLS 443 | TLS to your relay's hostname, like HTTPS — see *Blend in* below for what still differs. |

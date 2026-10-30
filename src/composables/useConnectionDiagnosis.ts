@@ -1,7 +1,7 @@
 import { ref, shallowRef, computed, onMounted, onUnmounted } from "vue";
 import type { useTrystero } from "./useTrystero";
 import { diagnose, type Diagnosis } from "../lib/net/diagnosis";
-import { hasRelay, STUN_SERVERS } from "../lib/net/iceConfig";
+import { hasRelay, getRtcConfig, natProbeServers, isPublicStunWithRelay } from "../lib/net/iceConfig";
 import { probeNat, type NatKind } from "../lib/net/natProbe";
 import { getExtraStun } from "../lib/net/publicRelays";
 import { isBlendIn } from "../lib/net/blendIn";
@@ -28,8 +28,8 @@ async function measureNatKind(): Promise<NatKind | null> {
     /* no cache */
   }
   try {
-    const extra = getExtraStun();
-    const servers = extra.length ? [...STUN_SERVERS, { urls: extra }] : STUN_SERVERS;
+    // The relay's own address when one serves STUN; the public servers otherwise.
+    const servers = natProbeServers(getRtcConfig().iceServers ?? [], isPublicStunWithRelay(), getExtraStun());
     const { kind } = await probeNat(servers, 4000);
     try {
       sessionStorage.setItem(NAT_CACHE_KEY, JSON.stringify({ kind, at: Date.now() }));

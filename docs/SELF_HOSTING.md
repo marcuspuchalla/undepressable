@@ -51,6 +51,39 @@ user-quota=300
 systemctl enable --now coturn
 ```
 
+> **The relay is your STUN server too.** coturn answers STUN requests on the
+> same port, and the app asks a relay that speaks UDP (`turn:…:3478`) for its
+> public address instead of any public STUN server — so keep the plain
+> `turn:` address next to the `turns:…:443` one. Do not set `no-stun`.
+
+### If the credentials are public (a relay built into the site)
+
+Credentials in a published page are public by construction, so protect the
+relay with caps rather than secrecy, and rotate the password on each deploy:
+
+```
+user-quota=50            # concurrent allocations per username
+total-quota=500          # … in total
+max-bps=2500000          # per session, bytes/s: enough for one video stream
+bps-capacity=100000000   # the whole server
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+no-multicast-peers
+```
+
+Short-lived credentials (`use-auth-secret` + `static-auth-secret`, the TURN
+REST API) need something that holds the secret and mints them — a backend
+this static site does not have.
+
+### `turns:` on 443 next to a web server
+
+If 443 already serves a website on the same machine, let nginx route by SNI
+(`stream { … ssl_preread on; }`) to coturn for the relay's hostname and to
+the web server for the rest; coturn holds its own certificate. Switching on
+the first bytes does not work (HTTP/2 is binary), and putting the relay
+behind Cloudflare's proxy breaks TURN.
+
 ### Handing the relay to participants
 
 **In the app (recommended).** Open **Network** (tap the *Online* pill in the

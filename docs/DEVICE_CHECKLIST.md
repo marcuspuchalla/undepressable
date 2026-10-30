@@ -25,6 +25,9 @@ Status: ⬜ not tried · ✅ passed · ❌ failed (open an issue) · 🟡 partly
 | ⬜ | Same, after round 9 | The same pair, no relay | *Set up a relay* → *Test public relays* lists each relay with its reason; *More STUN servers* reads "will not help here" and its test, if run, says STUN works and a relay is needed; close the panel, re-open it: the results are still there with "Tested … ago" |
 | ⬜ | Same, with the built-in relay | After the secrets above are set | Connects with nothing set up on either device; status `RELAY` |
 | ⬜ | STUN test twice in a row | On the VPN side: *Test more STUN servers*, close, let the app reconnect, test again | The second test answers too; if it does not, the note says the servers answered a minute ago and blames throttling, not a blocked network |
+| ⬜ | The relay as the only STUN server | Set a relay with a `turn:…:3478` address; Network → *Check*; a packet capture (Wireshark, `udp.port == 3478 \|\| udp.port == 19302`) during a stream | The relay card reads "Public address: learned from your relay"; the capture shows STUN only to the relay — nothing to Google, Cloudflare, Telnyx or Epygi; the check still gives a verdict |
+| ⬜ | Two devices with IPv6 | Two phones on carriers with IPv6 (Telekom, Vodafone), no relay | Network → *Check* shows "Global IPv6"; the stream connects `direct` |
+| ⬜ | The one shared public relay | *Set up a relay* → *Test public relays* from a strict network | The Open Relay pool answers (or says why not); a stream works through it |
 | ⬜ | Same, relay on the streamer only | Add `turns:…:443` on the laptop; the phone re-scans | Connects without touching the phone; status `RELAY` |
 | ⬜ | Share link from the camera app | Phone opens the QR with its camera app, not the in-app scanner | Joins (relay and discovery relays carried in the link) |
 | ⬜ | Wi-Fi ↔ mobile handover mid-stream | Walk the viewer out of Wi-Fi range | Short blip: same recording segment; long: reconnects, new segment |

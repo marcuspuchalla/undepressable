@@ -74,6 +74,7 @@ Each one in full, with the step-by-step walkthrough the app shows for iPhone, An
 | **block the website** | Installed copies run with the site gone. The **single-file app** runs from disk and from any path (a subfolder, IPFS, anyone's site), and hands itself on by AirDrop or Bluetooth. The **browser extension** is another copy. |
 | **seize the domain** | Updates are never installed silently: an installed copy accepts only releases **signed by the developers' key** and warns about anything else. |
 | **block the discovery servers** | Your own Nostr relay on 443; or **pair by messenger** — two short codes over Signal or SMS, no server at all. |
+| **block the STUN servers** | With a relay that speaks UDP the app asks **no public STUN server**; without one, four defaults chosen for reach from censored networks (none on port 443, which Russia and Iran now filter). A STUN server never crosses two strict NATs: that is what a relay is for ([docs/STUN_RESEARCH.md](docs/STUN_RESEARCH.md)). |
 | **block the internet** | Phones on one hotspot pair **face to face**; viewers **share onward** in chains; recordings are **handed over** or carried as files. |
 | **look for WebRTC itself** | **Blend in**: with a `turns:` relay on 443, the app sends nothing but TLS to port 443 — no STUN, no UDP, discovery over WSS only. What a watcher can still see: [docs/TRAFFIC.md](docs/TRAFFIC.md). |
 | **throttle the network** | Each viewer's link is measured all the time and steps down — smaller picture, then **sound only** — and back up when it recovers. The viewer keeps recording throughout. |
@@ -100,6 +101,8 @@ Every line above is verified end to end in Chromium, with the network conditions
    discovery   Nostr relays · BitTorrent trackers · MQTT brokers · your own relay · two codes over a
                messenger · face to face on a hotspot
    media       direct, or through a TURN relay (turns: on 443 to blend in); DTLS-SRTP everywhere
+   address     from your relay when one speaks UDP (no public STUN server at all); else four STUN
+               servers chosen for reach from censored networks
    evidence    1-second chunks → SHA-256 → Merkle root → Ed25519; AES-256-GCM sealing to X25519 keys;
                OpenTimestamps; perceptual fingerprints (dHash + aHash) signed live
    copies      home archive (store and forward) · hand-over · evidence bundles (video + proof + verify.html)

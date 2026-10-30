@@ -19,6 +19,13 @@ import {
   setForceRelay,
   relayServersOf,
   turnSpecOf,
+  isUdpTurnUrl,
+  relayServesStun,
+  stunUrlOfTurn,
+  applyStunPolicy,
+  stunSourceOf,
+  natProbeServers,
+  setPublicStunWithRelay,
 } from "./iceConfig";
 
 function memoryStorage() {
@@ -262,7 +269,11 @@ describe("resolveRtcConfig", () => {
     saveRelaySettings({ turn: null, iceUrl: "https://creds.example/ice" }, "settings", storage);
     const fetched = [{ urls: "turn:r.example:3478", username: "u", credential: "p" }];
     const fetchImpl = (async () => ({ ok: true, status: 200, json: async () => fetched })) as any;
-    const config = await resolveRtcConfig({ storage, fetchImpl });
+    // A fetched UDP relay answers STUN itself: the public servers go.
+    let config = await resolveRtcConfig({ storage, fetchImpl });
+    expect(config.iceServers).toEqual(fetched);
+    setPublicStunWithRelay(true, storage);
+    config = await resolveRtcConfig({ storage, fetchImpl });
     expect(config.iceServers?.slice(0, STUN_SERVERS.length)).toEqual(STUN_SERVERS);
     expect(config.iceServers?.at(-1)).toEqual(fetched[0]);
   });
@@ -284,5 +295,62 @@ describe("relayServersOf", () => {
         { urls: ["stun:x", "turn:t:3478", "turns:t:443"], username: "u", credential: "p" },
       ]),
     ).toEqual([{ urls: ["turn:t:3478", "turns:t:443"], username: "u", credential: "p" }]);
+  });
+});
+
+describe("STUN from the relay", () => {
+  const udp = { urls: ["turn:relay.example.org:3478", "turns:relay.example.org:443"], username: "u", credential: "p" };
+  const tlsOnly = { urls: "turns:relay.example.org:443", username: "u", credential: "p" };
+  const tcpOnly = { urls: "turn:relay.example.org:443?transport=tcp", username: "u", credential: "p" };
+
+  it("knows which relay addresses answer STUN (UDP turn:)", () => {
+    expect(isUdpTurnUrl("turn:h:3478")).toBe(true);
+    expect(isUdpTurnUrl("turn:h:3478?transport=udp")).toBe(true);
+    expect(isUdpTurnUrl("turn:h:443?transport=tcp")).toBe(false);
+    expect(isUdpTurnUrl("turns:h:443")).toBe(false);
+    expect(isUdpTurnUrl("stun:h:3478")).toBe(false);
+    expect(relayServesStun([...STUN_SERVERS, udp])).toBe(true);
+    expect(relayServesStun([...STUN_SERVERS, tlsOnly, tcpOnly])).toBe(false);
+    expect(stunUrlOfTurn("turn:relay.example.org:3478?transport=udp")).toBe("stun:relay.example.org:3478");
+    expect(stunUrlOfTurn("turns:relay.example.org:443")).toBeNull();
+  });
+
+  it("drops every public STUN server once a UDP relay is configured", () => {
+    const servers = applyStunPolicy([...STUN_SERVERS, { urls: ["stun:extra:3478"] }, udp], false);
+    expect(servers).toEqual([udp]);
+    expect(stunSourceOf([...STUN_SERVERS, udp], false)).toBe("relay");
+  });
+
+  it("keeps them for a TLS-only relay, or when the user asks for the fallback", () => {
+    expect(applyStunPolicy([...STUN_SERVERS, tlsOnly], false)).toEqual([...STUN_SERVERS, tlsOnly]);
+    expect(stunSourceOf([...STUN_SERVERS, tlsOnly], false)).toBe("public");
+    expect(applyStunPolicy([...STUN_SERVERS, udp], true)).toEqual([...STUN_SERVERS, udp]);
+    expect(stunSourceOf([...STUN_SERVERS, udp], true)).toBe("public");
+    expect(stunSourceOf([udp], false)).toBe("relay");
+    expect(stunSourceOf([tlsOnly], false)).toBe("none");
+  });
+
+  it("the NAT check asks the relay alone, or the public servers (plus extras) without one", () => {
+    expect(natProbeServers([udp], false)).toEqual([{ urls: ["stun:relay.example.org:3478"] }]);
+    expect(natProbeServers([udp], true)).toEqual([{ urls: ["stun:relay.example.org:3478"] }, ...STUN_SERVERS]);
+    expect(natProbeServers([tlsOnly], false, ["stun:extra:3478"])).toEqual([...STUN_SERVERS, { urls: ["stun:extra:3478"] }]);
+  });
+
+  it("the resolved configuration follows the policy and the setting", async () => {
+    const s = memoryStorage();
+    saveRelaySettings({ turn: { urls: ["turn:relay.example.org:3478", "turns:relay.example.org:443"], username: "u", credential: "p" }, iceUrl: null }, "settings", s);
+    let config = await resolveRtcConfig({ storage: s });
+    expect((config.iceServers ?? []).every((x) => !/^stun:/.test(String(x.urls)))).toBe(true);
+    expect((config.iceServers ?? []).length).toBe(1);
+    setPublicStunWithRelay(true, s);
+    config = await resolveRtcConfig({ storage: s });
+    expect((config.iceServers ?? []).length).toBe(STUN_SERVERS.length + 1);
+  });
+
+  it("the defaults are four servers, none on port 443", () => {
+    expect(STUN_SERVERS).toHaveLength(4);
+    expect(STUN_SERVERS.every((x) => !/:443$/.test(String(x.urls)))).toBe(true);
+    expect(JSON.stringify(STUN_SERVERS)).not.toContain("stun1.l.google.com");
+    expect(JSON.stringify(STUN_SERVERS)).not.toContain("nextcloud");
   });
 });

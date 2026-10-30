@@ -121,6 +121,11 @@
           </template>
         </div>
         <p v-if="savedNote" class="text-xs text-moss">{{ savedNote }}</p>
+        <p v-if="tlsOnly" class="text-xs text-yellow-200 leading-relaxed" data-testid="tls-only-note">
+          This relay has no <code>turn:</code> UDP address, so public STUN servers stay in use for this device's
+          public address. Add one (for example <code>turn:host:3478</code>) next to the <code>turns:</code> address,
+          and no public server is contacted at all.
+        </p>
 
         <div class="space-y-2 pt-1 border-t border-line">
           <label class="flex items-start gap-2 text-sm text-slate-300 pt-3">
@@ -147,7 +152,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import {
   getRelaySetup,
   saveRelaySettings,
@@ -159,6 +164,7 @@ import {
   setForceRelay,
   fetchIceServers,
   relayServersOf,
+  isUdpTurnUrl,
   type TurnConfig,
   type RelaySetup,
 } from '../lib/net/iceConfig'
@@ -177,6 +183,11 @@ const MODES = [
 const PROTO: Record<RelayProtocol, string> = { udp: 'UDP', tcp: 'TCP', tls: 'TLS (443-friendly)' }
 
 const setup = ref<RelaySetup>(getRelaySetup())
+// A relay without a UDP address cannot tell this device its public address.
+const tlsOnly = computed(() => {
+  const urls = setup.value.turn?.urls ?? []
+  return urls.length > 0 && !urls.some(isUdpTurnUrl)
+})
 const mode = ref<'server' | 'link'>('server')
 const urls = ref('')
 const username = ref('')

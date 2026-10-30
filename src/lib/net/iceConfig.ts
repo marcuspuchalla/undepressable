@@ -20,6 +20,9 @@
 //      VITE_ICE_SERVERS_URL.
 //   3. Not at all — direct P2P only (STUN), the honest default.
 //
+// With a relay that speaks UDP, the relay is also the only STUN server the
+// app asks (applyStunPolicy): no public server learns the device's address.
+//
 // Why a relay matters so much: two devices that are *both* behind strict NAT
 // — a VPN exit and a mobile carrier is the textbook pair — cannot connect
 // directly, whatever the app does. Only a relay crosses that gap.
@@ -28,7 +31,7 @@
 // survives networks which block UDP and non-HTTPS ports (DPI, hotel/corporate
 // firewalls, hostile infrastructure).
 
-import { getPublicRelays, getExtraStun } from "./publicRelays";
+import { getPublicRelays, getExtraStun, refreshMintedRelays } from "./publicRelays";
 import { isBlendIn, blendInConfig, blendInApplies } from "./blendIn";
 
 const TURN_STORAGE_KEY = "undepressable_turn";
@@ -39,14 +42,22 @@ export interface TurnConfig {
   credential: string;
 }
 
-// STUN diversity matters on censored networks: Google is blocked in several
-// countries, so we also carry Cloudflare and Nextcloud (the latter answers on
-// 443, which survives some UDP-hostile networks). All probed alive 2026-07-18.
+// Public STUN, when nothing better is set up. Chosen for reach from censored
+// networks as much as for uptime (docs/STUN_RESEARCH.md, October 2026):
+// Google answers nearly everywhere but Russia (60–95 % failure there since
+// November 2025); Cloudflare is documented free and unlimited; telnyx and
+// epygi are in Tor's 2026 Snowflake list and fail under 2 % from Russia, Iran
+// and China. Nothing on port 443: Russia and Iran now drop unknown UDP on 443
+// while the same hosts on 3478 keep answering. Four is the right size — more
+// only slow gathering down (libwebrtc warns at five).
+//
+// With a relay that speaks UDP (`turn:`) none of these is contacted at all:
+// a TURN server answers STUN too, and browsers use it as one (applyStunPolicy).
 export const STUN_SERVERS: RTCIceServer[] = [
   { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
   { urls: "stun:stun.cloudflare.com:3478" },
-  { urls: "stun:stun.nextcloud.com:443" },
+  { urls: "stun:stun.telnyx.com:3478" },
+  { urls: "stun:stun.epygi.com:3478" },
 ];
 
 function isTurnUrl(url: string): boolean {
@@ -453,6 +464,78 @@ function dedupeServers(servers: RTCIceServer[]): RTCIceServer[] {
   });
 }
 
+const PUBLIC_STUN_WITH_RELAY_KEY = "undepressable_public_stun_with_relay";
+const urlsOf = (s: RTCIceServer): string[] => (Array.isArray(s.urls) ? s.urls : [s.urls]);
+
+/** A `turn:` address over UDP (no transport, or transport=udp): a relay that answers STUN too. */
+export function isUdpTurnUrl(url: string): boolean {
+  return /^turn:/i.test(url.trim()) && !/[?&]transport=tcp\b/i.test(url);
+}
+
+/** Do these servers include a relay that can tell this device its public address? */
+export function relayServesStun(servers: RTCIceServer[]): boolean {
+  return servers.some((s) => urlsOf(s).some(isUdpTurnUrl));
+}
+
+/** `turn:host:port` → `stun:host:port`: the relay asked as a STUN server (the NAT check). */
+export function stunUrlOfTurn(url: string): string | null {
+  const m = /^turn:([^?]+)/i.exec(url.trim());
+  return m && isUdpTurnUrl(url) ? `stun:${m[1]}` : null;
+}
+
+/** Keep asking public STUN servers even when the relay could answer (off by default). */
+export function isPublicStunWithRelay(storage: Pick<Storage, "getItem"> | null = safeStorage()): boolean {
+  try {
+    return storage?.getItem(PUBLIC_STUN_WITH_RELAY_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+export function setPublicStunWithRelay(on: boolean, storage: StorageLike | null = safeStorage()): void {
+  try {
+    if (on) storage?.setItem(PUBLIC_STUN_WITH_RELAY_KEY, "1");
+    else storage?.removeItem(PUBLIC_STUN_WITH_RELAY_KEY);
+  } catch {
+    /* storage blocked */
+  }
+}
+
+/**
+ * The STUN policy. A relay reachable over UDP answers STUN Binding requests,
+ * and browsers put every such relay on their STUN list (libwebrtc:
+ * "every UDP TURN server should also be used as a STUN server"; Firefox takes
+ * the public address from the allocation itself). So with one configured, no
+ * public STUN server is contacted at all — the relay the user chose is the
+ * only party that learns the device's address — unless the user keeps them as
+ * a fallback. A TLS- or TCP-only relay cannot do this; public STUN then stays.
+ */
+export function applyStunPolicy(servers: RTCIceServer[], keepPublic: boolean): RTCIceServer[] {
+  if (keepPublic || !relayServesStun(servers)) return servers;
+  return servers.filter((s) => !urlsOf(s).every((u) => /^stuns?:/i.test(u)));
+}
+
+/** Where this device's public address comes from. */
+export type StunSource = "relay" | "public" | "none";
+export function stunSourceOf(servers: RTCIceServer[], keepPublic: boolean): StunSource {
+  if (relayServesStun(servers) && !keepPublic) return "relay";
+  return servers.some((s) => urlsOf(s).some((u) => /^stuns?:/i.test(u))) ? "public" : "none";
+}
+
+/**
+ * STUN servers for the NAT check: the relay's own address when it serves
+ * STUN (public ones only if kept as well), else the public defaults and any
+ * extras the user opted into. With a single address the check cannot tell a
+ * symmetric NAT from a standard one, and says so.
+ */
+export function natProbeServers(iceServers: RTCIceServer[], keepPublic: boolean, extra: string[] = []): RTCIceServer[] {
+  const fromRelay = Array.from(new Set(iceServers.flatMap(urlsOf).map(stunUrlOfTurn).filter((u): u is string => !!u)));
+  if (fromRelay.length && !keepPublic) return [{ urls: fromRelay }];
+  const servers: RTCIceServer[] = [...STUN_SERVERS];
+  if (extra.length) servers.push({ urls: extra });
+  if (fromRelay.length) servers.unshift({ urls: fromRelay });
+  return servers;
+}
+
 /** STUN (defaults + any extra the user opted into), own TURN, then public relays. */
 function baseServers(setup: RelaySetup, storage: StorageLike | null): RTCIceServer[] {
   const servers: RTCIceServer[] = [...STUN_SERVERS];
@@ -490,7 +573,7 @@ export function getRtcConfig(): RTCConfiguration {
   const setup = getRelaySetup(env, storage);
   const servers = baseServers(setup, storage);
   if (setup.iceUrl) servers.push(...(readCache(storage, setup.iceUrl)?.servers ?? []));
-  return finishRtcConfig(baseRtcConfig(dedupeServers(servers), isForceRelay(storage)), storage);
+  return finishRtcConfig(baseRtcConfig(applyStunPolicy(dedupeServers(servers), isPublicStunWithRelay(storage)), isForceRelay(storage)), storage);
 }
 
 // Blend in (lib/net/blendIn.ts): only a TLS relay, relay candidates only. If
@@ -505,9 +588,10 @@ export async function resolveRtcConfig(opts: FetchIceOptions = {}): Promise<RTCC
   const env = viteEnv();
   const storage = opts.storage === undefined ? safeStorage() : opts.storage;
   const setup = getRelaySetup(env, storage);
-  const servers = baseServers(setup, storage);
+  await refreshMintedRelays(storage);
+  const servers = baseServers(getRelaySetup(env, storage), storage);
   if (setup.iceUrl) servers.push(...((await fetchIceServers(setup.iceUrl, { ...opts, storage })) ?? []));
-  return finishRtcConfig(baseRtcConfig(dedupeServers(servers), isForceRelay(storage)), storage);
+  return finishRtcConfig(baseRtcConfig(applyStunPolicy(dedupeServers(servers), isPublicStunWithRelay(storage)), isForceRelay(storage)), storage);
 }
 
 /** Just the relay (TURN) entries of a server list — for relay self-tests. */

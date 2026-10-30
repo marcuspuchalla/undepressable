@@ -241,6 +241,49 @@ const scenarios = {
       /✗ dead relay/.test(again) && /Tested just now/.test(again) && guidance && /None of 8 answered/.test(stunAgain) && /tested just now/.test(stunAgain)
     return [ok, `STUN section: "${summary}" / "${explainer.slice(0, 60)}…"; relay test: "${results}"; STUN test: "${stunNote.slice(0, 70)}…"; after close and re-open: "${again}", guidance ${guidance}, STUN note kept ${/None of 8 answered/.test(stunAgain)}`]
   },
+  // Round 10: with a relay that speaks UDP the app asks no public STUN server
+  // at all (the relay answers STUN); the user can keep them as a fallback; a
+  // TLS-only relay cannot replace them, and the page says so. Counted with a
+  // firewall rule: UDP to the STUN ports anywhere but the local relay.
+  async 'stun-from-relay'() {
+    const COUNT_RULE = ['-p', 'udp', '-s', HOST_IP, '!', '-d', HOST_IP, '-m', 'multiport', '--dports', '3478,19302', '-m', 'comment', '--comment', 'undpubstun', '-j', 'ACCEPT']
+    const counted = () => {
+      const line = execFileSync('iptables', ['-L', 'OUTPUT', '-v', '-n', '-x'], { encoding: 'utf8' }).split('\n').find((l) => l.includes('undpubstun'))
+      return line ? Number(line.trim().split(/\s+/)[0]) : 0
+    }
+    execFileSync('iptables', ['-I', 'OUTPUT', '1', ...COUNT_RULE])
+    try {
+      const stream = async (storage) => {
+        const before = counted()
+        const A = await newPage(storage)
+        await A.goto(`${route('/network')}`)
+        const source = (await A.locator('[data-testid=stun-source]').innerText()).replace(/\s+/g, ' ')
+        const fallback = await A.locator('[data-testid=public-stun-too]').isVisible().catch(() => false)
+        const tlsNote = await A.locator('[data-testid=tls-only-note]').isVisible().catch(() => false)
+        await A.goto(`${route('/stream')}`)
+        await A.waitForSelector('text=Share Stream', { timeout: 30000 })
+        const code = (await A.textContent('.font-mono.text-lg')).trim()
+        await A.locator('.fixed.inset-0 button').first().click()
+        const B = await newPage(storage)
+        await B.goto(`${route(`/collect/${code}`)}`)
+        const video = await videoWithin(B, 45000)
+        await B.waitForTimeout(2000)
+        const streamer = await statusOf(A)
+        await closeAll()
+        return { source, fallback, tlsNote, video, streamer, publicStun: counted() - before }
+      }
+      const udp = await stream(turn())
+      const both = await stream({ ...turn(), undepressable_public_stun_with_relay: '1' })
+      const tls = await stream(tlsRelay())
+      const ok =
+        /learned from your relay/.test(udp.source) && udp.fallback && udp.publicStun === 0 && udp.video !== null &&
+        both.publicStun > 0 && both.video !== null &&
+        /no turn: UDP address/.test(tls.source) && tls.tlsNote && tls.publicStun > 0
+      return [ok, `UDP relay: "${udp.source.slice(0, 70)}", fallback offered ${udp.fallback}, UDP packets to public STUN ports ${udp.publicStun}, video ${udp.video}s via "${udp.streamer.slice(0, 32)}" | fallback on: ${both.publicStun} packets, video ${both.video}s | TLS-only relay: "${tls.source.slice(0, 80)}", note shown ${tls.tlsNote}, ${tls.publicStun} packets`]
+    } finally {
+      execFileSync('iptables', ['-D', 'OUTPUT', ...COUNT_RULE])
+    }
+  },
   async 'relay-added-live'() {
     const { page: A, code } = await startStream({})
     const B = await newPage({})
@@ -1579,6 +1622,7 @@ const NOT_ON_LIVE = {
   'public-relay': 'the published build ignores the dev-only relay candidate list, so this would test the real public relays (UDP to the internet; run it from outside a sandbox, or check the opt-in by hand)',
   'relay-panel-remembers': 'the published build ignores the dev-only relay candidate list this scenario relies on',
 }
+// Needs root for its counting rule, like the NAT scenarios need theirs.
 const NEEDS_BLOCK = new Set(['blocked', 'relay-link', 'relay-one-side', 'relay-rejected', 'relay-added-live', 'public-relay', 'relay-panel-remembers', 'offline-isolated', 'messenger-pair', 'messenger-pair-late'])
 
 // A run killed mid-scenario leaves its firewall rule behind, and the next run

@@ -93,6 +93,7 @@ import {
   spreadPick,
   testAll,
   relayCandidates,
+  credentialsFor,
   rememberRelayTest,
   recallRelayTest,
   rememberStunTest,
@@ -101,6 +102,7 @@ import {
   agoText,
   type CandidateResult,
   type PublicRelayCandidate,
+  type StoredPublicRelay,
   type StunVerdict,
   type TestMemory,
 } from '../lib/net/publicRelays'
@@ -127,6 +129,7 @@ onUnmounted(() => clearInterval(clock))
 // The last test is shown again when the panel comes back (it is kept for the
 // page's life): closing the panel, a reconnect or another view does not mean
 // the test has to be done again.
+const minted = new Map<string, StoredPublicRelay>()
 const rememberedRelays = recallRelayTest()
 const testingRelays = ref(false)
 const relayResults = ref<CandidateResult<PublicRelayCandidate>[]>(rememberedRelays?.results ?? [])
@@ -140,7 +143,10 @@ async function testRelays() {
   relayResults.value = []
   try {
     relayResults.value = await testAll(relayCandidates(), async (c) => {
-      const r = await testRelay(relayServersOf([c.server]), 8000)
+      // A relay that publishes a shared secret gets credentials minted here.
+      const server = await credentialsFor(c)
+      minted.set(c.id, server)
+      const r = await testRelay(relayServersOf([server]), 8000)
       if (r.ok) return { ok: true, detail: `${r.protocols.join('/').toUpperCase()} · ${(r.durationMs / 1000).toFixed(1)} s` }
       return { ok: false, detail: r.errors[0] ? describeRelayError(r.errors[0].code) : 'no answer in 8 s' }
     })
@@ -153,7 +159,7 @@ async function testRelays() {
 }
 
 function applyRelays() {
-  setPublicRelays(workingRelays.value.map((r) => r.candidate.server))
+  setPublicRelays(workingRelays.value.map((r) => minted.get(r.candidate.id) ?? r.candidate.server))
   activePublic.value = getPublicRelays()
   appliedRelays.value = true
   emit('applied')

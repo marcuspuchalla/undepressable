@@ -9,8 +9,12 @@ import {
   parseStunList,
   spreadPick,
   testAll,
+  turnRestPassword,
+  credentialsFor,
+  refreshMintedRelays,
+  MINTED_TTL_MS,
 } from "./publicRelays";
-import { getRelaySetup, hasRelay, resolveRtcConfig, relayShareParams } from "./iceConfig";
+import { getRelaySetup, hasRelay, resolveRtcConfig, relayShareParams, setPublicStunWithRelay } from "./iceConfig";
 
 function memoryStorage() {
   const map = new Map<string, string>();
@@ -22,18 +26,46 @@ function memoryStorage() {
 }
 
 describe("built-in candidate lists", () => {
-  it("public relays carry TURN urls with shared credentials", () => {
+  it("public relays carry TURN urls with fixed credentials or a published shared secret", () => {
     for (const c of PUBLIC_RELAY_CANDIDATES) {
       const urls = Array.isArray(c.server.urls) ? c.server.urls : [c.server.urls];
       expect(urls.every((u) => /^turns?:/.test(u))).toBe(true);
-      expect(typeof c.server.username).toBe("string");
+      expect(typeof c.server.username === "string" || typeof c.sharedSecret === "string").toBe(true);
       expect(c.label.length).toBeGreaterThan(0);
     }
   });
 
-  it("extra STUN servers are STUN urls — and never the dead Open Relay host", () => {
-    expect(EXTRA_STUN_CANDIDATES.every((u) => /^stun:/.test(u))).toBe(true);
-    expect(JSON.stringify([PUBLIC_RELAY_CANDIDATES, EXTRA_STUN_CANDIDATES])).not.toContain("openrelay");
+  it("extra STUN servers are STUN urls on 3478 — never the dead fixed-credential Open Relay host, never port 443", () => {
+    expect(EXTRA_STUN_CANDIDATES.every((u) => /^stun:.*:3478$/.test(u))).toBe(true);
+    expect(JSON.stringify(EXTRA_STUN_CANDIDATES)).not.toContain("openrelay");
+    expect(JSON.stringify(PUBLIC_RELAY_CANDIDATES)).not.toContain("openrelayproject\"");
+  });
+
+  it("mints TURN REST credentials from a shared secret (RFC-style HMAC-SHA1, base64)", async () => {
+    // Known vector: HMAC-SHA1("key", "The quick brown fox jumps over the lazy dog") = de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9
+    expect(await turnRestPassword("key", "The quick brown fox jumps over the lazy dog")).toBe("3nybhbi3iqa8ino29wqQcBydtNk=");
+    const c = PUBLIC_RELAY_CANDIDATES.find((x) => x.sharedSecret)!;
+    const now = 1_700_000_000_000;
+    const server = await credentialsFor(c, now);
+    expect(server.username).toBe(`${Math.floor((now + MINTED_TTL_MS) / 1000)}:undepressable`);
+    expect(server.mintedFrom).toBe(c.id);
+    expect(server.expires).toBe(now + MINTED_TTL_MS);
+    expect(server.credential).toBe(await turnRestPassword(c.sharedSecret!, server.username!));
+  });
+
+  it("re-mints stored credentials before they expire, and leaves fixed ones alone", async () => {
+    const s = memoryStorage();
+    const c = PUBLIC_RELAY_CANDIDATES.find((x) => x.sharedSecret)!;
+    const fixed = { urls: "turn:fixed.example.org:3478", username: "a", credential: "b" };
+    const minted = await credentialsFor(c, 0);
+    setPublicRelays([fixed, minted], s);
+    expect(await refreshMintedRelays(s, 1000)).toBe(false);
+    const late = MINTED_TTL_MS - MINTED_TTL_MS / 8;
+    expect(await refreshMintedRelays(s, late)).toBe(true);
+    const after = getPublicRelays(s);
+    expect(after[0]).toEqual(fixed);
+    expect(after[1].expires).toBe(late + MINTED_TTL_MS);
+    expect(after[1].username).not.toBe(minted.username);
   });
 });
 
@@ -63,14 +95,18 @@ describe("feeding them into connections", () => {
     expect(relayShareParams(setup, s)).toEqual({});
   });
 
-  it("extra STUN and public relays reach the RTCConfiguration", async () => {
+  it("public relays reach the RTCConfiguration — and, speaking UDP, replace every STUN server", async () => {
     const s = memoryStorage();
     setExtraStun(["stun:stun.t-online.de:3478"], s);
-    setPublicRelays([PUBLIC_RELAY_CANDIDATES[0].server], s);
-    const config = await resolveRtcConfig({ storage: s });
-    const all = JSON.stringify(config.iceServers);
+    setPublicRelays([await credentialsFor(PUBLIC_RELAY_CANDIDATES[0])], s);
+    let all = JSON.stringify((await resolveRtcConfig({ storage: s })).iceServers);
+    expect(all).toContain("staticauth.openrelay.metered.ca");
+    expect(all).not.toContain("stun:");
+    // The fallback setting keeps the public servers and the extras.
+    setPublicStunWithRelay(true, s);
+    all = JSON.stringify((await resolveRtcConfig({ storage: s })).iceServers);
     expect(all).toContain("stun.t-online.de");
-    expect(all).toContain("freestun.net");
+    expect(all).toContain("staticauth.openrelay.metered.ca");
   });
 });
 

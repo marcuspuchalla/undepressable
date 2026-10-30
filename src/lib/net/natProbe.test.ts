@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { classifyNat, relayProtocolFromUrl, describeRelayError } from "./natProbe";
+import { classifyNat, relayProtocolFromUrl, describeRelayError, withServerCount } from "./natProbe";
 import { parseCandidate, type ParsedCandidate } from "./candidates";
 
 const c = (line: string) => parseCandidate(line) as ParsedCandidate;
@@ -61,6 +61,16 @@ describe("classifyNat", () => {
 
   it("unknown: nothing at all", () => {
     expect(classifyNat([]).kind).toBe("unknown");
+  });
+});
+
+describe("withServerCount", () => {
+  it("says a symmetric NAT cannot be ruled out when only one server answered", () => {
+    const easy = { kind: "easy" as const, publicAddresses: ["1.2.3.4"], ipv6: false, evidence: "Each local socket kept one public port across STUN servers." };
+    expect(withServerCount(easy, 2)).toEqual(easy);
+    expect(withServerCount(easy, 1).evidence).toMatch(/Only one STUN server answered/);
+    const hard = { ...easy, kind: "hard" as const };
+    expect(withServerCount(hard, 1)).toEqual(hard);
   });
 });
 

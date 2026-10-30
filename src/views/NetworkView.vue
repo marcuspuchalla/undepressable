@@ -18,12 +18,16 @@
           </button>
         </div>
         <p v-if="!nat && !probing" class="text-sm text-slate-400">
-          Takes a few seconds. Asks public STUN servers how this network presents you to the internet — the same
-          thing every connection does anyway.
+          Takes a few seconds.
+          <template v-if="stunSource === 'relay'">Asks your relay how this network presents you to the internet — no public STUN server is contacted.</template>
+          <template v-else>Asks public STUN servers how this network presents you to the internet — the same thing every connection does anyway.</template>
         </p>
         <div v-if="nat" class="rounded-lg border px-3 py-2" :class="NAT_TEXT[nat.kind].box">
           <p class="font-medium" :class="NAT_TEXT[nat.kind].tone">{{ NAT_TEXT[nat.kind].title }}</p>
           <p class="text-sm text-slate-300 mt-1 leading-relaxed">{{ NAT_TEXT[nat.kind].body }}</p>
+          <p v-if="nat.ipv6" class="text-sm text-moss mt-1 leading-relaxed" data-testid="ipv6-verdict">
+            ✓ Global IPv6: another device with IPv6 reaches this one directly — no STUN server and no relay in between.
+          </p>
           <details class="mt-2 text-xs text-slate-400">
             <summary class="cursor-pointer">Details</summary>
             <p class="mt-1">{{ nat.evidence }}</p>
@@ -45,7 +49,44 @@
       <!-- Relay -->
       <div class="card space-y-3">
         <h2 class="font-semibold text-slate-100">Relay (TURN) server</h2>
+        <p
+          class="text-xs rounded-lg px-3 py-2 border leading-relaxed"
+          :class="stunSource === 'relay' ? 'border-moss/30 bg-moss/10 text-moss' : 'border-line bg-white/5 text-slate-300'"
+          data-testid="stun-source"
+        >
+          <template v-if="blendIn && stunSource === 'none'">Public address: not asked for at all — blend in sends everything through the TLS relay.</template>
+          <template v-else-if="stunSource === 'relay'">Public address: learned from your relay. No public STUN server is contacted.</template>
+          <template v-else-if="relayConfigured">
+            Public address: from public STUN servers, because your relay has no <code>turn:</code> UDP address. Add one
+            (for example <code>turn:host:3478</code>) next to <code>turns:…:443</code> and no public server is contacted.
+          </template>
+          <template v-else>
+            Public address: from public STUN servers (Google, Cloudflare, Telnyx, Epygi — chosen for reach from censored
+            networks). With a relay that speaks UDP, none of them is contacted.
+          </template>
+        </p>
+        <label v-if="relayServesStunNow" class="flex items-start gap-2 text-sm text-slate-300">
+          <input v-model="publicStunToo" type="checkbox" class="mt-1" data-testid="public-stun-too" @change="onPublicStunToggle" />
+          <span>Also ask public STUN servers <span class="block text-xs text-slate-500">A fallback for when the relay is down. Off: only your relay learns this device's address.</span></span>
+        </label>
         <RelaySetup inline :show-stun="nat?.kind === 'blocked'" :nat-kind="nat?.kind ?? null" @saved="onRelaySaved" />
+      </div>
+
+      <!-- What only a relay solves -->
+      <div class="card space-y-2" data-testid="relay-only">
+        <h2 class="font-semibold text-slate-100">What only a relay solves</h2>
+        <p class="text-sm text-slate-400 leading-relaxed">
+          No STUN server, port trick or browser feature connects these two devices — a relay does, and needs no STUN:
+        </p>
+        <ul class="text-sm text-slate-400 list-disc list-inside space-y-1 leading-relaxed">
+          <li>two strict (symmetric) networks with no IPv6 between them — a VPN exit and a mobile carrier is the usual pair;</li>
+          <li>a network that blocks outgoing UDP, on either side;</li>
+          <li>a network that recognises STUN or WebRTC itself (<em>Blend in</em> below is relay-only by design).</li>
+        </ul>
+        <p class="text-xs text-slate-500 leading-relaxed">
+          Two devices with global IPv6 connect directly with nothing in between; one strict side is fine when the other
+          side is reachable. The evidence behind this: docs/STUN_RESEARCH.md in the repository.
+        </p>
       </div>
 
       <!-- Blend in -->
@@ -161,7 +202,18 @@ import { ref, computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import RelaySetup from '../components/RelaySetup.vue'
 import { probeNat, testRelay, describeRelayError, type NatProbeResult, type NatKind, type RelayTestResult } from '../lib/net/natProbe'
-import { STUN_SERVERS, hasRelay, resolveRtcConfig, relayServersOf } from '../lib/net/iceConfig'
+import {
+  hasRelay,
+  resolveRtcConfig,
+  getRtcConfig,
+  relayServersOf,
+  natProbeServers,
+  relayServesStun,
+  stunSourceOf,
+  isPublicStunWithRelay,
+  setPublicStunWithRelay,
+} from '../lib/net/iceConfig'
+import { getExtraStun } from '../lib/net/publicRelays'
 import { resolveShareBase, getConfiguredPublicUrl, setConfiguredPublicUrl, type Reachability } from '../lib/net/shareLink'
 import { appBase, usesHashRoutes } from '../lib/appLocation'
 import { getCustomRelays, setCustomRelays, isCustomRelaysOnly, setCustomRelaysOnly, parseRelayList } from '../lib/net/discoveryConfig'
@@ -249,15 +301,32 @@ const nat = ref<NatProbeResult | null>(null)
 const relayCheck = ref<RelayTestResult | null>(null)
 const relayConfigured = ref(hasRelay())
 
+// Where this device's public address comes from: the relay, when one speaks UDP.
+const stunTick = ref(0)
+const stunSource = computed(() => {
+  void stunTick.value
+  void blendTick.value
+  return stunSourceOf(getRtcConfig().iceServers ?? [], isPublicStunWithRelay())
+})
+const relayServesStunNow = computed(() => {
+  void stunTick.value
+  return relayServesStun(getRtcConfig().iceServers ?? [])
+})
+const publicStunToo = ref(isPublicStunWithRelay())
+function onPublicStunToggle() {
+  setPublicStunWithRelay(publicStunToo.value)
+  stunTick.value++
+}
+
 async function runProbe() {
   probing.value = true
   relayCheck.value = null
   try {
+    const config = await resolveRtcConfig()
     const [n] = await Promise.all([
-      probeNat(STUN_SERVERS),
+      probeNat(natProbeServers(config.iceServers ?? [], isPublicStunWithRelay(), getExtraStun())),
       (async () => {
         if (!hasRelay()) return
-        const config = await resolveRtcConfig()
         relayCheck.value = await testRelay(relayServersOf(config.iceServers ?? []))
       })(),
     ])
@@ -271,6 +340,7 @@ function onRelaySaved() {
   relayConfigured.value = hasRelay()
   relayCheck.value = null
   blendTick.value++
+  stunTick.value++
 }
 
 // --- share links ---

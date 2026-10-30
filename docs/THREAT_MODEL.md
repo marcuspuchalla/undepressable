@@ -15,11 +15,22 @@ Status as of 2026-10 (round 7). Verification: `docs/TEST_PLAN.md`,
 |---|---|---|
 | **The app's website** | Installed copies run offline (verified with the server gone). The **single-file app** runs from disk on a computer (Chrome/Edge) and as a **mirror under any path** — IPFS, a subfolder, anyone's website — and passes from person to person (Home → *Pass the app on*). The **browser extension** carries its own copy. | Someone who never had the app needs one of these copies. iPhones cannot run the file from disk; they need an installed copy or a reachable mirror. |
 | **The discovery servers** (Nostr relays, BitTorrent trackers, MQTT brokers) | Your own Nostr relay on port 443, handed out inside share links. **Pair by messenger**: two short codes over Signal, SMS, e-mail — no discovery server at all; the status card offers it when discovery is blocked. | Codes need some channel between the two people, and are good for a few minutes. |
-| **Direct peer-to-peer traffic** (UDP, strict NAT, VPNs) | A TURN relay, ideally `turns:` on port 443 (looks like HTTPS), carried inside share links; volunteer public relays as an opt-in stopgap. | Someone has to run a relay somewhere reachable. |
+| **Direct peer-to-peer traffic** (UDP, strict NAT, VPNs) | A TURN relay, ideally `turns:` on port 443 (looks like HTTPS), carried inside share links; the one shared public relay still alive as an opt-in stopgap. With a relay that speaks UDP the app asks **no public STUN server** at all — the relay answers STUN too. | Someone has to run a relay somewhere reachable. |
+| **STUN servers** (Google's are mostly dead from Russia since late 2025; UDP on port 443 is dropped in Russia and Iran) | Four defaults chosen for reach from censored networks, none on 443; opt-in extras and an hourly-tested fresh list; a relay replaces them entirely. | A STUN server only tells a device its own address: it never crosses two strict NATs — see below. |
 | **Anything that looks like WebRTC** (deep packet inspection) | **Blend in** (Network page): with a `turns:…:443` relay, the app sends nothing but TLS to port 443 — media only through the relay, discovery only over WSS, no STUN, no UDP at all (verified: not one UDP packet attempted). | Hostnames (SNI), the steady shape of a live stream and the TLS handshake of TURN (no ALPN) can still give it away to a watcher looking for exactly that; see [`TRAFFIC.md`](TRAFFIC.md). No pluggable transports — out of a web page's reach. |
 | **A broadcast server** | Amplify from anyone who can reach it — e.g. a viewer abroad; any number of servers. | The server itself is a single point: run more than one. |
 | **Bandwidth** (throttling mobile data to a crawl) | Each viewer's link is measured continuously and steps down — smaller picture, then **sound only** — and back up when it recovers; viewers keep recording throughout and are not told the stream is lost. Verified against a real policer (~320 kbit/s: picture keeps moving; ~56 kbit/s: sound only; lifted: picture back). | Below ~50 kbit/s even sound breaks up. The filming phone's own upload is shared by its direct viewers: on a throttled uplink, viewers relaying to each other (the default) matters more. |
 | **The whole internet** (shutdown, jamming) | Face-to-face pairing over one hotspot; chains (*Share onward*); *Hand over my recordings*; evidence files over AirDrop / Quick Share / Bluetooth. | Devices must share a hotspot. Finding nearby devices by radio, and Wi-Fi Direct without a hotspot, need native apps (`NATIVE_MESH.md`). |
+
+### What only a relay solves
+
+No STUN server, port trick or browser feature connects two devices behind
+**strict (symmetric) NATs** with no IPv6 between them — a VPN exit and a mobile
+carrier is the usual pair — nor two devices when either side **blocks outgoing
+UDP**, nor devices on a network that **recognises STUN or WebRTC itself**. A
+relay does, and needs no STUN. Two devices with global IPv6 connect directly
+with nothing in between; one strict side is fine when the other side is
+reachable. The evidence and the alternatives considered: [`STUN_RESEARCH.md`](STUN_RESEARCH.md).
 
 ## 2. Whoever takes over the website (domain seizure, hacked hosting)
 

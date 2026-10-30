@@ -22,41 +22,79 @@ export interface PublicRelayCandidate {
   id: string;
   /** Who is behind it, as far as anyone knows — shown to the user. */
   label: string;
+  /** The addresses; username and password when they are fixed. */
   server: RTCIceServer;
+  /**
+   * A relay that publishes its shared secret instead of a password: the
+   * credentials are minted here (TURN REST API — username `expiry:name`,
+   * password = base64(HMAC-SHA1(secret, username))) and expire.
+   */
+  sharedSecret?: string;
 }
 
 /**
- * Relays that publish shared credentials. Last reported working: freestun.net
- * in May 2025 (community reports); relay.backups.cz is an older listing that
- * still resolves. Both are best-effort — the in-app test is the authority.
+ * The one shared public relay still known to answer in October 2026
+ * (docs/STUN_RESEARCH.md): Metered's Open Relay Project publishes a shared
+ * secret for a 20 GB-a-month pool everyone draws on. The volunteer relays
+ * listed before (freestun.net, relay.backups.cz) could not be verified to
+ * exist any more. Best-effort: the in-app test is the authority.
  */
 export const PUBLIC_RELAY_CANDIDATES: PublicRelayCandidate[] = [
   {
-    id: "freestun",
-    label: "freestun.net (volunteer-run)",
-    server: { urls: ["turn:freestun.net:3478", "turn:freestun.net:3478?transport=tcp"], username: "free", credential: "free" },
-  },
-  {
-    id: "backups-cz",
-    label: "relay.backups.cz (volunteer-run)",
-    server: { urls: ["turn:relay.backups.cz", "turn:relay.backups.cz?transport=tcp"], username: "webrtc", credential: "webrtc" },
+    id: "openrelay-static",
+    label: "Open Relay Project (Metered; a 20 GB/month pool shared by everyone)",
+    server: {
+      urls: [
+        "turn:staticauth.openrelay.metered.ca:80",
+        "turn:staticauth.openrelay.metered.ca:443",
+        "turn:staticauth.openrelay.metered.ca:443?transport=tcp",
+        "turns:staticauth.openrelay.metered.ca:443",
+      ],
+    },
+    sharedSecret: "openrelayprojectsecret",
   },
 ];
 
+/** Minted credentials are good this long; refreshed when a quarter is left. */
+export const MINTED_TTL_MS = 24 * 3600_000;
+
+/** base64(HMAC-SHA1(secret, message)) — the TURN REST API's password. */
+export async function turnRestPassword(secret: string, username: string): Promise<string> {
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-1" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, enc.encode(username));
+  return btoa(String.fromCharCode(...new Uint8Array(sig)));
+}
+
+/** A stored public relay: the server, and when minted credentials expire. */
+export interface StoredPublicRelay extends RTCIceServer {
+  mintedFrom?: string;
+  expires?: number;
+}
+
+/** The candidate's server with credentials: its fixed ones, or ones minted now. */
+export async function credentialsFor(c: PublicRelayCandidate, now = Date.now()): Promise<StoredPublicRelay> {
+  if (!c.sharedSecret) return { ...c.server };
+  const expires = now + MINTED_TTL_MS;
+  const username = `${Math.floor(expires / 1000)}:undepressable`;
+  return { urls: c.server.urls, username, credential: await turnRestPassword(c.sharedSecret, username), mintedFrom: c.id, expires };
+}
+
 /**
- * STUN servers beyond the defaults, picked from the hourly-tested list at
- * github.com/pradt2/always-online-stun for diversity of operator, country and
- * port (443 survives networks that block everything but HTTPS ports).
+ * STUN servers beyond the defaults, for networks that block the usual ones.
+ * From Tor's 2026 Snowflake list (minus the two that geoblock Russia and
+ * China) and the hourly-tested list at github.com/pradt2/always-online-stun,
+ * spread across operators and countries; all on 3478 (docs/STUN_RESEARCH.md).
  */
 export const EXTRA_STUN_CANDIDATES: string[] = [
+  "stun:stun.m-online.net:3478",
+  "stun:stun.hot-chilli.net:3478",
+  "stun:stun.fitauto.ru:3478",
+  "stun:stun.uls.co.za:3478",
   "stun:stun.t-online.de:3478",
   "stun:stun.linphone.org:3478",
-  "stun:stun.aa.net.uk:3478",
-  "stun:stun.acrobits.cz:3478",
-  "stun:stun.gigaset.net:3478",
-  "stun:stun.frozenmountain.com:3478",
-  "stun:stun3.l.google.com:19302",
   "stun:relay.webwormhole.io:3478",
+  "stun:global.stun.twilio.com:3478",
 ];
 
 /** A fresh list, maintained and re-tested every hour by a third party. */
@@ -83,7 +121,7 @@ function isIceServer(v: unknown): v is RTCIceServer {
 }
 
 /** Public relays the user opted into and that passed the test. */
-export function getPublicRelays(storage: Pick<Storage, "getItem"> | null = safeStorage()): RTCIceServer[] {
+export function getPublicRelays(storage: Pick<Storage, "getItem"> | null = safeStorage()): StoredPublicRelay[] {
   try {
     const raw = storage?.getItem(PUBLIC_RELAYS_KEY);
     const parsed = raw ? JSON.parse(raw) : [];
@@ -93,7 +131,7 @@ export function getPublicRelays(storage: Pick<Storage, "getItem"> | null = safeS
   }
 }
 
-export function setPublicRelays(servers: RTCIceServer[], storage: StorageLike | null = safeStorage()): void {
+export function setPublicRelays(servers: StoredPublicRelay[], storage: StorageLike | null = safeStorage()): void {
   try {
     const clean = servers.filter(isIceServer);
     if (clean.length === 0) storage?.removeItem(PUBLIC_RELAYS_KEY);
@@ -101,6 +139,22 @@ export function setPublicRelays(servers: RTCIceServer[], storage: StorageLike | 
   } catch {
     /* storage blocked */
   }
+}
+
+/** Re-mint credentials of stored public relays that are about to expire. */
+export async function refreshMintedRelays(storage: StorageLike | null = safeStorage(), now = Date.now()): Promise<boolean> {
+  const stored = getPublicRelays(storage);
+  let changed = false;
+  const fresh: StoredPublicRelay[] = [];
+  for (const s of stored) {
+    const c = s.mintedFrom ? PUBLIC_RELAY_CANDIDATES.find((x) => x.id === s.mintedFrom) : undefined;
+    if (c && (s.expires ?? 0) - now < MINTED_TTL_MS / 4) {
+      fresh.push(await credentialsFor(c, now));
+      changed = true;
+    } else fresh.push(s);
+  }
+  if (changed) setPublicRelays(fresh, storage);
+  return changed;
 }
 
 export function getExtraStun(storage: Pick<Storage, "getItem"> | null = safeStorage()): string[] {

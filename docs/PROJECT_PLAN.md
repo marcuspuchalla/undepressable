@@ -84,6 +84,7 @@ The original six phases, with what each became.
 | 8 | Combined records, blend in, self-checking bundles | part 7 |
 | 8, live | The whole suite against the published site; the use cases as a document | part 8 |
 | 9 | The first field report (VPN ↔ carrier): connection bursts, the relay panel, STUN advice, a relay the published site can carry | part 9 |
+| 10 | The STUN research (`STUN_RESEARCH.md`) applied: the relay as the only STUN source, defaults chosen for reach, IPv6 as a verdict, the one living public relay, what only a relay solves | part 10 |
 
 ## Success metrics (from the original plan), with where they stand
 

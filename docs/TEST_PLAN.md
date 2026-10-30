@@ -61,7 +61,8 @@ sudo node scripts/e2e/scenarios.mjs           # all; or name some: open blocked 
 
 Scenarios: `open`, `blocked`, `relay-link`, `relay-one-side`,
 `relay-rejected`, `public-relay`, `relay-panel-remembers` (the panel keeps its
-results; STUN is not offered as a remedy on a strict network), `relay-added-live`, `crowd`, `crowd-large`
+results; STUN is not offered as a remedy on a strict network), `stun-from-relay`
+(with a UDP relay no public STUN server is contacted; a TLS-only relay keeps them), `relay-added-live`, `crowd`, `crowd-large`
 (six viewers, counts agree everywhere, relay tree), `internet-drops` (use case
 03: discovery dies mid-stream, video must keep flowing), `offline-two-viewers`,
 `offline-isolated`, `archive` (use case 04: streamer → phone → home archive),
