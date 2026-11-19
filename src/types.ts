@@ -223,10 +223,28 @@ export const NOSTR_RELAYS = [
 // WebTorrent trackers for the torrent strategy. Trystero's defaults connect to
 // the first three of its list, one of which (tracker.btorrent.xyz) has been
 // dead since at least July — so a third of torrent discovery was wasted.
-// The first two relayed offers end-to-end on 2026-09-25; files.fm listens on a
-// non-443 port the test machine could not reach, so it is unverified.
+//
+// All three on port 443: networks that let only HTTPS out (hotels, offices,
+// many public Wi-Fis) drop anything else. Each relayed an offer between two
+// sockets on 2026-11-19. tracker.files.fm also relays, but only on port 7073,
+// so it gave way to novage.com.ua — same count, so no extra connection
+// attempts per announce.
 export const TORRENT_TRACKERS = [
   'wss://tracker.webtorrent.dev',
   'wss://tracker.openwebtorrent.com',
-  'wss://tracker.files.fm:7073/announce'
+  'wss://tracker.novage.com.ua'
+]
+
+// MQTT brokers. Trystero's three defaults all listen on non-443 ports
+// (8081, 8084, 8884), so on an HTTPS-only network the whole transport was
+// dead. shiftr.io's public broker is the only public one found that relays on
+// 443 (round trip tested 2026-11-19; its published public/public login rides
+// in the URL, which is how Trystero's mqtt.connect takes it). It replaces
+// broker.emqx.io, the slowest of the three — the count stays the same, as
+// every broker that delivers an announce costs a parallel connection attempt.
+// The other two stay for networks that block shiftr.io but not other ports.
+export const MQTT_BROKERS = [
+  'wss://public:public@public.cloud.shiftr.io',
+  'wss://broker.hivemq.com:8884/mqtt',
+  'wss://test.mosquitto.org:8081'
 ]

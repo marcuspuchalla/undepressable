@@ -1,6 +1,6 @@
 import { ref, shallowRef, computed, markRaw } from "vue";
 import type { PeerInfo, UserRole } from "../types";
-import { NOSTR_RELAYS, TORRENT_TRACKERS } from "../types";
+import { NOSTR_RELAYS, TORRENT_TRACKERS, MQTT_BROKERS } from "../types";
 import { resolveRtcConfig } from "../lib/net/iceConfig";
 import { createConnectionMonitor, type ConnectionMonitor, type ConnectionReport } from "../lib/net/connectionMonitor";
 import { planDiscovery, getCustomRelays, isCustomRelaysOnly } from "../lib/net/discoveryConfig";
@@ -301,10 +301,11 @@ export function useTrystero() {
       }
       const join =
         strategy === "nostr" ? joinRoomNostr : strategy === "mqtt" ? joinRoomMqtt : joinRoomTorrent;
-      // Pin relay lists for nostr and torrent — Trystero's defaults include
-      // relays that reject our signaling or no longer exist (types.ts).
+      // Pin every transport's servers — Trystero's defaults include relays
+      // that reject our signaling, no longer exist, or sit on ports an
+      // HTTPS-only network drops (types.ts).
       const relayUrls =
-        strategy === "nostr" ? plan.nostrRelays : strategy === "torrent" ? TORRENT_TRACKERS : undefined;
+        strategy === "nostr" ? plan.nostrRelays : strategy === "torrent" ? TORRENT_TRACKERS : MQTT_BROKERS;
       const config = {
         appId: "p2p-es-v1",
         rtcConfig,

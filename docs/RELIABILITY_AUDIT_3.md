@@ -1380,3 +1380,72 @@ port 443 with a web server.
   there reads "blocked". The scenario proves the traffic (no packet to a
   public STUN port with a UDP relay; packets with the fallback or a
   TLS-only relay), not the verdict.
+
+## Part 11 — round 11: networks that let only HTTPS out, and coming back after a block
+
+Two gaps found by testing against real networks
+([`MULTISITE_RESULTS.md`](MULTISITE_RESULTS.md)) and by reading what that
+showed into the code.
+
+### 56. On an HTTPS-only network, one discovery transport was dead
+
+Hotels, offices, schools and many public Wi-Fis let only port 443 out. The app
+passed no broker list to MQTT, so it used Trystero's three defaults, which all
+listen elsewhere (8081, 8084, 8884). On such a network the whole transport was
+dead. A third tracker (`tracker.files.fm`) was on 7073. `TRAFFIC.md` claimed
+MQTT used 443; it didn't.
+
+Every candidate was probed by a real round trip — publish on one socket,
+receive on another, or announce an offer on one socket and receive it on
+another — not by whether a socket opens:
+
+| Server | Port | Relayed (2026-11-19) |
+|---|---|---|
+| `public.cloud.shiftr.io` (MQTT, public/public login) | 443 | yes, 0.5–0.6 s |
+| `broker.hivemq.com`, `test.mosquitto.org`, `broker.emqx.io` (MQTT) | 8884, 8081, 8084 | yes; none on 443 |
+| `mqtt.eclipseprojects.io` (MQTT) | 443 | no (no CONNACK) |
+| `tracker.webtorrent.dev`, `tracker.openwebtorrent.com`, `tracker.novage.com.ua` | 443 | yes |
+| `tracker.files.fm` | 7073 | yes, but not on 443 |
+| `tracker.btorrent.xyz`, `tracker.sloppyta.co`, `tracker.ghostchu-services.top`, `tracker.magnetoo.io` | — | refused, gone, or redirecting |
+
+Every server that delivers an announce costs one more parallel connection
+attempt, so servers were **swapped, not added**: MQTT now pins shiftr.io (443)
+in place of emqx (the slowest), keeping HiveMQ and Mosquitto for networks that
+block shiftr.io; the trackers swap files.fm for novage.com.ua, so all three are
+on 443 (`src/types.ts`).
+
+### 57. After a block lifted, discovery waited up to minutes to try again
+
+Trystero doubles a relay or tracker socket's reconnect delay on every failure,
+without limit, and resets it only after a connection succeeds. On a network
+that blocks discovery the delay passes ten minutes within the first quarter
+hour. So when someone moves to a network that works (blocked Wi-Fi to mobile
+data, a VPN turned on) the app waited out that delay before trying at all.
+MQTT's own client reconnects every second and hid this wherever MQTT worked —
+but on an HTTPS-only network MQTT was the transport that didn't (§56).
+
+Measured with Trystero's own `makeSocket` against a port that refused
+connections for 230 s and then accepted them:
+
+| | Delays between attempts | Back after the block lifted |
+|---|---|---|
+| Before | 3.4, 6.6, 13, 27, 53, 107, 213 s | **193 s** later |
+| After | 3.3, 6.7, 13, 27, then 30 s each | **0.1 s** later |
+
+Fix: `scripts/patch-deps.mjs` caps the delay at 30 s (`RELAY_RETRY_CAP_MS`),
+the same install-time patch that shrinks the offer pools; `vite.config.ts`
+already refuses to build an unpatched copy. A blocked network now costs one
+retry per server every 30 s. Tests: `scripts/patch-deps.test.mjs` (the patch
+applies to the upstream line and flags a changed one; with every connection
+refused for twenty minutes, retries stay ≤ 30 s apart).
+
+### Round 11 known limits
+
+- shiftr.io's public broker is a free service run by one company, the only
+  public MQTT broker found on 443. If it goes, MQTT is back to non-443 ports;
+  the Nostr relays and all three trackers stay on 443.
+- Public brokers show topics to anyone subscribed to everything. Topics are
+  hashed room names and payloads are encrypted signaling, the same exposure as
+  the other public brokers (`THREAT_MODEL.md` §5).
+- §57 was verified with Trystero's socket code in Node, not yet end to end in a
+  browser across a real network switch.

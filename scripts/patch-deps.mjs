@@ -8,6 +8,13 @@
 // docs/RELIABILITY_AUDIT_3.md, part 9). Offers are made on demand when the
 // pool runs low, so a handful is enough.
 //
+// Its relay and tracker sockets also double their reconnect delay on every
+// failure, without limit, and only reset after a connection succeeds. On a
+// network that blocks discovery the delay passes ten minutes within the first
+// quarter hour — so after a switch to a network that works (blocked Wi-Fi to
+// mobile data, a VPN turned on), the app sat idle for that long before even
+// trying again. Capped, so recovery takes at most RELAY_RETRY_CAP_MS.
+//
 // Runs on install (package.json "postinstall") and is idempotent;
 // vite.config.ts refuses to build or serve an unpatched copy.
 import { readFileSync, writeFileSync, existsSync } from 'node:fs'
@@ -16,10 +23,16 @@ import { join, dirname } from 'node:path'
 
 export const OFFER_POOL = 4
 export const TORRENT_OFFERS_PER_ANNOUNCE = 5
+export const RELAY_RETRY_CAP_MS = 30_000
 
 export const PATCHES = [
   { file: 'trystero/src/strategy.js', from: /const poolSize = \d+/, to: `const poolSize = ${OFFER_POOL}` },
   { file: 'trystero/src/torrent.js', from: /const offerPoolSize = \d+/, to: `const offerPoolSize = ${TORRENT_OFFERS_PER_ANNOUNCE}` },
+  {
+    file: 'trystero/src/utils.js',
+    from: /socketRetryPeriods\[url\] \*= 2/,
+    to: `socketRetryPeriods[url] = Math.min(socketRetryPeriods[url] * 2, ${RELAY_RETRY_CAP_MS})`,
+  },
 ]
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..')
