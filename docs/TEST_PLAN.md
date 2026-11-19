@@ -94,6 +94,15 @@ routes move into the hash, the app's modules come from the single file's
 that scenario is skipped there. Results of the live run:
 [`RELIABILITY_AUDIT_3.md`](RELIABILITY_AUDIT_3.md), part 8.
 
+### Multi-site runs over the real internet (E6)
+
+`scripts/multisite/` runs the app across real machines on different networks
+(a Mac and a NAS behind two home NATs, three servers abroad, NetBird VPN, a test
+TURN relay), with per-container network profiles. 19 scenarios cover use cases
+01–04, VPN paths, relays over UDP/TCP/TLS, degraded links and the relay tree.
+Plan: [`MULTISITE_TEST_PLAN.md`](MULTISITE_TEST_PLAN.md); results (2026-11-19,
+build `e8a1379`, 17/19): [`MULTISITE_RESULTS.md`](MULTISITE_RESULTS.md).
+
 ### Cross-network pass owed on real devices (E4)
 
 The field report that triggered round 3, to be re-run by hand:

@@ -45,7 +45,10 @@ user-quota=300
 > parallel attempt per discovery relay), falling to one per live viewer once
 > connected. A TURN provider with a low per-user cap answers `486 Allocation
 > Quota Reached` / `508`, which the app now names in its status. See
-> `RELIABILITY_AUDIT_3.md` §11.
+> `RELIABILITY_AUDIT_3.md` §11. Measured 2026-11-19 (`MULTISITE_RESULTS.md`
+> §1): one streamer with no viewers made 54 allocations a minute with three
+> relay URLs (UDP, TCP, TLS) and 22 with one, so a single URL in links you hand
+> out roughly halves the cost.
 
 ```bash
 systemctl enable --now coturn
