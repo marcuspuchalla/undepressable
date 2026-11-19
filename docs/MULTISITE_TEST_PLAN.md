@@ -11,7 +11,7 @@ are exercised over the actual internet. Results:
 | Key | Machine | Network | What it stands for |
 |-----|---------|---------|--------------------|
 | `mac` | This Mac, native Chromium | Home router NAT (`192.168.10.0/24`), NetBird VPN | A participant at home |
-| `nas` | Synology DS1817+ (DSM 7.1, Atom CPU), container | A **different** home NAT (`192.168.1.0/24`), NetBird | The always-on home archive; a second home |
+| `nas` | Synology DS1817+ (DSM 7.1, Atom CPU) at a second home (the parents'), container | A **different** home NAT (`192.168.1.0/24`), NetBird | The always-on home archive; a second home |
 | `is` | `mailserver`, Iceland, container | Public IP, default-drop inbound firewall | A participant abroad |
 | `log` | `logserver`, container | Public IP, default-drop inbound firewall; hosts the test TURN relay | A second foreign network |
 | `fmp` | `fmp` (Coolify production host), container | Public IP, default-drop inbound firewall | A third foreign network |
@@ -114,10 +114,6 @@ reports), `turn.sh` (test relay up/down).
   than anything here. `no-direct` simulates its effect on ICE, not its timing.
 - **Mullvad (commercial VPN exit)**: the Mullvad daemon isn't running on the
   Mac; starting it is your call. Expected to behave like `no-direct`.
-- **`mailstorage`**: SSH host-key verification failed (key changed). Not touched
-  until the new key is confirmed.
-- **Parents' network**: no access configured. If the NAS *is* there, it already
-  plays this role.
 - **TURN over TLS**: 443 is taken on every server (nginx, Traefik), so the
   relay's TLS listener is on 5349 with a self-signed certificate, which Chrome
   rejects. The `relay-tls-hostile*` scenarios therefore can't pass here; they

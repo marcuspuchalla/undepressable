@@ -34,7 +34,7 @@ const SITES = {
   log: { host: 'logserver', docker: 'docker', caps: '--cpus 1.5 --memory 2g', label: 'logserver', publicIp: '159.195.108.239' },
   fmp: { host: 'fmp', docker: 'docker', caps: '--cpus 1 --memory 1500m', label: 'fmp (Coolify prod host)', publicIp: '152.53.160.100' },
   // DSM's 3.10 kernel has no CFS quota, so --cpus is refused; shares still apply.
-  nas: { host: 'nas', docker: '/usr/local/bin/docker', caps: '--cpu-shares 512 --memory 2g', label: 'Synology NAS (second home NAT, 192.168.1.0/24)' },
+  nas: { host: 'nas', docker: '/usr/local/bin/docker', caps: '--cpu-shares 512 --memory 2g', label: "Synology NAS at the parents' (second home NAT, 192.168.1.0/24)" },
 }
 // Some networks block one lookup service or another (the Mac's can't reach ipify).
 const LOOKUP = 'for u in https://api.ipify.org https://ifconfig.me/ip https://icanhazip.com https://ipv4.seeip.org; do curl -4 -s --max-time 6 $u && exit 0; done; exit 1'

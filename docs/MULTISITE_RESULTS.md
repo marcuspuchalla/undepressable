@@ -99,12 +99,8 @@ the limit as `bandwidth`, not `cpu`. So that home connection's upload capacity
 caps 720p video; the app's bitrate cap and motion hint keep it moving rather than
 stalling. Anyone streaming from a similar line will see the same.
 
-### 7. Infrastructure notes (not app issues)
+### 7. Infrastructure note (not an app issue)
 
-- **NAS system partition is 100 % full** (`/dev/md0`, 2.3 GB). Docker data is on
-  `/volume1` and unaffected, but DSM misbehaves when its system partition fills.
-- **`mailstorage` failed SSH host-key verification** ("remote host identification
-  has changed"). Not touched; confirm the new key out of band.
 - On `fmp` and the NAS, containers can't resolve DNS, because the host's resolver
   is NetBird's (`100.113.x.x`), which isn't reachable from Docker's bridge. The
   harness passes `--dns 1.1.1.1`. Other containers on those hosts that use the
@@ -130,6 +126,6 @@ Four first-run failures were the harness's fault; all were fixed before the
 
 ## Not covered
 
-Real phones on mobile data (CGNAT), Mullvad (its daemon wasn't running), the
-`mailstorage` host, `turns:` on 443 with a real certificate, a real camera, and
-repeated runs for variance. See the test plan.
+Real phones on mobile data (CGNAT), Mullvad (its daemon wasn't running),
+`turns:` on 443 with a real certificate, a real camera, and repeated runs for
+variance. See the test plan.
