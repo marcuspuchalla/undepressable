@@ -1,19 +1,13 @@
 <p align="center">
-  <img src="docs/img/share.png" width="220" alt="The share sheet: a room code and QR code for viewers" />
-  &nbsp;&nbsp;
-  <img src="docs/img/home.png" width="220" alt="The home screen" />
-  &nbsp;&nbsp;
-  <img src="docs/img/guide.png" width="220" alt="The in-app guide" />
+  <a href="https://marcuspuchalla.github.io/undepressable/"><img src="docs/img/banner.png" alt="Undepressable: Live truth that can't be erased. Stream from your phone straight to people you trust; each keeps a signed copy." /></a>
 </p>
-
-<h1 align="center">Undepressable</h1>
 
 <p align="center">
   <strong>Live video that cannot be stopped by taking the phone, blocking the website, or throttling the network — and whose every copy can prove what it is.</strong>
 </p>
 
 <p align="center">
-  <a href="https://marcuspuchalla.github.io/undepressable/"><strong>Open the app →</strong></a>
+  <a href="https://marcuspuchalla.github.io/undepressable/"><strong>Open the app</strong></a>
   &nbsp;·&nbsp;
   <a href="https://marcuspuchalla.github.io/undepressable/#/guide">Guide</a>
   &nbsp;·&nbsp;
@@ -24,9 +18,18 @@
 
 <p align="center">
   <a href="https://github.com/marcuspuchalla/undepressable/actions/workflows/pages.yml"><img src="https://github.com/marcuspuchalla/undepressable/actions/workflows/pages.yml/badge.svg" alt="pages" /></a>
-  <img src="https://img.shields.io/badge/unit_tests-427-6ee7b7" alt="427 unit tests" />
-  <img src="https://img.shields.io/badge/end--to--end_scenarios-35-6ee7b7" alt="35 end-to-end scenarios" />
-  <img src="https://img.shields.io/badge/servers_required-0-7dd3fc" alt="no servers required" />
+  <img src="https://img.shields.io/badge/unit_tests-431-b5e65a" alt="431 unit tests" />
+  <img src="https://img.shields.io/badge/end--to--end_scenarios-35-b5e65a" alt="35 end-to-end scenarios" />
+  <img src="https://img.shields.io/badge/real--network_scenarios-17%2F19-4fe0d9" alt="17 of 19 real-network scenarios" />
+  <img src="https://img.shields.io/badge/servers_required-0-ff4fa0" alt="no servers required" />
+</p>
+
+<p align="center">
+  <img src="docs/img/home.png" width="220" alt="The home screen" />
+  &nbsp;&nbsp;
+  <img src="docs/img/share.png" width="220" alt="The share sheet: a room code and QR code for viewers" />
+  &nbsp;&nbsp;
+  <img src="docs/img/guide.png" width="220" alt="The in-app guide" />
 </p>
 
 ---
@@ -46,22 +49,78 @@ Two phones on different networks usually connect directly. A VPN or two mobile c
 
 ## Ways to use it
 
-The app's guide walks through twelve situations. In short:
+The app's guide walks through twelve situations, each with the steps for iPhone, Android and computer.
 
-1. **One to one** — hand the stream to one trusted person; they watch and record a signed copy.
-2. **One to many** — one code for a group; everyone records; viewers pass the stream on, so the phone's upload stays small however many join.
-3. **Your personal hotspot** — friends on your hotspot keep getting the picture when the mobile internet is cut; with no internet at all, pair face to face.
-4. **Relay to a safe place** — a friend's phone forwards to a home computer that records; what did not make it home follows later, or as a file.
-5. **Off-grid mesh** *(partly now)* — phones on one hotspot pair face to face and share onward in chains; Bluetooth and Wi-Fi Direct need a native app.
-6. **When the website is blocked or seized** — the one-file app passes hand to hand and mirrors anywhere; updates must be signed; pair by messenger when discovery is blocked; blend in when WebRTC itself is watched.
-7. **Reach everyone: amplify** — any device pushes the stream to a WHIP broadcast server; a viewer abroad can do it for you.
-8. **Evidence that holds up** — signed recordings, sealed (encrypted) ones the phone itself cannot open, and timestamps anchored in Bitcoin.
-9. **Every copy checks back to the camera** — the phone signs its picture twice a second; any copy can be checked against those signatures later.
-10. **When the network is throttled** — smaller picture, then sound only, and back up when it recovers; recording throughout.
-11. **Many copies, one record** — copies from several viewers laid on the filmer's clock, played or rendered as one.
-12. **Evidence that checks itself** — every bundle carries `verify.html`, which checks it on any computer with no website and no app.
+<table>
+  <tr>
+    <td align="center" valign="top" width="25%">
+      <img src="docs/img/use-cases/01-one-to-one.svg" width="96" height="96" alt="" /><br />
+      <b>One to one</b><br />
+      Hand the stream to one trusted person; they watch and record a signed copy.
+    </td>
+    <td align="center" valign="top" width="25%">
+      <img src="docs/img/use-cases/02-one-to-many.svg" width="96" height="96" alt="" /><br />
+      <b>One to many</b><br />
+      One code for a group. Viewers pass the stream on, so the phone uploads only a few copies.
+    </td>
+    <td align="center" valign="top" width="25%">
+      <img src="docs/img/use-cases/03-hotspot.svg" width="96" height="96" alt="" /><br />
+      <b>Your personal hotspot</b><br />
+      Friends on your hotspot keep the picture when the mobile internet is cut.
+    </td>
+    <td align="center" valign="top" width="25%">
+      <img src="docs/img/use-cases/04-safe-place.svg" width="96" height="96" alt="" /><br />
+      <b>Relay to a safe place</b><br />
+      A friend’s phone forwards to a home computer that records it.
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="25%">
+      <img src="docs/img/use-cases/05-off-grid.svg" width="96" height="96" alt="" /><br />
+      <b>Off-grid chains</b><br />
+      Phones on one hotspot pair face to face and pass the stream along. <i>Partly now.</i>
+    </td>
+    <td align="center" valign="top" width="25%">
+      <img src="docs/img/use-cases/06-website-blocked.svg" width="96" height="96" alt="" /><br />
+      <b>Website blocked or seized</b><br />
+      The one-file app passes hand to hand and mirrors anywhere; updates must be signed.
+    </td>
+    <td align="center" valign="top" width="25%">
+      <img src="docs/img/use-cases/07-amplify.svg" width="96" height="96" alt="" /><br />
+      <b>Amplify</b><br />
+      Push the stream to any WHIP broadcast server, even from a viewer abroad.
+    </td>
+    <td align="center" valign="top" width="25%">
+      <img src="docs/img/use-cases/08-evidence.svg" width="96" height="96" alt="" /><br />
+      <b>Evidence that holds up</b><br />
+      Signed recordings, sealed ones the phone cannot open, timestamps anchored in Bitcoin.
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top" width="25%">
+      <img src="docs/img/use-cases/09-checks-back.svg" width="96" height="96" alt="" /><br />
+      <b>Checks back to the camera</b><br />
+      The phone signs its picture twice a second; any copy is checked against it.
+    </td>
+    <td align="center" valign="top" width="25%">
+      <img src="docs/img/use-cases/10-throttled.svg" width="96" height="96" alt="" /><br />
+      <b>Throttled network</b><br />
+      Smaller picture, then sound only, then back up when it recovers. Recording throughout.
+    </td>
+    <td align="center" valign="top" width="25%">
+      <img src="docs/img/use-cases/11-one-record.svg" width="96" height="96" alt="" /><br />
+      <b>Many copies, one record</b><br />
+      Copies from several viewers laid on the filmer’s clock, played or rendered as one.
+    </td>
+    <td align="center" valign="top" width="25%">
+      <img src="docs/img/use-cases/12-checks-itself.svg" width="96" height="96" alt="" /><br />
+      <b>Checks itself</b><br />
+      Every evidence bundle carries <code>verify.html</code>: no website, no app needed.
+    </td>
+  </tr>
+</table>
 
-Each one in full, with the step-by-step walkthrough the app shows for iPhone, Android and computer: [docs/USE_CASES.md](docs/USE_CASES.md).
+Each one in full: [docs/USE_CASES.md](docs/USE_CASES.md).
 
 ## What it does, by threat
 
@@ -114,9 +173,10 @@ Vue 3, TypeScript, Vite. [Trystero](https://github.com/dmotz/trystero) for serve
 
 | | |
 |---|---|
-| **Unit tests** | 427 — integrity, Merkle proofs, counts, relay tree, ICE and NAT handling, diagnosis, pairing codes, evidence transfer, releases, WHIP, sealing, timestamps, fingerprints and matching, link ladder, combining, blend-in, the relay panel's advice, the STUN policy |
+| **Unit tests** | 431 — integrity, Merkle proofs, counts, relay tree, ICE and NAT handling, diagnosis, pairing codes, evidence transfer, releases, WHIP, sealing, timestamps, fingerprints and matching, link ladder, combining, blend-in, the relay panel's advice, the STUN policy, the dependency patches |
 | **End to end, in Chromium** | 35 scenarios in one run: direct and relayed connections, strict NAT, a rejected relay, public relays and the relay panel, STUN from the relay (packets counted), six viewers, discovery dying mid-stream, face-to-face pairing and chains, pairing by messenger (also 90 s late), home archive and sync, evidence files, hand-over, Amplify, sealed recordings three ways, timestamps, corroboration three ways, a throttled link (policed to 320 and 56 kbit/s), combined records, blend in (every UDP packet counted: zero), self-checking bundles |
 | **Standalone** | Offline install with the server gone; the single-file app from disk and from an arbitrary mirror path; signed updates accepted, unsigned refused; the extension streaming to the web app |
+| **Over real networks** | 19 scenarios across five machines on four networks — two home NATs, three servers abroad, a VPN mesh, a test TURN relay — with strict-NAT, no-UDP, HTTPS-only and lossy profiles: 17 pass; the two TLS-relay cases need a relay with a real certificate. Measured along the way: the relay tree held the streamer at two uploads for six viewers, video survived every discovery link being cut, an idle streamer’s relay allocations fell from 333 to 54 a minute with round 9 ([docs/MULTISITE_RESULTS.md](docs/MULTISITE_RESULTS.md)) |
 | **Supply chain** | The published `undepressable.html` and `verify.html` are byte-identical to a clean build of the same commit |
 | **Against the live site** | The same suite against the published build on GitHub Pages: 32 of 33 scenarios pass (`public-relay` has no live variant). The run found one bug only the published build had — a second share link opened in place did not change the room — fixed and re-tested on the redeployed site. Discovery stayed on a local relay because the test sandbox cannot carry WebSockets to the public relays: that last step is the first line of the device checklist ([part 8 →](docs/RELIABILITY_AUDIT_3.md#part-8--against-the-live-site)) |
 

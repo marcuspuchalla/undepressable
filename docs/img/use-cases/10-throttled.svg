@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" role="img" aria-label="When the network is throttled: a smaller picture, then sound only, then back">
+  <title>When the network is throttled: a smaller picture, then sound only, then back</title>
+  <style> .art{fill:none;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round} .ink{mix-blend-mode:screen} .big,.small,.sound{opacity:0}.big{animation:s1 4.5s infinite}.small{animation:s2 4.5s infinite}.sound{animation:s3 4.5s infinite} @keyframes s1{0%,28%{opacity:1}33%,95%{opacity:0}100%{opacity:1}}@keyframes s2{0%,30%{opacity:0}35%,61%{opacity:1}66%,100%{opacity:0}}@keyframes s3{0%,63%{opacity:0}68%,93%{opacity:1}98%,100%{opacity:0}} @media (prefers-reduced-motion:reduce){*{animation:none!important}}</style>
+  <rect x="1" y="1" width="158" height="158" rx="22" fill="#121530" stroke="#2e3466" stroke-width="2"/>
+  <g class="art ink" stroke="#ff4fa0" transform="translate(-1.3 -0.7)"><path d="M30 128h100"/></g>
+  <g class="art ink" stroke="#4fe0d9" transform="translate(1.3 0.7)"><path d="M30 128h100"/></g>
+  <rect class="big" x="34" y="44" width="92" height="62" rx="6" fill="none" stroke="#4fe0d9" stroke-width="3.4"/>
+  <rect class="small" x="58" y="60" width="44" height="30" rx="5" fill="none" stroke="#4fe0d9" stroke-width="3.4"/>
+  <g class="sound" fill="none" stroke="#ff4fa0" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M60 68h10l12-10v34l-12-10H60z"/><path d="M92 66a14 14 0 0 1 0 18M100 58a26 26 0 0 1 0 34"/></g>
+</svg>

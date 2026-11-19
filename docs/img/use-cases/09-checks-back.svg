@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" role="img" aria-label="Every copy checks back to the camera: the phone signs its picture twice a second">
+  <title>Every copy checks back to the camera: the phone signs its picture twice a second</title>
+  <style> .art{fill:none;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round} .ink{mix-blend-mode:screen} .p14{animation:p14 1.5s 0s infinite linear;opacity:0}@keyframes p14{0%{transform:translate(0,0);opacity:0}8%{opacity:1}88%{opacity:1}100%{transform:translate(46px,0px);opacity:0}} .p15{animation:p15 1.5s 0.5s infinite linear;opacity:0}@keyframes p15{0%{transform:translate(0,0);opacity:0}8%{opacity:1}88%{opacity:1}100%{transform:translate(46px,0px);opacity:0}} .p16{animation:p16 1.5s 1s infinite linear;opacity:0}@keyframes p16{0%{transform:translate(0,0);opacity:0}8%{opacity:1}88%{opacity:1}100%{transform:translate(46px,0px);opacity:0}} .ok{animation:ok .5s infinite}@keyframes ok{0%,100%{opacity:.3}50%{opacity:1}} @media (prefers-reduced-motion:reduce){*{animation:none!important}}</style>
+  <rect x="1" y="1" width="158" height="158" rx="22" fill="#121530" stroke="#2e3466" stroke-width="2"/>
+  <g class="art ink" stroke="#ff4fa0" transform="translate(-1.3 -0.7)"><rect x="24" y="69" width="28" height="22" rx="4"/><path d="M52 76l10-6v20l-10-6"/><rect x="106" y="58" width="34" height="44" rx="4"/><path d="M106 70h34M106 90h34"/></g>
+  <g class="art ink" stroke="#4fe0d9" transform="translate(1.3 0.7)"><rect x="24" y="69" width="28" height="22" rx="4"/><path d="M52 76l10-6v20l-10-6"/><rect x="106" y="58" width="34" height="44" rx="4"/><path d="M106 70h34M106 90h34"/></g>
+  <circle class="p14" cx="58" cy="80" r="3" fill="#ff4fa0"/>
+  <circle class="p15" cx="58" cy="80" r="3" fill="#ff4fa0"/>
+  <circle class="p16" cx="58" cy="80" r="3" fill="#ff4fa0"/>
+  <circle class="ok" cx="123" cy="80" r="5" fill="#b5e65a"/>
+</svg>

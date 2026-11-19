@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" role="img" aria-label="Off-grid chains: phones pass the stream hand to hand with no internet">
+  <title>Off-grid chains: phones pass the stream hand to hand with no internet</title>
+  <style> .art{fill:none;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round} .ink{mix-blend-mode:screen} .p9{animation:p9 2.8s 0s infinite linear;opacity:0}@keyframes p9{0%{transform:translate(0,0);opacity:0}8%{opacity:1}88%{opacity:1}100%{transform:translate(32px,-48px);opacity:0}} .p10{animation:p10 2.8s 0.7s infinite linear;opacity:0}@keyframes p10{0%{transform:translate(0,0);opacity:0}8%{opacity:1}88%{opacity:1}100%{transform:translate(30px,40px);opacity:0}} .p11{animation:p11 2.8s 1.4s infinite linear;opacity:0}@keyframes p11{0%{transform:translate(0,0);opacity:0}8%{opacity:1}88%{opacity:1}100%{transform:translate(28px,-48px);opacity:0}} .p12{animation:p12 2.8s 2.0999999999999996s infinite linear;opacity:0}@keyframes p12{0%{transform:translate(0,0);opacity:0}8%{opacity:1}88%{opacity:1}100%{transform:translate(24px,40px);opacity:0}} @media (prefers-reduced-motion:reduce){*{animation:none!important}}</style>
+  <rect x="1" y="1" width="158" height="158" rx="22" fill="#121530" stroke="#2e3466" stroke-width="2"/>
+  <g class="art ink" stroke="#ff4fa0" transform="translate(-1.3 -0.7)"><circle cx="24" cy="112" r="8"/><circle cx="56" cy="64" r="8"/><circle cx="86" cy="104" r="8"/><circle cx="114" cy="56" r="8"/><circle cx="138" cy="96" r="8"/><path d="M24 112L56 64"/><path d="M56 64L86 104"/><path d="M86 104L114 56"/><path d="M114 56L138 96"/></g>
+  <g class="art ink" stroke="#4fe0d9" transform="translate(1.3 0.7)"><circle cx="24" cy="112" r="8"/><circle cx="56" cy="64" r="8"/><circle cx="86" cy="104" r="8"/><circle cx="114" cy="56" r="8"/><circle cx="138" cy="96" r="8"/><path d="M24 112L56 64"/><path d="M56 64L86 104"/><path d="M86 104L114 56"/><path d="M114 56L138 96"/></g>
+  <circle class="p9" cx="24" cy="112" r="3.6" fill="#ff4fa0"/>
+  <circle class="p10" cx="56" cy="64" r="3.6" fill="#ff4fa0"/>
+  <circle class="p11" cx="86" cy="104" r="3.6" fill="#ff4fa0"/>
+  <circle class="p12" cx="114" cy="56" r="3.6" fill="#ff4fa0"/>
+</svg>
