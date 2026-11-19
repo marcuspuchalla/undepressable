@@ -3,14 +3,9 @@
     <!-- Header -->
     <header class="flex-none px-4 py-3 bg-night/80 backdrop-blur-md border-b border-line">
       <div class="flex items-center justify-between">
-        <RouterLink to="/" class="flex items-center gap-3 group">
-          <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-glow to-moss flex items-center justify-center shadow-halo">
-            <span class="font-display font-bold text-ink text-lg leading-none">U</span>
-          </div>
-          <div>
-            <h1 class="font-display font-bold text-lg text-slate-100 leading-tight">Undepressable</h1>
-            <p class="text-[11px] text-slate-400 leading-tight">Live truth that can't be erased</p>
-          </div>
+        <RouterLink to="/" class="wordmark" aria-label="Undepressable, home">
+          <span class="wordmark-copy wordmark-pink" aria-hidden="true">Undepressable</span>
+          <span class="wordmark-copy wordmark-aqua" aria-hidden="true">Undepressable</span>
         </RouterLink>
 
         <div class="flex items-center gap-2">
@@ -156,3 +151,31 @@ const showHelp = ref(false)
 const debugModal = ref<InstanceType<typeof DebugModal>>()
 const $route = useRoute()
 </script>
+
+<style scoped>
+/* The name in the same two inks as the home headline, just off register. */
+.wordmark {
+  display: inline-grid;
+  font-family: theme("fontFamily.display");
+  font-size: 1.35rem;
+  font-weight: 800;
+  font-stretch: 82%;
+  line-height: 1;
+  letter-spacing: -0.005em;
+}
+
+.wordmark-copy {
+  grid-area: 1 / 1;
+  mix-blend-mode: screen;
+}
+
+.wordmark-pink {
+  color: theme("colors.ember");
+  transform: translate(-1px, -0.5px);
+}
+
+.wordmark-aqua {
+  color: theme("colors.glow");
+  transform: translate(1px, 0.5px);
+}
+</style>

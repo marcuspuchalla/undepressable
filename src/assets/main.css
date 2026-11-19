@@ -1,3 +1,5 @@
+@import "./fonts.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -10,6 +12,7 @@
   body {
     @apply h-full overflow-hidden bg-ink text-slate-200 font-body antialiased;
     -webkit-tap-highlight-color: transparent;
+    font-optical-sizing: auto;
   }
 
   #app {
@@ -19,37 +22,42 @@
   h1,
   h2,
   h3 {
-    @apply font-display;
+    @apply font-display text-print;
+    letter-spacing: -0.01em;
+  }
+
+  :focus-visible {
+    outline: 2px solid theme("colors.glow");
+    outline-offset: 2px;
   }
 }
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center px-4 py-2 rounded-xl font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-ink disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-xl font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-ink disabled:opacity-50 disabled:cursor-not-allowed;
   }
 
-  /* Primary action — cyan "signal" accent on ink text. */
+  /* Primary action — the aqua ink. */
   .btn-primary {
-    @apply btn bg-glow text-ink hover:bg-primary-200 focus:ring-glow;
+    @apply btn bg-glow text-ink hover:bg-primary-300 focus-visible:ring-glow;
   }
 
-  /* Go-live / record — the one loud, urgent control. */
+  /* Go-live / record — the one loud, urgent control: fluorescent pink. */
   .btn-emergency {
-    @apply btn bg-ember text-ink font-semibold hover:bg-rose-300 focus:ring-ember;
+    @apply btn bg-ember text-ink hover:bg-emergency-400 focus-visible:ring-ember;
   }
 
   .btn-secondary {
-    @apply btn bg-haze text-slate-200 border border-line hover:border-glow/50 focus:ring-glow;
+    @apply btn bg-haze text-print border border-line hover:border-glow/60 focus-visible:ring-glow;
   }
 
-  /* Glassmorphism surface — the signature panel of the brand. */
   .card,
   .glass-panel {
-    @apply rounded-2xl border border-line bg-night/70 backdrop-blur-md p-4 shadow-soft;
+    @apply rounded-2xl border border-line bg-night/80 p-4 shadow-soft;
   }
 
   .input {
-    @apply w-full px-3 py-2 bg-haze border border-line rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-glow focus:border-transparent;
+    @apply w-full px-3 py-2 bg-haze border border-line rounded-xl text-print placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-glow focus:border-transparent;
   }
 
   .video-container {
@@ -71,7 +79,7 @@
     display: none;
   }
 
-  /* Ambient tri-color gradient wash for hero/backdrops. */
+  /* Ambient wash for backdrops. */
   .organic-veil {
     position: relative;
     isolation: isolate;
@@ -85,5 +93,32 @@
     background-image: theme("backgroundImage.radial-fade");
     filter: blur(8px);
     opacity: 0.9;
+  }
+
+  /* Paper grain: the tooth of riso paper, as a tiled noise overlay. */
+  .grain {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .grain::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    opacity: 0.09;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.9 0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* Halftone dots in one ink, for printed fills. */
+  .halftone-pink {
+    background-image: radial-gradient(theme("colors.ember") 1.1px, transparent 1.3px);
+    background-size: 6px 6px;
+  }
+
+  .halftone-aqua {
+    background-image: radial-gradient(theme("colors.glow") 1.1px, transparent 1.3px);
+    background-size: 6px 6px;
   }
 }

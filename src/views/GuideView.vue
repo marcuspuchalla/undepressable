@@ -126,11 +126,11 @@ function link(x1: number, y1: number, x2: number, y2: number, color: string, das
       <path d="M0 0 L6 3 L0 6 z" fill="${color}"/></marker></defs>
     <line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="${color}" stroke-width="1.6"
       ${dashed ? 'stroke-dasharray="4 3"' : ''} marker-end="url(#a${x1}${y1}${x2}${y2})"/>
-    ${label ? `<text x="${mx}" y="${my - 6}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9" fill="#7dd3fc">${label}</text>` : ''}`
+    ${label ? `<text x="${mx}" y="${my - 6}" text-anchor="middle" font-family="ui-monospace,monospace" font-size="9" fill="#4fe0d9">${label}</text>` : ''}`
 }
-const EMBER = '#fb7185'
-const GLOW = '#7dd3fc'
-const MOSS = '#6ee7b7'
+const EMBER = '#ff4fa0'
+const GLOW = '#4fe0d9'
+const MOSS = '#b5e65a'
 const svg = (inner: string, h = H) => `<svg viewBox="0 0 ${W} ${h}" width="100%" style="max-width:520px;display:block;margin:auto">${inner}</svg>`
 // Small caption helper — keeps label text out of the node/arrow geometry.
 function note(x: number, y: number, text: string, color: string, size = 9) {
@@ -205,8 +205,8 @@ const cases: { n: string; status: Status; title: string; body: string; svg: stri
         person(235, 62, 'Friend', GLOW) +
         link(265, 52, 395, 52, MOSS, false, 'forwarded') +
         home(435, 54, 'Home PC', MOSS) +
-        note(235, 118, 'phone can be seized', '#fb7185') +
-        note(435, 100, 'copy is safe here', '#6ee7b7') +
+        note(235, 118, 'phone can be seized', '#ff4fa0') +
+        note(435, 100, 'copy is safe here', '#b5e65a') +
         note(335, 140, 'later: recordings, checked on arrival', '#64748b'),
       152,
     ),
@@ -262,7 +262,7 @@ const cases: { n: string; status: Status; title: string; body: string; svg: stri
         link(384, 48, 470, 30, MOSS, true) +
         link(384, 56, 470, 56, MOSS, true) +
         link(384, 64, 470, 82, MOSS, true) +
-        note(440, 110, 'anyone, any browser', '#6ee7b7'),
+        note(440, 110, 'anyone, any browser', '#b5e65a'),
       132,
     ),
   },
@@ -280,7 +280,7 @@ const cases: { n: string; status: Status; title: string; body: string; svg: stri
         note(250, 110, "can't open it", '#64748b') +
         link(278, 52, 386, 52, MOSS, false, 'opened') +
         home(420, 54, 'home', MOSS) +
-        note(420, 110, 'timestamped', '#6ee7b7'),
+        note(420, 110, 'timestamped', '#b5e65a'),
       132,
     ),
   },
@@ -298,8 +298,8 @@ const cases: { n: string; status: Status; title: string; body: string; svg: stri
         person(224, 96, 'Viewer', GLOW) +
         link(252, 30, 360, 54, MOSS, true) +
         link(252, 88, 360, 58, MOSS, true) +
-        note(410, 50, 'copy ✓ matches', '#6ee7b7') +
-        note(410, 70, 'the camera', '#6ee7b7'),
+        note(410, 50, 'copy ✓ matches', '#b5e65a') +
+        note(410, 70, 'the camera', '#b5e65a'),
       132,
     ),
   },
@@ -330,14 +330,14 @@ const cases: { n: string; status: Status; title: string; body: string; svg: stri
     svg: svg(
       person(60, 62, 'Viewer 1', GLOW) +
         person(60, 126, 'Viewer 2', GLOW) +
-        `<rect x="110" y="48" width="130" height="10" rx="2" fill="#7dd3fc" opacity="0.7"/>` +
-        `<rect x="200" y="112" width="150" height="10" rx="2" fill="#7dd3fc" opacity="0.7"/>` +
+        `<rect x="110" y="48" width="130" height="10" rx="2" fill="#4fe0d9" opacity="0.7"/>` +
+        `<rect x="200" y="112" width="150" height="10" rx="2" fill="#4fe0d9" opacity="0.7"/>` +
         note(175, 80, '0:00–0:45', '#64748b') +
         note(275, 144, '0:30–1:20', '#64748b') +
         link(360, 56, 420, 80, MOSS, false) +
         link(360, 118, 420, 96, MOSS, false) +
-        `<rect x="430" y="82" width="80" height="12" rx="2" fill="#6ee7b7"/>` +
-        note(470, 112, 'one record', '#6ee7b7'),
+        `<rect x="430" y="82" width="80" height="12" rx="2" fill="#b5e65a"/>` +
+        note(470, 112, 'one record', '#b5e65a'),
       160,
     ),
   },
@@ -347,15 +347,15 @@ const cases: { n: string; status: Status; title: string; body: string; svg: stri
     title: 'Evidence that checks itself',
     body: 'An evidence bundle must outlive this website and this app. Every bundle therefore carries verify.html: one small page, built from the same code, that checks the recording on any computer — the signature over every second, the filmer’s signed moments, a timestamp, a combined record’s sources — with nothing uploaded anywhere. Double-click it. The README next to it says how to check with nothing but standard tools.',
     svg: svg(
-      `<rect x="40" y="36" width="110" height="60" rx="6" fill="none" stroke="#7dd3fc" stroke-width="1.6"/>` +
-        note(95, 58, 'video.webm', '#7dd3fc') +
-        note(95, 74, 'evidence.json', '#7dd3fc') +
-        note(95, 90, 'verify.html', '#6ee7b7') +
+      `<rect x="40" y="36" width="110" height="60" rx="6" fill="none" stroke="#4fe0d9" stroke-width="1.6"/>` +
+        note(95, 58, 'video.webm', '#4fe0d9') +
+        note(95, 74, 'evidence.json', '#4fe0d9') +
+        note(95, 90, 'verify.html', '#b5e65a') +
         link(156, 66, 250, 66, GLOW, true, 'any browser') +
-        `<rect x="258" y="36" width="120" height="60" rx="6" fill="none" stroke="#6ee7b7" stroke-width="1.6"/>` +
-        note(318, 60, '✓ unaltered', '#6ee7b7') +
-        note(318, 76, '✓ matches the camera', '#6ee7b7') +
-        note(318, 92, '⏱ existed by …', '#6ee7b7') +
+        `<rect x="258" y="36" width="120" height="60" rx="6" fill="none" stroke="#b5e65a" stroke-width="1.6"/>` +
+        note(318, 60, '✓ unaltered', '#b5e65a') +
+        note(318, 76, '✓ matches the camera', '#b5e65a') +
+        note(318, 92, '⏱ existed by …', '#b5e65a') +
         note(455, 66, 'no website, no app', '#64748b'),
       132,
     ),
