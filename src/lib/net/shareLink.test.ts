@@ -69,13 +69,28 @@ describe("resolveShareBase", () => {
     });
   });
 
-  it("rewrites a localhost dev server to its LAN address", () => {
-    expect(resolveShareBase({ origin: "http://localhost:4400", lanIp: "192.168.1.5" })).toMatchObject({
-      base: "http://192.168.1.5:4400",
+  it("rewrites an https localhost dev server to its LAN address", () => {
+    expect(resolveShareBase({ origin: "https://localhost:4400", lanIp: "192.168.1.5" })).toMatchObject({
+      base: "https://192.168.1.5:4400/",
       reachability: "lan",
       source: "lan-ip",
-      secure: false, // the phone would get no camera and no WebCrypto
+      secure: true,
     });
+  });
+
+  it("keeps a plain-http localhost link: on a LAN address it could not run the app", () => {
+    expect(resolveShareBase({ origin: "http://localhost:4400", lanIp: "192.168.1.5" })).toMatchObject({
+      base: "http://localhost:4400",
+      reachability: "device",
+      source: "origin",
+      secure: true,
+    });
+  });
+
+  it("keeps the path of a copy served under one (a mirror, a subfolder)", () => {
+    const r = resolveShareBase({ origin: "https://localhost:8443/mirror/any/path/", lanIp: "192.168.1.5", hashRoutes: true });
+    expect(r.base).toBe("https://192.168.1.5:8443/mirror/any/path/");
+    expect(buildCollectUrl(r.base, "A1B2C3", {}, r.hash)).toBe("https://192.168.1.5:8443/mirror/any/path/#/collect/A1B2C3");
   });
 
   it("never builds a LAN link for an app shell, and flags it device-only", () => {

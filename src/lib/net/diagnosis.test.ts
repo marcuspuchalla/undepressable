@@ -50,6 +50,33 @@ function input(over: Partial<DiagnosisInput> = {}): DiagnosisInput {
 }
 
 describe("summarizeAttempts", () => {
+  it("counts one phone once when its advertised addresses differ between attempts", () => {
+    // A phone on mobile data: one attempt carried IPv4 and IPv6, the next only
+    // IPv4 (the IPv6 STUN answer came too late). Field report: "2 viewers".
+    const s = summarizeAttempts(
+      [
+        attempt({ id: 1, remoteKey: "s:100.64.12.9,2a02:3030:1::5", outcome: "timeout", endedAt: NOW - 4000 }),
+        attempt({ id: 2, remoteKey: "s:100.64.12.9", outcome: "failed", endedAt: NOW - 2000 }),
+        attempt({ id: 3, remoteKey: "s:2a02:3030:1::5", outcome: "timeout", endedAt: NOW - 500 }),
+      ],
+      NOW,
+    );
+    expect(s.blocked).toBe(1);
+  });
+
+  it("still tells two devices apart when they share no address", () => {
+    const s = summarizeAttempts(
+      [
+        attempt({ id: 1, remoteKey: "s:203.0.113.1", outcome: "timeout", endedAt: NOW - 2000 }),
+        attempt({ id: 2, remoteKey: "s:203.0.113.1", outcome: "failed", endedAt: NOW - 1000 }),
+        attempt({ id: 3, remoteKey: "s:198.51.100.7", outcome: "timeout", endedAt: NOW - 2000 }),
+        attempt({ id: 4, remoteKey: "s:198.51.100.7", outcome: "failed", endedAt: NOW - 1000 }),
+      ],
+      NOW,
+    );
+    expect(s.blocked).toBe(2);
+  });
+
   it("groups the parallel attempts to one device and counts it once", () => {
     const s = summarizeAttempts(
       [

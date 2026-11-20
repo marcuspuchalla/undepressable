@@ -86,13 +86,43 @@ function isDeadEnd(a: AttemptRecord, now: number): boolean {
   return a.outcome === "pending" && now - a.remoteAt >= PEER_TUNING.negotiationWindowMs;
 }
 
-export function summarizeAttempts(attempts: AttemptRecord[], now: number): AttemptSummary {
-  const groups = new Map<string, AttemptRecord[]>();
-  for (const a of attempts) {
-    const list = groups.get(a.remoteKey);
+/**
+ * Group attempts by the device on the other end. One phone advertises a
+ * slightly different address set from attempt to attempt — an IPv6 address
+ * on one and not the next, whichever STUN answers arrived in time, a second
+ * address from the carrier's pool — so identical keys are too strict: one
+ * retrying viewer was reported as two. Attempts that share any advertised
+ * address are the same device.
+ */
+export function groupByDevice(attempts: AttemptRecord[]): AttemptRecord[][] {
+  const parent = attempts.map((_, i) => i);
+  const find = (i: number): number => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+  const firstWith = new Map<string, number>();
+  attempts.forEach((a, i) => {
+    for (const token of addressTokens(a.remoteKey)) {
+      const j = firstWith.get(token);
+      if (j === undefined) firstWith.set(token, i);
+      else parent[find(i)] = find(j);
+    }
+  });
+  const groups = new Map<number, AttemptRecord[]>();
+  attempts.forEach((a, i) => {
+    const root = find(i);
+    const list = groups.get(root);
     if (list) list.push(a);
-    else groups.set(a.remoteKey, [a]);
-  }
+    else groups.set(root, [a]);
+  });
+  return [...groups.values()];
+}
+
+/** "s:1.2.3.4,2001:db8::1" → ["s:1.2.3.4", "s:2001:db8::1"]; anything else stands alone. */
+function addressTokens(remoteKey: string): string[] {
+  const m = /^([shr]):(.+)$/.exec(remoteKey);
+  return m ? m[2].split(",").map((addr) => `${m[1]}:${addr}`) : [remoteKey];
+}
+
+export function summarizeAttempts(attempts: AttemptRecord[], now: number): AttemptSummary {
+  const groups = groupByDevice(attempts);
 
   let negotiating = 0;
   let blocked = 0;
@@ -101,7 +131,7 @@ export function summarizeAttempts(attempts: AttemptRecord[], now: number): Attem
   let latestPath: PathKind | null = null;
   let latestConnectedAt = -Infinity;
 
-  for (const list of groups.values()) {
+  for (const list of groups) {
     const live = list.filter((a) => a.connectedAt !== null && a.endedAt === null);
     const everConnected = list.some((a) => a.connectedAt !== null);
     const negotiatingHere = list.some((a) => isNegotiating(a, now));

@@ -143,11 +143,15 @@ function pickShareBase(opts: {
   if (originClass === "public" || originClass === "lan") {
     return { base: opts.origin, reachability: originClass, source: "origin" };
   }
-  // A dev server on localhost: other devices on the LAN can reach it by IP.
+  // A dev server on localhost over HTTPS: other devices on the LAN can reach
+  // it by IP. Over plain http the LAN address is not a secure context — no
+  // camera, no WebCrypto — so a link there could never run the app; the
+  // localhost link (device-only, with the in-app scanner hint) is the honest
+  // one. The path stays: a copy may live under one (a mirror, a subfolder).
   try {
     const u = new URL(opts.origin);
-    if ((u.protocol === "http:" || u.protocol === "https:") && opts.lanIp && isPrivateIPv4(opts.lanIp)) {
-      return { base: `${u.protocol}//${opts.lanIp}${u.port ? `:${u.port}` : ""}`, reachability: "lan", source: "lan-ip" };
+    if (u.protocol === "https:" && opts.lanIp && isPrivateIPv4(opts.lanIp)) {
+      return { base: `${u.protocol}//${opts.lanIp}${u.port ? `:${u.port}` : ""}${u.pathname}`, reachability: "lan", source: "lan-ip" };
     }
   } catch {
     /* fall through */

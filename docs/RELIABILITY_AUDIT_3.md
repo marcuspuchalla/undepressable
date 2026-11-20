@@ -1449,3 +1449,66 @@ refused for twenty minutes, retries stay ≤ 30 s apart).
   the other public brokers (`THREAT_MODEL.md` §5).
 - §57 was verified with Trystero's socket code in Node, not yet end to end in a
   browser across a real network switch.
+
+## Part 12 — round 12: a field test, Mac on home Wi-Fi to a Pixel on mobile data
+
+The report: the two devices found each other, the Mac said viewers could not
+connect and a relay was needed — and counted **two** viewers where there was
+one phone.
+
+### 58. The diagnosis was right: this pair needs a relay
+
+Measured on the Mac's network with our own servers as outside senders
+(`STUN` for the mapping, then three senders for the filtering):
+
+| | Result |
+|---|---|
+| Mapping | Endpoint-independent: the same public port to Google's and Cloudflare's STUN |
+| Reply from the contacted address and port | arrives |
+| … same address, another port | **blocked** |
+| … another address | **blocked** |
+
+A port-restricted home router, then. German carriers run IPv4 behind
+endpoint-dependent (symmetric) CGNAT, which gives the phone a new port per
+destination; the router only lets in the exact port the Mac sent to. No
+direct path exists, and the home line has no IPv6 (no IPv6 egress) to try
+instead. Only a relay crosses it — what the status card said.
+
+### 59. One phone was counted as two viewers
+
+The connection monitor cannot see Trystero's peer ids, so it identifies the
+far device by the addresses it advertised — and grouped attempts only when
+the address sets were *identical*. A phone on mobile data advertises a
+different set from attempt to attempt (IPv4 and IPv6 on one, the IPv6 STUN
+answer too late on the next; another address from the carrier's pool), so
+one retrying phone became "2 viewers". Attempts that share any address are
+now the same device (`groupByDevice`, tests for both directions).
+
+### 60. The one public relay the app knew is gone
+
+`staticauth.openrelay.metered.ca` (shared secret `openrelayprojectsecret`)
+timed out on UDP 80/443, TCP 443 and TLS 443, from the Mac, `fmp` and
+`logserver` alike, with properly minted credentials. Metered's Open Relay
+now requires a (free) account with its own credentials. So *Try free public
+ones* had nothing that could work. No free relay usable without an account
+is known to answer today; a relay that works out of the box has to be one
+the project runs or holds an account for — see `SELF_HOSTING.md`, "A relay
+for the published site".
+
+### 61. A mirror's share link lost its path
+
+On a computer with a LAN address, a copy served from `localhost` under a path
+(a mirror, a subfolder) built its share link from the LAN address **without
+the path**, so the link opened the server's root. Over plain `http` the LAN
+address is also not a secure context — no camera, no WebCrypto — so such a
+link could never run the app. Now the path is kept, and the LAN rewrite only
+happens for an `https` dev server; a plain-`http` localhost keeps its own
+address, where the share sheet already says to scan from inside the app.
+`scripts/e2e/portable.mjs` passes 6/6 (it failed the two mirror checks on
+any machine with a LAN address).
+
+### Incidental
+
+The Mac's resolver (NetBird DNS) answers `NXDOMAIN` for `stun.l.google.com`
+while public DNS resolves it. The app's three other default STUN servers
+resolve, so it was not the cause; worth knowing for anyone on that mesh.
