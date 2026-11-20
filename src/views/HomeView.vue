@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full overflow-y-auto grain">
+  <div class="h-full overflow-y-auto">
     <!-- Hero: the headline printed twice, in two inks, settling into register -->
     <section class="mx-auto max-w-6xl px-5 pt-9 pb-12 sm:px-8 lg:pt-20 lg:pb-20 grid gap-12 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:items-center">
       <div>

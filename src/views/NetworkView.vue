@@ -1,18 +1,14 @@
 <template>
   <div class="h-full overflow-y-auto">
-    <section class="organic-veil px-5 pt-8 pb-4 text-center">
-      <p class="text-xs uppercase tracking-[0.2em] text-glow/80 mb-3">Connection check</p>
-      <h1 class="font-display font-black text-slate-50 text-3xl mb-3">Network &amp; relay</h1>
-      <p class="text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
-        Why two devices can or can't reach each other, and what to do about it.
-      </p>
-    </section>
+    <PageHeader title="Network & relay">
+      Why two devices can or can't reach each other, and what to do about it.
+    </PageHeader>
 
-    <div class="px-4 pb-10 space-y-4 max-w-2xl mx-auto">
+    <div class="page-body">
       <!-- This network -->
       <div class="card space-y-3">
         <div class="flex items-center justify-between gap-3">
-          <h2 class="font-semibold text-slate-100">This device's network</h2>
+          <h2 class="section-title">This device's network</h2>
           <button class="btn-primary text-sm py-1.5" :disabled="probing" @click="runProbe">
             {{ probing ? 'Checking…' : nat ? 'Check again' : 'Check' }}
           </button>
@@ -48,7 +44,7 @@
 
       <!-- Relay -->
       <div class="card space-y-3">
-        <h2 class="font-semibold text-slate-100">Relay (TURN) server</h2>
+        <h2 class="section-title">Relay (TURN) server</h2>
         <p
           class="text-xs rounded-lg px-3 py-2 border leading-relaxed"
           :class="stunSource === 'relay' ? 'border-moss/30 bg-moss/10 text-moss' : 'border-line bg-white/5 text-slate-300'"
@@ -74,7 +70,7 @@
 
       <!-- What only a relay solves -->
       <div class="card space-y-2" data-testid="relay-only">
-        <h2 class="font-semibold text-slate-100">What only a relay solves</h2>
+        <h2 class="section-title">What only a relay solves</h2>
         <p class="text-sm text-slate-400 leading-relaxed">
           No STUN server, port trick or browser feature connects these two devices — a relay does, and needs no STUN:
         </p>
@@ -91,7 +87,7 @@
 
       <!-- Blend in -->
       <div class="card space-y-3" data-testid="blend-in">
-        <h2 class="font-semibold text-slate-100">Blend in with ordinary web traffic</h2>
+        <h2 class="section-title">Blend in with ordinary web traffic</h2>
         <p class="text-sm text-slate-400 leading-relaxed">
           Networks that look for WebRTC can see STUN requests, direct connections and relays in the clear. With this on,
           the app sends nothing but TLS to port 443: media only through a <code>turns:…:443</code> relay, discovery only
@@ -112,7 +108,7 @@
 
       <!-- Share links -->
       <div class="card space-y-3">
-        <h2 class="font-semibold text-slate-100">Share links &amp; QR codes</h2>
+        <h2 class="section-title">Share links &amp; QR codes</h2>
         <p class="text-sm text-slate-400 leading-relaxed">
           The address your share links point to. It must be one that <em>other</em> phones can open — this app running
           from <code class="text-slate-300">localhost</code>, a local network address or the desktop/mobile app shell
@@ -135,7 +131,7 @@
 
       <!-- Discovery relays -->
       <div class="card space-y-3">
-        <h2 class="font-semibold text-slate-100">Discovery relays <span class="text-xs font-normal text-slate-500">advanced</span></h2>
+        <h2 class="section-title">Discovery relays <span class="text-xs font-normal text-slate-500">advanced</span></h2>
         <p class="text-sm text-slate-400 leading-relaxed">
           Devices find each other through public Nostr relays and BitTorrent trackers. If a network blocks them, run
           your own Nostr relay on port 443 and add it here. It travels in your share links so viewers use it too.
@@ -158,7 +154,7 @@
 
       <!-- Which code is this? -->
       <div id="this-copy" class="card space-y-2" data-testid="this-copy">
-        <h2 class="font-semibold text-slate-100">This copy of the app</h2>
+        <h2 class="section-title">This copy of the app</h2>
         <dl class="text-sm grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
           <dt class="text-slate-500">Build</dt>
           <dd class="font-mono text-slate-300 break-all">{{ APP_BUILD }}</dd>
@@ -184,7 +180,7 @@
 
       <!-- What connects where -->
       <div class="card space-y-2">
-        <h2 class="font-semibold text-slate-100">What connects where</h2>
+        <h2 class="section-title">What connects where</h2>
         <ul class="text-sm text-slate-400 space-y-1.5 leading-relaxed">
           <li><span class="text-moss">✓</span> Same Wi-Fi or hotspot — direct, always.</li>
           <li><span class="text-moss">✓</span> Home/office network ↔ almost anything — direct, usually.</li>
@@ -201,6 +197,7 @@
 import { ref, computed } from 'vue'
 import { RouterLink } from 'vue-router'
 import RelaySetup from '../components/RelaySetup.vue'
+import PageHeader from '../components/PageHeader.vue'
 import { probeNat, testRelay, describeRelayError, type NatProbeResult, type NatKind, type RelayTestResult } from '../lib/net/natProbe'
 import {
   hasRelay,

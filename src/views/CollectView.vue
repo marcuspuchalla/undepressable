@@ -1,10 +1,10 @@
 <template>
   <div class="h-full flex flex-col">
     <!-- Header with Debug Button -->
-    <div class="flex-none p-3 bg-gray-900 border-b border-gray-800 flex items-center justify-between">
-      <h1 class="font-semibold">Collector</h1>
+    <div class="flex-none p-3 bg-night border-b border-line flex items-center justify-between">
+      <h1 class="screen-title">Collector</h1>
       <button
-        class="p-2 text-gray-400 hover:text-white transition-colors"
+        class="p-2 text-slate-400 hover:text-white transition-colors"
         @click="debugModal?.open()"
         title="Debug logs"
       >
@@ -63,7 +63,7 @@
         <div v-if="availableCameras.length > 1" class="absolute bottom-4 left-4 right-4">
           <select
             v-model="selectedCameraId"
-            class="w-full bg-gray-900/90 text-white text-sm rounded-lg px-3 py-2 border border-gray-700"
+            class="w-full bg-night/90 text-white text-sm rounded-lg px-3 py-2 border border-line"
             @change="restartQRScanner"
           >
             <option v-for="cam in availableCameras" :key="cam.deviceId" :value="cam.deviceId">
@@ -74,7 +74,7 @@
 
         <!-- Close Scanner Button -->
         <button
-          class="absolute top-4 right-4 p-2 bg-gray-900/80 rounded-full"
+          class="absolute top-4 right-4 p-2 bg-night/80 rounded-full"
           @click="stopQRScanner"
         >
           <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -85,13 +85,13 @@
 
       <div v-else class="absolute inset-0 flex items-center justify-center">
         <div class="text-center p-6">
-          <div class="w-20 h-20 mx-auto mb-4 rounded-full bg-gray-800 flex items-center justify-center">
-            <svg class="w-10 h-10 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div class="w-20 h-20 mx-auto mb-4 rounded-full bg-haze flex items-center justify-center">
+            <svg class="w-10 h-10 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
             </svg>
           </div>
-          <p class="text-gray-400 mb-2">Waiting for stream...</p>
-          <p v-if="isConnecting" class="text-sm text-gray-500">Connecting...</p>
+          <p class="text-slate-400 mb-2">Waiting for stream...</p>
+          <p v-if="isConnecting" class="text-sm text-slate-500">Connecting...</p>
           <!-- What is actually happening: searching, negotiating, or blocked by NAT -->
           <ConnectionDoctor
             v-else-if="isConnected"
@@ -106,7 +106,7 @@
       <div v-if="soundOnly && !streamInterrupted && remoteStream" class="absolute inset-x-0 top-14 z-10 flex justify-center px-4" data-testid="sound-only">
         <div class="px-3 py-2 rounded-lg bg-black/80 text-center text-xs max-w-sm">
           <p class="text-yellow-200 font-medium">🔊 Sound only — the connection is too slow for the picture right now</p>
-          <p class="text-gray-400 mt-0.5">Still recording. The picture comes back when the connection allows.</p>
+          <p class="text-slate-400 mt-0.5">Still recording. The picture comes back when the connection allows.</p>
         </div>
       </div>
 
@@ -115,7 +115,7 @@
         <div class="text-center p-6">
           <div class="w-8 h-8 mx-auto mb-3 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
           <p class="text-yellow-300 font-medium">Stream interrupted</p>
-          <p class="text-xs text-gray-400 mt-1">Reconnecting automatically. Your recording so far is saved.</p>
+          <p class="text-xs text-slate-400 mt-1">Reconnecting automatically. Your recording so far is saved.</p>
           <ConnectionDoctor
             v-if="diagnosis.level === 'error' || diagnosis.level === 'warn'"
             :diagnosis="diagnosis"
@@ -127,7 +127,7 @@
       </div>
 
       <!-- Recording Indicator -->
-      <div v-if="isRecording" class="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 bg-red-600/80 rounded-full">
+      <div v-if="isRecording" class="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 bg-ember text-ink rounded-full">
         <div class="w-3 h-3 bg-white rounded-full animate-pulse" />
         <span class="text-sm font-medium">{{ formatDuration(recordingDuration) }}</span>
       </div>
@@ -138,7 +138,7 @@
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
           <span class="text-sm font-medium tabular-nums">{{ counts.watching }}</span>
         </div>
-        <div class="px-3 py-1.5 bg-red-600/80 rounded-full flex items-center gap-1.5" title="People recording a copy right now">
+        <div class="px-3 py-1.5 bg-ember text-ink rounded-full flex items-center gap-1.5" title="People recording a copy right now">
           <div class="w-2.5 h-2.5 bg-white rounded-full" />
           <span class="text-sm font-medium tabular-nums">{{ counts.recording }}</span>
         </div>
@@ -149,7 +149,7 @@
         <span
           v-for="s in trystero.connectedStrategies.value"
           :key="s"
-          class="px-2 py-1 bg-gray-800/80 rounded text-xs"
+          class="px-2 py-1 bg-haze/80 rounded text-xs"
         >{{ STRATEGY_LABELS[s] }}</span>
         <span
           v-if="remoteStream && diagnosis.path"
@@ -169,7 +169,7 @@
         <p class="text-red-200 mb-2">{{ trystero.error.value }}</p>
         <button
           v-if="!isRetrying"
-          class="px-4 py-2 bg-red-600 hover:bg-red-700 rounded text-white text-sm"
+          class="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-print text-sm font-semibold"
           @click="retryConnection()"
         >
           Retry
@@ -178,7 +178,7 @@
     </div>
 
     <!-- Controls -->
-    <div class="flex-none p-4 bg-gray-900 border-t border-gray-800 space-y-4">
+    <div class="flex-none p-4 bg-night border-t border-line space-y-4">
       <!-- Relay tree: help carry the stream to others (hybrid: on by default) -->
       <div v-if="isConnected || remoteStream" class="flex items-center gap-2 text-xs">
         <svg class="w-4 h-4 shrink-0" :class="trystero.relayingToCount.value > 0 ? 'text-moss' : 'text-slate-500'" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" /></svg>
@@ -230,7 +230,7 @@
       <div v-if="!isConnected && !remoteStream && !showQRScanner" class="space-y-3">
         <!-- Room Code Input with Scan Button -->
         <div v-if="!props.roomCode" class="space-y-2">
-          <label class="text-sm text-gray-400">Enter 6-digit Room Code</label>
+          <label class="text-sm text-slate-400">Room code (6 letters and numbers)</label>
           <div class="flex gap-2">
             <input
               v-model="inputRoomCode"
@@ -242,7 +242,7 @@
               @keyup.enter="isValidRoomCode(inputRoomCode) && joinStream(inputRoomCode, null)"
             />
             <button
-              class="flex-none px-4 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+              class="flex-none px-4 py-3 bg-haze hover:bg-line rounded-lg transition-colors"
               @click="startQRScanner"
               title="Scan QR Code"
             >
@@ -256,23 +256,23 @@
         <!-- Manual Join Button -->
         <button
           v-if="!props.roomCode"
-          class="w-full btn-emergency py-4 text-lg"
+          class="w-full btn-primary py-4 text-lg"
           :disabled="!isValidRoomCode(inputRoomCode) || isConnecting"
           @click="joinStream(inputRoomCode, null)"
         >
           <span v-if="isConnecting">Connecting...</span>
-          <span v-else>Join Stream</span>
+          <span v-else>Join stream</span>
         </button>
 
         <!-- Auto-join info (from URL) -->
-        <div v-else-if="isConnecting" class="text-center text-gray-400">
+        <div v-else-if="isConnecting" class="text-center text-slate-400">
           <div class="w-8 h-8 mx-auto mb-2 border-2 border-primary-500 border-t-transparent rounded-full animate-spin" />
           <p>Connecting to {{ props.roomCode }}...</p>
         </div>
         <!-- Joined from a link, then left: offer the way back in -->
         <div v-else class="flex gap-2">
           <button class="flex-1 btn-emergency py-3" @click="joinStream(props.roomCode!)">Join {{ props.roomCode }} again</button>
-          <button class="flex-none px-4 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm" @click="enterAnotherCode">Other code</button>
+          <button class="flex-none px-4 py-3 bg-haze hover:bg-line rounded-lg text-sm" @click="enterAnotherCode">Other code</button>
         </div>
       </div>
 
@@ -290,7 +290,7 @@
           </button>
           <button
             v-else-if="isRecording"
-            class="flex-1 bg-red-600 hover:bg-red-700 text-white font-medium py-3 rounded-lg transition-colors"
+            class="flex-1 btn-emergency py-3"
             @click="stopRecordingManually"
           >
             Stop Recording
@@ -298,7 +298,7 @@
 
           <!-- Disconnect Button -->
           <button
-            class="flex-none px-4 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg transition-colors"
+            class="flex-none px-4 py-3 bg-haze hover:bg-line rounded-lg transition-colors"
             @click="disconnect"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -307,7 +307,7 @@
           </button>
         </div>
 
-        <p v-if="remoteStream && !isRecording && !savedRecording" class="text-sm text-center text-gray-500">
+        <p v-if="remoteStream && !isRecording && !savedRecording" class="text-sm text-center text-slate-500">
           Auto-recording when stream starts
         </p>
         <p v-if="attestedSeconds > 0" class="text-xs text-center text-moss" data-testid="attested-count">
@@ -319,12 +319,12 @@
       </div>
 
       <!-- Saved Recording Info -->
-      <div v-if="savedRecording" class="card bg-green-900/20 border-green-700/50">
+      <div v-if="savedRecording" class="card border-moss/40">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-sm font-medium text-green-400">Recording Saved</span>
-          <span class="text-xs text-gray-500">{{ formatDuration(savedRecording.chunks.reduce((a,c)=>a+c.duration,0)) }}</span>
+          <span class="text-sm font-medium text-moss">Recording saved</span>
+          <span class="text-xs text-slate-500">{{ formatDuration(savedRecording.chunks.reduce((a,c)=>a+c.duration,0)) }}</span>
         </div>
-        <code class="block p-2 bg-gray-900 rounded text-sm font-mono break-all text-xs mb-3">
+        <code class="block p-2 bg-night rounded text-sm font-mono break-all text-xs mb-3">
           {{ savedRecording.id.slice(0, 16) }}...
         </code>
         <p v-if="savedRecording.sealed" class="text-xs text-amber-200 leading-relaxed" data-testid="saved-sealed">
@@ -332,7 +332,7 @@
         </p>
         <div v-else class="flex gap-2">
           <button
-            class="flex-1 py-2 bg-green-600 hover:bg-green-700 rounded text-white text-sm"
+            class="flex-1 btn bg-moss text-ink hover:bg-lime-300 py-2 text-sm"
             @click="downloadRecording"
           >
             Download
@@ -349,9 +349,9 @@
       <!-- Recording Playback -->
       <div v-if="playbackUrl" class="card">
         <div class="flex items-center justify-between mb-2">
-          <span class="text-sm font-medium text-gray-400">Recording Playback</span>
+          <span class="text-sm font-medium text-slate-400">Recording playback</span>
           <button 
-            class="text-xs text-gray-500 hover:text-gray-300"
+            class="text-xs text-slate-500 hover:text-slate-300"
             @click="closePlayback"
           >
             Close

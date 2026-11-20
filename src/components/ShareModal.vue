@@ -9,11 +9,11 @@
       leave-to-class="opacity-0"
     >
       <div v-if="isOpen" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/90" @click.self="close">
-        <div class="w-full max-w-sm bg-gray-900 rounded-xl border border-gray-700 p-6">
+        <div class="w-full max-w-sm bg-night rounded-xl border border-line p-6">
           <!-- Header -->
           <div class="flex items-center justify-between mb-4">
             <h3 class="font-semibold text-lg">Share P2P Stream</h3>
-            <button class="p-2 text-gray-400 hover:text-white" @click="close">
+            <button class="p-2 text-slate-400 hover:text-white" @click="close">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -29,7 +29,7 @@
           </div>
 
           <!-- Instructions -->
-          <p class="text-sm text-gray-400 mb-4 text-center">
+          <p class="text-sm text-slate-400 mb-4 text-center">
             Scan this QR code to install the app
           </p>
 
@@ -39,8 +39,8 @@
           </div>
 
           <!-- URL Display -->
-          <div class="bg-gray-800 rounded-lg p-3 mb-4">
-            <code class="text-xs text-gray-300 break-all block text-center">
+          <div class="bg-haze rounded-lg p-3 mb-4">
+            <code class="text-xs text-slate-300 break-all block text-center">
               {{ shareUrl }}
             </code>
           </div>
@@ -51,13 +51,13 @@
             @click="copyUrl"
           >
             <span v-if="copied">✓ Copied!</span>
-            <span v-else>Copy Link</span>
+            <span v-else>Copy link</span>
           </button>
 
           <!-- Instructions for receiver -->
-          <div class="border-t border-gray-700 pt-4">
-            <h4 class="font-medium text-sm mb-2 text-gray-300">For the person scanning:</h4>
-            <ol class="text-xs text-gray-400 space-y-1 list-decimal list-inside">
+          <div class="border-t border-line pt-4">
+            <h4 class="font-medium text-sm mb-2 text-slate-300">For the person scanning:</h4>
+            <ol class="text-xs text-slate-400 space-y-1 list-decimal list-inside">
               <li>Open camera app</li>
               <li>Scan the QR code above</li>
               <li>Tap the notification to open</li>

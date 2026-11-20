@@ -1,27 +1,20 @@
 <template>
   <div class="h-full overflow-y-auto">
-    <section class="organic-veil px-5 pt-8 pb-4 text-center">
-      <p class="text-xs uppercase tracking-[0.2em] text-moss/80 mb-3">Home archive</p>
-      <h1 class="font-display font-black text-slate-50 text-3xl mb-3">A safe place to keep the footage</h1>
-      <p class="text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
-        Leave this running on a device that stays safe — a home computer. Pair a phone once, and whatever that phone
-        watches at the scene is forwarded here and recorded, even if the phone is later taken. What the phone recorded
-        while it could not reach you arrives later, checked against its signature.
-      </p>
-    </section>
+    <PageHeader title="A safe place to keep the footage">
+      Leave this running on a device that stays safe — a home computer. Pair a phone once, and whatever that phone
+      watches at the scene is forwarded here and recorded, even if the phone is later taken. What the phone recorded
+      while it could not reach you arrives later, checked against its signature.
+    </PageHeader>
 
-    <div class="px-4 pb-8 space-y-4">
+    <div class="page-body">
       <!-- Pairing -->
       <div class="card">
-        <div class="flex items-center gap-2 mb-3">
-          <span class="font-mono text-[11px] text-slate-500">STEP 1 · PAIR A PHONE</span>
-          <span class="h-px flex-1 bg-line" />
-        </div>
+        <p class="step-label mb-4"><span class="step-num">1</span>Pair a phone</p>
         <div class="flex flex-col sm:flex-row items-center gap-5">
           <div class="bg-white p-3 rounded-xl shrink-0">
             <canvas ref="qrCanvas" class="w-40 h-40 block" />
           </div>
-          <div class="text-center sm:text-left">
+          <div>
             <p class="text-sm text-slate-300 mb-2">
               On the phone that will go to the scene, scan this code (or open the link) to pair it with this archive.
             </p>
@@ -46,10 +39,7 @@
 
       <!-- Status -->
       <div class="card">
-        <div class="flex items-center gap-2 mb-3">
-          <span class="font-mono text-[11px] text-slate-500">STEP 2 · KEEP THIS OPEN</span>
-          <span class="h-px flex-1 bg-line" />
-        </div>
+        <p class="step-label mb-4"><span class="step-num">2</span>Keep this open</p>
 
         <div class="flex items-center gap-3">
           <span
@@ -79,17 +69,14 @@
 
       <!-- Recordings the phones filmed themselves, sent afterwards -->
       <div v-if="incomingList.length || sync.received.value.length || sync.rejected.value.length" class="card" data-testid="archive-received">
-        <div class="flex items-center gap-2 mb-3">
-          <span class="font-mono text-[11px] text-slate-500">SENT BY PAIRED PHONES</span>
-          <span class="h-px flex-1 bg-line" />
-        </div>
+        <h2 class="section-title mb-3">Sent by paired phones</h2>
         <ul class="space-y-2 text-sm">
           <li v-for="t in incomingList" :key="t.id">
             <div class="flex items-center justify-between text-slate-300">
               <span>Receiving {{ t.id.slice(0, 8) }}… · {{ t.done }}/{{ t.total }} s</span>
               <span class="text-xs text-slate-500">checked as it arrives</span>
             </div>
-            <div class="h-1.5 bg-gray-700 rounded-full overflow-hidden mt-1">
+            <div class="h-1.5 bg-haze rounded-full overflow-hidden mt-1">
               <div class="h-full bg-moss transition-all" :style="{ width: (100 * t.done) / t.total + '%' }" />
             </div>
           </li>
@@ -104,15 +91,12 @@
             ✗ Refused {{ r.id.slice(0, 8) }}…: {{ r.reason }}
           </li>
         </ul>
-        <RouterLink to="/recordings" class="inline-block mt-3 text-xs text-glow hover:underline">Open Recordings →</RouterLink>
+        <RouterLink to="/recordings" class="inline-block mt-3 text-sm font-semibold text-glow hover:underline underline-offset-4">Open Recordings</RouterLink>
       </div>
 
       <!-- Archived this session -->
       <div v-if="archived.length" class="card">
-        <div class="flex items-center gap-2 mb-3">
-          <span class="font-mono text-[11px] text-slate-500">ARCHIVED THIS SESSION</span>
-          <span class="h-px flex-1 bg-line" />
-        </div>
+        <h2 class="section-title mb-3">Archived this session</h2>
         <ul class="space-y-1.5">
           <li v-for="r in archived" :key="r.id" class="flex items-center justify-between text-sm">
             <span class="flex items-center gap-2 text-slate-300">
@@ -122,10 +106,10 @@
             <span class="font-mono text-xs text-slate-500">{{ r.id.slice(0, 8) }}…</span>
           </li>
         </ul>
-        <RouterLink to="/recordings" class="inline-block mt-3 text-xs text-glow hover:underline">Open Recordings →</RouterLink>
+        <RouterLink to="/recordings" class="inline-block mt-3 text-sm font-semibold text-glow hover:underline underline-offset-4">Open Recordings</RouterLink>
       </div>
 
-      <p class="text-xs text-slate-500 text-center px-6 leading-relaxed">
+      <p class="text-xs text-slate-500 leading-relaxed">
         Tip: this is just the app in a browser tab. Keep the tab open and the device online. Everything is stored
         locally and signed — nothing passes through a server.
       </p>
@@ -137,6 +121,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import QRCode from 'qrcode'
+import PageHeader from '../components/PageHeader.vue'
 import { useTrystero } from '../composables/useTrystero'
 import { useRecording } from '../composables/useRecording'
 import { useSyncReceiver } from '../composables/useRecordingSync'

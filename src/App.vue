@@ -32,7 +32,7 @@
     <UpdateBanner />
 
     <!-- Main Content -->
-    <main class="flex-1 overflow-hidden">
+    <main class="flex-1 overflow-hidden grain">
       <RouterView />
     </main>
 

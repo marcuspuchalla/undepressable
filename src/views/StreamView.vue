@@ -13,7 +13,7 @@
       <!-- Video Overlay Controls -->
       <div class="absolute inset-0 pointer-events-none">
         <!-- Recording Indicator -->
-        <div v-if="isRecording" class="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 bg-red-600/90 rounded-full pointer-events-auto">
+        <div v-if="isRecording" class="absolute top-4 left-4 flex items-center gap-2 px-3 py-1.5 bg-ember text-ink rounded-full pointer-events-auto">
           <div class="w-3 h-3 bg-white rounded-full animate-pulse" />
           <span class="text-sm font-medium">{{ formatDuration(recordingDuration) }}</span>
         </div>
@@ -29,7 +29,7 @@
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
             <span class="text-sm font-medium tabular-nums">{{ counts.watching }}</span>
           </div>
-          <div class="px-3 py-1.5 bg-red-600/90 rounded-full flex items-center gap-1.5" title="People recording a copy right now">
+          <div class="px-3 py-1.5 bg-ember text-ink rounded-full flex items-center gap-1.5" title="People recording a copy right now">
             <div class="w-2.5 h-2.5 bg-white rounded-full" />
             <span class="text-sm font-medium tabular-nums">{{ counts.recording }}</span>
           </div>
@@ -45,7 +45,7 @@
           <span
             v-for="s in trystero.connectedStrategies.value"
             :key="s"
-            class="px-2 py-1 bg-gray-800/80 rounded text-xs"
+            class="px-2 py-1 bg-haze/80 rounded text-xs"
           >{{ STRATEGY_LABELS[s] }}</span>
         </div>
 
@@ -65,7 +65,7 @@
           <div class="flex items-center justify-center gap-4 mb-4">
             <template v-if="!isRecording">
               <button
-                class="w-16 h-16 rounded-full bg-red-600 hover:bg-red-700 flex items-center justify-center shadow-lg transition-all hover:scale-105 active:scale-95"
+                class="w-16 h-16 rounded-full bg-ember hover:bg-emergency-400 flex items-center justify-center shadow-lg transition-all hover:scale-105 active:scale-95"
                 @click="startRecording"
                 :disabled="!isRoomJoined"
                 title="Start Recording"
@@ -75,18 +75,18 @@
             </template>
             <template v-else>
               <button
-                class="w-16 h-16 rounded-full bg-gray-200 hover:bg-white flex items-center justify-center shadow-lg transition-all hover:scale-105 active:scale-95"
+                class="w-16 h-16 rounded-full bg-print hover:bg-white flex items-center justify-center shadow-lg transition-all hover:scale-105 active:scale-95"
                 @click="stopRecording"
                 title="Stop Recording"
               >
-                <div class="w-6 h-6 bg-red-600 rounded-sm" />
+                <div class="w-6 h-6 bg-ember rounded-sm" />
               </button>
             </template>
 
             <!-- Toggle QR Button -->
             <button
               v-if="isRoomJoined"
-              class="w-12 h-12 rounded-full bg-gray-800/80 hover:bg-gray-700 flex items-center justify-center backdrop-blur-sm transition-colors"
+              class="w-12 h-12 rounded-full bg-night/80 hover:bg-haze flex items-center justify-center backdrop-blur-sm transition-colors"
               @click="showQRModal = true"
               title="Show QR Code"
             >
@@ -98,11 +98,11 @@
             <!-- End Stream Button -->
             <button
               v-if="isRoomJoined"
-              class="w-12 h-12 rounded-full bg-gray-800/80 hover:bg-red-900/80 flex items-center justify-center backdrop-blur-sm transition-colors"
+              class="w-12 h-12 rounded-full bg-night/80 hover:bg-ember/25 flex items-center justify-center backdrop-blur-sm transition-colors"
               @click="endStream"
               title="End Stream"
             >
-              <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg class="w-5 h-5 text-ember" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -137,10 +137,10 @@
         class="fixed inset-0 bg-black/90 z-50 flex flex-col"
         @click.self="showQRModal = false"
       >
-        <div class="flex-none p-4 flex items-center justify-between border-b border-gray-800">
-          <h2 class="text-lg font-semibold">Share Stream</h2>
+        <div class="flex-none p-4 flex items-center justify-between border-b border-line">
+          <h2 class="screen-title">Share Stream</h2>
           <button
-            class="p-2 hover:bg-gray-800 rounded-lg"
+            class="p-2 hover:bg-haze rounded-lg"
             @click="showQRModal = false"
           >
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -159,14 +159,14 @@
 
           <!-- Room Code -->
           <div class="text-center">
-            <p class="text-sm text-gray-400 mb-2">Room Code</p>
+            <p class="text-sm text-slate-400 mb-2">Room code</p>
             <div 
               class="font-mono text-4xl font-bold tracking-widest cursor-pointer hover:text-primary-400 transition-colors"
               @click="copyRoomCode"
             >
               {{ roomCode }}
             </div>
-            <p v-if="copied" class="text-sm text-green-400 mt-2">Copied!</p>
+            <p v-if="copied" class="text-sm text-moss mt-2">Copied</p>
           </div>
 
           <!-- Reachability of the link itself -->
@@ -193,9 +193,9 @@
 
           <!-- Share URL -->
           <div class="w-full max-w-md space-y-2">
-            <p class="text-sm text-gray-400">Share URL</p>
+            <p class="text-sm text-slate-400">Share URL</p>
             <div class="flex gap-2">
-              <code class="flex-1 p-3 bg-gray-900 rounded-lg text-sm font-mono break-all text-gray-300">
+              <code class="flex-1 p-3 bg-night rounded-lg text-sm font-mono break-all text-slate-300">
                 {{ shareUrl }}
               </code>
               <button
@@ -210,7 +210,7 @@
           <!-- Share via Web Share -->
           <button
             v-if="canShare"
-            class="px-6 py-3 bg-gray-800 hover:bg-gray-700 rounded-lg flex items-center gap-2"
+            class="px-6 py-3 bg-haze hover:bg-line rounded-lg flex items-center gap-2"
             @click="shareViaNative"
           >
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -223,7 +223,7 @@
           <AmplifyPanel :amp="amplify" :stream="localStream" role="streamer" class="w-full max-w-md" />
 
           <!-- Instructions -->
-          <div class="text-center text-sm text-gray-400 max-w-sm">
+          <div class="text-center text-sm text-slate-400 max-w-sm">
             <p>Share this code or QR with collectors to join your stream.</p>
             <p class="mt-2">BitTorrent, Nostr and MQTT are all used for maximum reliability.</p>
           </div>

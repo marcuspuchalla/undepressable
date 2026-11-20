@@ -10,7 +10,7 @@
       <span class="text-sm font-medium" :class="tone.title">{{ diagnosis.title }}</span>
       <span
         v-if="diagnosis.path && diagnosis.code === 'connected'"
-        class="ml-auto text-[10px] font-mono uppercase tracking-wide px-1.5 py-0.5 rounded bg-white/10 text-slate-300"
+        class="ml-auto text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-white/10 text-slate-200"
       >{{ PATH_LABEL[diagnosis.path] }}</span>
     </div>
     <p v-if="!compact || diagnosis.level === 'error' || diagnosis.level === 'warn'" class="text-xs text-slate-300/90 mt-1 leading-relaxed">

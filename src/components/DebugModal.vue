@@ -13,18 +13,18 @@
         class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80" 
         @click.self="close"
       >
-        <div class="w-full max-w-2xl max-h-[80vh] bg-gray-900 rounded-xl border border-gray-700 flex flex-col">
+        <div class="w-full max-w-2xl max-h-[80vh] bg-night rounded-xl border border-line flex flex-col">
           <!-- Header -->
-          <div class="flex items-center justify-between p-4 border-b border-gray-800">
+          <div class="flex items-center justify-between p-4 border-b border-line">
             <div class="flex items-center gap-2">
               <svg class="w-5 h-5 text-primary-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              <h3 class="font-semibold">Debug Logs</h3>
+              <h3 class="font-semibold">Debug logs</h3>
             </div>
             <div class="flex items-center gap-2">
               <button
-                class="p-2 text-gray-400 hover:text-white transition-colors"
+                class="p-2 text-slate-400 hover:text-white transition-colors"
                 @click.prevent="copyLogs"
                 title="Copy to clipboard"
               >
@@ -33,7 +33,7 @@
                 </svg>
               </button>
               <button
-                class="p-2 text-gray-400 hover:text-white transition-colors"
+                class="p-2 text-slate-400 hover:text-white transition-colors"
                 @click.prevent="clearLogs"
                 title="Clear logs"
               >
@@ -42,7 +42,7 @@
                 </svg>
               </button>
               <button
-                class="p-2 text-gray-400 hover:text-white transition-colors"
+                class="p-2 text-slate-400 hover:text-white transition-colors"
                 @click.prevent="close"
               >
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -53,7 +53,7 @@
           </div>
 
           <!-- Log count -->
-          <div class="px-4 py-2 bg-gray-800/50 text-xs text-gray-500 border-b border-gray-800">
+          <div class="px-4 py-2 bg-haze/50 text-xs text-slate-500 border-b border-line">
             {{ logger.logs.value.length }} entries
             <span v-if="!isCameraSupported" class="ml-2 text-red-400">⚠️ Camera not supported</span>
             <span v-else-if="!isSecureContext" class="ml-2 text-yellow-400">⚠️ HTTPS required for camera</span>
@@ -61,7 +61,7 @@
 
           <!-- Discovery relays. These rot in weeks, and the symptom is always
                "peers can't find each other" — so make it checkable at a glance. -->
-          <div v-if="relayHealth" class="px-4 py-2 border-b border-gray-800 text-xs">
+          <div v-if="relayHealth" class="px-4 py-2 border-b border-line text-xs">
             <div class="flex items-center gap-2 mb-1">
               <span :class="relayHealth.healthy ? 'text-green-400' : 'text-yellow-400'">
                 {{ relaySummary }}
@@ -73,16 +73,16 @@
                   class="w-1.5 h-1.5 rounded-full shrink-0"
                   :class="r.state === 'open' ? 'bg-green-400' : r.state === 'connecting' ? 'bg-yellow-400' : 'bg-red-500'"
                 />
-                <span class="text-gray-500 w-14 shrink-0">{{ r.transport }}</span>
-                <span class="text-gray-400 truncate">{{ r.url }}</span>
+                <span class="text-slate-500 w-14 shrink-0">{{ r.transport }}</span>
+                <span class="text-slate-400 truncate">{{ r.url }}</span>
               </li>
             </ul>
           </div>
 
           <!-- Connection attempts: separates "never found the peer" (discovery)
                from "found it but could not connect" (NAT / relay). -->
-          <div v-if="connections" class="px-4 py-2 border-b border-gray-800 text-xs">
-            <div class="text-gray-300 mb-1">
+          <div v-if="connections" class="px-4 py-2 border-b border-line text-xs">
+            <div class="text-slate-300 mb-1">
               Connections: {{ connections.attempts.length }} attempt{{ connections.attempts.length === 1 ? '' : 's' }} ·
               gathered {{ gatheredSummary }}
             </div>
@@ -92,8 +92,8 @@
                   class="w-1.5 h-1.5 rounded-full shrink-0"
                   :class="a.outcome === 'connected' || a.outcome === 'closed' ? 'bg-green-400' : a.outcome === 'pending' ? 'bg-yellow-400' : 'bg-red-500'"
                 />
-                <span class="text-gray-400 w-16 shrink-0">{{ a.outcome }}</span>
-                <span class="text-gray-500 truncate">
+                <span class="text-slate-400 w-16 shrink-0">{{ a.outcome }}</span>
+                <span class="text-slate-500 truncate">
                   {{ a.localTypes.join('+') || '–' }} ⇄ {{ a.remoteTypes.join('+') || '–' }}{{ a.path ? ` · ${a.path.kind}` : '' }}{{ a.rescued ? ' · rescued' : '' }}
                 </span>
               </li>
@@ -110,14 +110,14 @@
               :key="index"
               class="break-words"
             >
-              <span class="text-gray-500">{{ formatTime(log.timestamp) }}</span>
+              <span class="text-slate-500">{{ formatTime(log.timestamp) }}</span>
               <span :class="getLevelColor(log.level)"> [{{ log.level.toUpperCase() }}]</span>
-              <span class="text-gray-300"> {{ log.message }}</span>
-              <div v-if="log.details" class="mt-1 ml-16 text-xs text-gray-500 truncate">
+              <span class="text-slate-300"> {{ log.message }}</span>
+              <div v-if="log.details" class="mt-1 ml-16 text-xs text-slate-500 truncate">
                 {{ log.details }}
               </div>
             </div>
-            <div v-if="logger.logs.value.length === 0" class="text-gray-500 text-center py-8">
+            <div v-if="logger.logs.value.length === 0" class="text-slate-500 text-center py-8">
               No logs yet...
             </div>
           </div>
@@ -217,7 +217,7 @@ function getLevelColor(level: LogLevel): string {
   switch (level) {
     case 'error': return 'text-red-400'
     case 'warn': return 'text-yellow-400'
-    case 'debug': return 'text-gray-400'
+    case 'debug': return 'text-slate-400'
     default: return 'text-blue-400'
   }
 }

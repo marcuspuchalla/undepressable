@@ -1,20 +1,18 @@
 <template>
   <div class="h-full overflow-y-auto">
-    <section class="organic-veil px-5 pt-8 pb-4 text-center">
-      <p class="text-xs uppercase tracking-[0.2em] text-moss/80 mb-3">{{ overInternet ? 'No discovery server needed' : 'No internet needed' }}</p>
-      <h1 class="font-display font-black text-slate-50 text-3xl mb-3">{{ overInternet ? 'Pair by messenger' : 'Pair face to face' }}</h1>
-      <p v-if="!overInternet" class="text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
+    <PageHeader :title="overInternet ? 'Pair by messenger' : 'Pair face to face'">
+      <p v-if="!overInternet">
         When the network is cut or jammed, devices can still talk to each other over one Wi-Fi hotspot. Swap two short
         codes — by QR or as text — and the video goes straight between the devices. No server, no relay, no internet.
       </p>
-      <p v-else class="text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
+      <p v-else>
         When the servers devices use to find each other are blocked, introduce them yourself: send two short codes
         over Signal, WhatsApp, SMS or e-mail. The video then goes straight between the devices — or through your
         relay — and no discovery server is involved at all.
       </p>
-    </section>
+    </PageHeader>
 
-    <div class="px-4 pb-8 space-y-4 max-w-xl mx-auto">
+    <div class="page-body">
       <!-- Where is the other device? -->
       <div v-if="!role" class="grid grid-cols-2 rounded-xl border border-line overflow-hidden text-sm" role="tablist">
         <button
@@ -59,11 +57,11 @@
       <!-- Role picker -->
       <div v-if="!role" class="grid sm:grid-cols-2 gap-3">
         <button class="card text-left hover:border-ember/50 transition-colors" @click="startStreaming">
-          <h2 class="font-display font-bold text-lg text-slate-100 mb-1">I'm filming</h2>
+          <h2 class="section-title mb-1">I'm filming</h2>
           <p class="text-sm text-slate-400">Use this device's camera, keep a signed copy here, and hand the picture to the people next to you.</p>
         </button>
         <button class="card text-left hover:border-glow/50 transition-colors" @click="startWatching">
-          <h2 class="font-display font-bold text-lg text-slate-100 mb-1">I'm receiving</h2>
+          <h2 class="section-title mb-1">I'm receiving</h2>
           <p class="text-sm text-slate-400">Watch and keep a signed copy of what the other device is filming.</p>
         </button>
       </div>
@@ -92,10 +90,7 @@
       <!-- ============ WATCHER ============ -->
       <template v-if="role === 'watch'">
         <div v-if="watchStep === 'get-invite'" class="card space-y-3">
-          <div class="flex items-center gap-2">
-            <span class="font-mono text-[11px] text-slate-500">STEP 1 · READ THEIR CODE</span>
-            <span class="h-px flex-1 bg-line" />
-          </div>
+          <p class="step-label"><span class="step-num">1</span>Read their code</p>
           <div v-if="scanning" class="relative rounded-xl overflow-hidden bg-black aspect-video">
             <video ref="scanVideo" autoplay playsinline muted class="w-full h-full object-cover" />
             <canvas ref="scanCanvas" class="hidden" />
@@ -105,25 +100,22 @@
           </div>
           <template v-if="!overInternet">
             <button v-if="!scanning" class="btn-primary w-full py-3" @click="scanInvite">Scan their code</button>
-            <p class="text-sm text-slate-400 text-center">Point at the code on the filming device.</p>
+            <p class="text-sm text-slate-400">Point at the code on the filming device.</p>
           </template>
-          <p v-else class="text-sm text-slate-400 text-center">Paste the invite code they sent you.</p>
+          <p v-else class="text-sm text-slate-400">Paste the invite code they sent you.</p>
           <CodeInput placeholder="…or paste the code they sent you" @submit="acceptInvite" />
         </div>
 
         <div v-else-if="watchStep === 'show-reply' && reply" class="card space-y-3">
-          <div class="flex items-center gap-2">
-            <span class="font-mono text-[11px] text-slate-500">STEP 2 · {{ overInternet || watchLink?.internet ? 'SEND THIS BACK' : 'SHOW THEM THIS' }}</span>
-            <span class="h-px flex-1 bg-line" />
-          </div>
+          <p class="step-label"><span class="step-num">2</span>{{ overInternet || watchLink?.internet ? 'Send this back' : 'Show them this' }}</p>
           <PairCode :code="reply" share-title="Reply code" />
-          <p v-if="!overInternet && !watchLink?.internet" class="text-sm text-slate-400 text-center">
+          <p v-if="!overInternet && !watchLink?.internet" class="text-sm text-slate-400">
             The filming device reads this to finish the link — scan, or send them the text.
           </p>
-          <p v-else class="text-sm text-slate-400 text-center">
+          <p v-else class="text-sm text-slate-400">
             Send this back to them now (<em>Send…</em> or copy it). It works for a few minutes.
           </p>
-          <div class="flex items-center justify-center gap-2 text-xs text-slate-500">
+          <div class="flex items-center gap-2 text-xs text-slate-500">
             <span class="w-2 h-2 rounded-full bg-glow animate-pulse" /> Waiting for them…
           </div>
           <div v-if="replySlow" class="text-xs text-slate-400 border-t border-line pt-3">
@@ -181,9 +173,9 @@
         <div v-if="relaying && !viewerLinks.length && !invite" class="card text-sm text-slate-400">Preparing an invite…</div>
         <!-- The invite waiting for its viewer -->
         <div v-if="invite" class="card space-y-4">
-          <div class="flex items-center gap-2">
-            <span class="font-mono text-[11px] text-slate-500">{{ invite.label.toUpperCase() }} · STEP 1 · {{ overInternet ? 'SEND THEM THIS' : 'LET THEM READ THIS' }}</span>
-            <span class="h-px flex-1 bg-line" />
+          <div class="flex items-center justify-between gap-3">
+            <p class="step-label"><span class="step-num">1</span>{{ overInternet ? 'Send them this' : 'Let them read this' }}</p>
+            <span class="text-xs text-slate-500">{{ invite.label }}</span>
           </div>
           <PairCode :code="invite.code" share-title="Invite to watch" />
           <p v-if="!overInternet" class="text-sm text-slate-400">
@@ -194,10 +186,7 @@
             <em>I'm receiving</em> → paste it. They send a reply code back — paste it below within a few minutes.
           </p>
 
-          <div class="flex items-center gap-2 pt-1">
-            <span class="font-mono text-[11px] text-slate-500">STEP 2 · READ THEIR REPLY</span>
-            <span class="h-px flex-1 bg-line" />
-          </div>
+          <p class="step-label pt-1"><span class="step-num">2</span>Read their reply</p>
           <div v-if="scanning" class="relative rounded-xl overflow-hidden bg-black aspect-video">
             <video ref="scanVideo" autoplay playsinline muted class="w-full h-full object-cover" />
             <canvas ref="scanCanvas" class="hidden" />
@@ -214,7 +203,7 @@
 
         <!-- Everyone paired so far -->
         <div v-if="viewerLinks.length" class="card space-y-2">
-          <h2 class="text-sm font-semibold text-slate-100">{{ role === 'stream' ? 'Viewers' : 'Watching through you' }}</h2>
+          <h2 class="section-title">{{ role === 'stream' ? 'Viewers' : 'Watching through you' }}</h2>
           <div v-for="l in viewerLinks" :key="l.id" class="rounded-lg border border-line px-3 py-2">
             <div class="flex items-center gap-2">
               <span class="w-2 h-2 rounded-full" :class="PHASE[l.phase].dot" />
@@ -248,14 +237,14 @@
         </div>
       </template>
 
-      <p v-if="role" class="text-xs text-slate-500 text-center px-6 leading-relaxed">
+      <p v-if="role" class="text-xs text-slate-500 leading-relaxed">
         Recordings made here are hashed and signed exactly like online ones — find them under Recordings.
         “Hand over” copies every signed recording on this device to the other one, checked second by second on
         arrival: a way to get footage to someone who is leaving, without any internet.
       </p>
-      <div v-else class="text-center">
-        <RouterLink to="/guide" class="text-xs text-glow hover:underline">How else can I use this? →</RouterLink>
-      </div>
+      <p v-else>
+        <RouterLink to="/guide" class="text-sm font-semibold text-glow hover:underline underline-offset-4">How else can I use this?</RouterLink>
+      </p>
     </div>
   </div>
 </template>
@@ -263,6 +252,7 @@
 <script setup lang="ts">
 import { ref, nextTick, onMounted, onUnmounted, computed, watch, defineComponent, h } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
+import PageHeader from '../components/PageHeader.vue'
 import { useOfflinePair, type LinkTransfer } from '../composables/useOfflinePair'
 import { useQRScanner } from '../composables/useQRScanner'
 import { useRecording } from '../composables/useRecording'

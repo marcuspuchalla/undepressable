@@ -33,7 +33,7 @@
         <!-- The quick option for people without a relay: free public ones, tested first -->
         <PublicRelayHelper :show-stun="showStun" :nat-kind="natKind" @applied="onPublicApplied" />
 
-        <p class="text-xs uppercase tracking-wide text-slate-500 pt-1">Or use your own relay</p>
+        <p class="text-sm font-semibold text-print pt-1">Or use your own relay</p>
 
         <!-- mode -->
         <div class="inline-flex rounded-lg border border-line overflow-hidden text-xs">

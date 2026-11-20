@@ -1,7 +1,8 @@
 <template>
-  <div class="h-full overflow-y-auto p-4">
+  <div class="h-full overflow-y-auto p-4 sm:px-8">
+    <div class="mx-auto max-w-3xl">
     <div class="flex items-center justify-between mb-4 gap-3">
-      <h2 class="text-xl font-bold">Recordings</h2>
+      <h2 class="screen-title">Recordings</h2>
       <RouterLink v-if="combinable" to="/combine" class="btn-secondary text-sm py-1.5 ml-auto" data-testid="combine-link">Combine copies</RouterLink>
       <label class="btn-secondary text-sm py-1.5 cursor-pointer" data-testid="import-evidence">
         Import…
@@ -15,6 +16,7 @@
         />
       </label>
     </div>
+  </div>
 
     <!-- Import result -->
     <div v-if="importState" class="card mb-4 text-sm" role="status" data-testid="import-status">
@@ -34,7 +36,7 @@
         <span class="text-slate-300">Home archive <span class="font-mono">{{ pairedHome }}</span></span>
       </div>
       <p class="text-slate-400" data-testid="home-sync-status">{{ syncText }}</p>
-      <div v-if="syncSender?.progress.value" class="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+      <div v-if="syncSender?.progress.value" class="h-1.5 bg-line rounded-full overflow-hidden">
         <div class="h-full bg-moss transition-all" :style="{ width: (100 * syncSender.progress.value.done) / syncSender.progress.value.total + '%' }" />
       </div>
       <div class="flex gap-2">
@@ -51,13 +53,13 @@
     <!-- Storage Info -->
     <div class="card mb-4">
       <div class="flex items-center justify-between mb-2">
-        <span class="text-sm text-gray-400">Storage</span>
+        <span class="text-sm text-slate-400">Storage</span>
         <button class="text-xs text-primary-400 hover:text-primary-300" @click="refreshRecordings">Refresh</button>
       </div>
-      <div class="h-2 bg-gray-700 rounded-full overflow-hidden">
+      <div class="h-2 bg-line rounded-full overflow-hidden">
         <div class="h-full bg-primary-500 transition-all" :style="{ width: storagePercent + '%' }" />
       </div>
-      <div class="flex justify-between mt-2 text-xs text-gray-500">
+      <div class="flex justify-between mt-2 text-xs text-slate-500">
         <span>{{ formatBytes(storageUsed) }} used</span>
         <span v-if="storageQuota">{{ formatBytes(storageQuota) }} total</span>
       </div>
@@ -65,14 +67,14 @@
 
     <!-- Empty State -->
     <div v-if="recordings.length === 0" class="card text-center py-12">
-      <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-800 flex items-center justify-center">
-        <svg class="w-8 h-8 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-haze flex items-center justify-center">
+        <svg class="w-8 h-8 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 4v16M17 4v16M3 8h4m10 0h4M3 12h18M3 16h4m10 0h4M4 20h16a1 1 0 001-1V5a1 1 0 00-1-1H4a1 1 0 00-1 1v14a1 1 0 001 1z" />
         </svg>
       </div>
-      <h3 class="text-lg font-medium mb-2">No Recordings Yet</h3>
-      <p class="text-gray-400 mb-4">Start collecting a stream to save recordings — or import one someone sent you.</p>
-      <RouterLink to="/collect" class="btn-primary">Collect Stream</RouterLink>
+      <h3 class="text-lg font-medium mb-2">No recordings yet</h3>
+      <p class="text-slate-400 mb-4">Start collecting a stream to save recordings — or import one someone sent you.</p>
+      <RouterLink to="/collect" class="btn-primary">Collect a stream</RouterLink>
     </div>
 
     <!-- Recordings List -->
@@ -80,8 +82,8 @@
       <div v-for="recording in recordings" :key="recording.id" class="card" data-testid="recording">
         <div class="flex items-start gap-4">
           <!-- Thumbnail -->
-          <div class="w-24 h-16 bg-gray-900 rounded-lg flex items-center justify-center flex-shrink-0">
-            <svg class="w-8 h-8 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div class="w-24 h-16 bg-night rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg class="w-8 h-8 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -93,7 +95,7 @@
               <span class="px-2 py-0.5 rounded text-xs font-medium" :class="STATUS_CLASS[recording.status] ?? STATUS_CLASS.recording">
                 {{ recording.status === 'receiving' ? 'arriving…' : recording.status }}
               </span>
-              <span class="text-xs text-gray-500">{{ formatDate(recording.startedAt) }}</span>
+              <span class="text-xs text-slate-500">{{ formatDate(recording.startedAt) }}</span>
               <span v-if="recording.combined" class="text-xs text-glow" data-testid="combined-badge">rendered from {{ recording.combined.sources.length }} copies</span>
               <span v-if="recording.origin?.kind === 'imported'" class="text-xs text-glow">imported · verified</span>
               <span v-else-if="recording.origin?.kind === 'synced'" class="text-xs text-glow">from a paired phone{{ recording.origin.verified ? ' · verified' : '' }}</span>
@@ -103,9 +105,9 @@
             </div>
             <p v-if="notice[recording.id]" class="text-xs text-amber-200 mb-1" data-testid="sealed-notice">{{ notice[recording.id] }}</p>
 
-            <p class="text-sm text-gray-400 truncate">Campaign: {{ recording.campaignId.slice(0, 8) }}...</p>
+            <p class="text-sm text-slate-400 truncate">Campaign: {{ recording.campaignId.slice(0, 8) }}...</p>
 
-            <div class="flex items-center gap-4 mt-2 text-xs text-gray-500">
+            <div class="flex items-center gap-4 mt-2 text-xs text-slate-500">
               <span>{{ recording.chunks.length }} chunks</span>
               <span>{{ recording.metadata.resolution.width }}x{{ recording.metadata.resolution.height }}</span>
               <span v-if="recording.endedAt">{{ formatDuration(recording.endedAt.getTime() - recording.startedAt.getTime()) }}</span>
@@ -114,7 +116,7 @@
             <!-- Tamper-evidence -->
             <div v-if="recording.proof" class="mt-2 flex flex-wrap items-center gap-2 text-xs">
               <button
-                class="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 flex items-center gap-1 transition-colors"
+                class="px-2 py-0.5 rounded bg-haze hover:bg-line flex items-center gap-1 transition-colors"
                 data-testid="verify"
                 :disabled="verifying[recording.id] !== undefined"
                 @click="verify(recording)"
@@ -124,20 +126,20 @@
               </button>
               <span
                 v-if="verifyResults[recording.id]"
-                :class="verifyResults[recording.id].valid ? 'text-green-400' : 'text-red-400'"
+                :class="verifyResults[recording.id].valid ? 'text-moss' : 'text-red-400'"
                 class="font-medium"
                 data-testid="verify-result"
               >
                 {{ verifyResults[recording.id].valid ? (verifyResults[recording.id].sealed ? '✓ Intact (sealed — not opened)' : '✓ Unaltered') : '✗ ' + verifyResults[recording.id].reason }}
               </span>
-              <span class="text-gray-600 font-mono" title="Anonymous signing key">signer {{ recording.proof.pubKey.slice(0, 8) }}…</span>
+              <span class="text-slate-600 font-mono" title="Anonymous signing key">signer {{ recording.proof.pubKey.slice(0, 8) }}…</span>
             </div>
 
             <!-- Trusted timestamp: proof it existed by a given time -->
             <div v-if="recording.proof && recording.status === 'completed'" class="mt-1.5 flex flex-wrap items-center gap-2 text-xs" data-testid="timestamp-row">
               <button
                 v-if="!recording.timestamp"
-                class="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 transition-colors"
+                class="px-2 py-0.5 rounded bg-haze hover:bg-line transition-colors"
                 :disabled="!!stamping[recording.id]"
                 title="Sends only a fingerprint of the proof to public OpenTimestamps servers"
                 data-testid="timestamp"
@@ -160,7 +162,7 @@
             <div v-if="hasAttestations(recording) && recording.status === 'completed'" class="mt-1.5 text-xs space-y-1" data-testid="corroborate-row">
               <div class="flex flex-wrap items-center gap-2">
                 <button
-                  class="px-2 py-0.5 rounded bg-gray-800 hover:bg-gray-700 transition-colors"
+                  class="px-2 py-0.5 rounded bg-haze hover:bg-line transition-colors"
                   :disabled="corroborating[recording.id] !== undefined"
                   title="Plays this copy through and compares it with the fingerprints the filming phone signed live"
                   data-testid="corroborate"
@@ -184,7 +186,7 @@
 
           <!-- Actions -->
           <div class="flex flex-col gap-2">
-            <button class="p-2 hover:bg-gray-700 rounded-lg transition-colors" title="Play" @click="playRecording(recording)">
+            <button class="p-2 hover:bg-line rounded-lg transition-colors" title="Play" @click="playRecording(recording)">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -192,7 +194,7 @@
             </button>
             <button
               v-if="recording.proof && recording.status === 'completed'"
-              class="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+              class="p-2 hover:bg-line rounded-lg transition-colors"
               title="Send or save with proof"
               data-testid="send-evidence"
               @click="openSend(recording)"
@@ -201,7 +203,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
               </svg>
             </button>
-            <button v-else class="p-2 hover:bg-gray-700 rounded-lg transition-colors" title="Download" @click="downloadRecording(recording)">
+            <button v-else class="p-2 hover:bg-line rounded-lg transition-colors" title="Download" @click="downloadRecording(recording)">
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
               </svg>
@@ -247,7 +249,7 @@
       <div class="w-full max-w-4xl">
         <div class="flex items-center justify-between mb-4">
           <h3 class="text-lg font-medium">Playback</h3>
-          <button @click="closePlayer" class="p-2 hover:bg-gray-800 rounded-lg">
+          <button @click="closePlayer" class="p-2 hover:bg-haze rounded-lg">
             <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -309,11 +311,11 @@ async function saveCombined(rec: Recording) {
 }
 
 const STATUS_CLASS: Record<string, string> = {
-  completed: 'bg-green-900/50 text-green-400',
+  completed: 'bg-moss/10 text-moss',
   recording: 'bg-yellow-900/50 text-yellow-400',
   receiving: 'bg-sky-900/50 text-sky-300',
   failed: 'bg-red-900/50 text-red-300',
-  cancelled: 'bg-gray-800 text-gray-400',
+  cancelled: 'bg-haze text-slate-400',
 }
 
 // State

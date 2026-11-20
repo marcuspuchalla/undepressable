@@ -1,7 +1,8 @@
 <template>
-  <div class="h-full overflow-y-auto p-4 space-y-4">
+  <div class="h-full overflow-y-auto p-4 sm:px-8">
+    <div class="mx-auto max-w-3xl space-y-4">
     <div class="flex items-center justify-between gap-3">
-      <h2 class="text-xl font-bold">Combine copies</h2>
+      <h2 class="screen-title">Combine copies</h2>
       <RouterLink to="/recordings" class="btn-secondary text-sm py-1.5">Recordings</RouterLink>
     </div>
     <p class="text-sm text-slate-400">
@@ -12,6 +13,7 @@
     <div v-if="!groups.length" class="card text-sm text-slate-400" data-testid="no-groups">
       No stream has more than one copy on this device yet. Copies arrive from viewers (home archive, hand-overs, evidence files).
     </div>
+  </div>
 
     <div v-for="g in groups" :key="groupKey(g.key)" class="card space-y-3" data-testid="group">
       <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">

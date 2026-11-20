@@ -34,7 +34,7 @@
 
 @layer components {
   .btn {
-    @apply inline-flex items-center justify-center px-4 py-2 rounded-xl font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-ink disabled:opacity-50 disabled:cursor-not-allowed;
+    @apply inline-flex items-center justify-center px-4 py-2 rounded-xl font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-ink disabled:cursor-not-allowed disabled:border-line disabled:bg-haze disabled:text-slate-500 disabled:shadow-none;
   }
 
   /* Primary action — the aqua ink. */
@@ -51,9 +51,53 @@
     @apply btn bg-haze text-print border border-line hover:border-glow/60 focus-visible:ring-glow;
   }
 
+  /* A panel is a flat print on the paper: solid ink, one fine rule. */
   .card,
   .glass-panel {
-    @apply rounded-2xl border border-line bg-night/80 p-4 shadow-soft;
+    @apply rounded-[0.9rem] border border-line bg-night p-4;
+  }
+
+  /* A screen's title: heavy and a little condensed, like the home headline. */
+  .display-title {
+    @apply font-display text-print;
+    font-weight: 800;
+    font-stretch: 82%;
+    font-size: clamp(2rem, 7vw, 2.75rem);
+    line-height: 1;
+    letter-spacing: -0.01em;
+  }
+
+  /* The title in a working screen's top bar: the display face, compact. */
+  .screen-title {
+    @apply font-display text-print;
+    font-weight: 800;
+    font-stretch: 82%;
+    font-size: 1.6rem;
+    line-height: 1.05;
+  }
+
+  /* The content column under a PageHeader: same gutter, same width. */
+  .page-body {
+    @apply mx-auto box-content max-w-2xl space-y-4 px-5 pb-10 sm:px-8;
+  }
+
+  /* A heading inside a panel or section. */
+  .section-title {
+    @apply font-display text-lg font-semibold text-print;
+  }
+
+  /* A step in a real sequence: a numbered ink circle and a plain name. */
+  .step-label {
+    @apply flex items-center gap-2 text-sm font-semibold text-print;
+  }
+
+  .step-num {
+    @apply flex h-6 w-6 flex-none items-center justify-center rounded-full border border-glow/50 text-xs font-semibold tabular-nums text-glow;
+  }
+
+  /* A small status mark (e.g. "Works now"), sentence case. */
+  .tag {
+    @apply inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium;
   }
 
   .input {

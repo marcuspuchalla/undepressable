@@ -1,31 +1,24 @@
 <template>
   <div class="h-full overflow-y-auto">
-    <section class="organic-veil px-5 pt-8 pb-4 text-center">
-      <p class="text-xs uppercase tracking-[0.2em] text-glow/80 mb-3">Field guide</p>
-      <h1 class="font-display font-black text-slate-50 text-3xl sm:text-4xl mb-3">Ways to use it</h1>
-      <p class="text-slate-400 max-w-md mx-auto text-sm leading-relaxed">
-        The same app fits a one-to-one hand-off or a whole crowd. Pick the shape that matches your situation — every
-        watcher still keeps their own signed copy.
-      </p>
-    </section>
+    <PageHeader title="Ways to use it">
+      The same app fits a one-to-one hand-off or a whole crowd. Pick the shape that matches your situation — every
+      watcher still keeps their own signed copy.
+    </PageHeader>
 
-    <div class="px-4 pb-8 space-y-4">
+    <div class="page-body">
       <article v-for="uc in cases" :key="uc.n" class="card">
-        <div class="flex items-center gap-2 mb-3">
-          <span class="font-mono text-[11px] text-slate-500">USE CASE {{ uc.n }}</span>
+        <div class="flex items-center gap-3 mb-3">
+          <span class="text-xs text-slate-500">Use case {{ Number(uc.n) }}</span>
           <span class="h-px flex-1 bg-line" />
-          <span
-            class="font-mono text-[10px] px-1.5 py-0.5 rounded"
-            :class="STATUS[uc.status].class"
-          >{{ STATUS[uc.status].label }}</span>
+          <span class="tag" :class="STATUS[uc.status].class">{{ STATUS[uc.status].label }}</span>
         </div>
 
         <!-- retro technical topology diagram -->
-        <div class="rounded-xl border border-line bg-black/30 p-3 mb-3 overflow-x-auto">
+        <div class="rounded-lg border border-line bg-ink p-3 mb-3 overflow-x-auto">
           <div class="min-w-[300px]" v-html="uc.svg" />
         </div>
 
-        <h2 class="font-display font-bold text-lg text-slate-100 mb-1">{{ uc.title }}</h2>
+        <h2 class="section-title mb-1">{{ uc.title }}</h2>
         <p class="text-sm text-slate-400 leading-relaxed">{{ uc.body }}</p>
 
         <!-- step-by-step walkthrough (collapsed by default) -->
@@ -48,7 +41,7 @@
           <div v-if="expanded.has(uc.n)" class="mt-3 space-y-4">
             <!-- platform selector -->
             <div>
-              <p class="text-[11px] uppercase tracking-wide text-slate-500 mb-1.5">I’m using</p>
+              <p class="text-xs text-slate-500 mb-1.5">I’m using</p>
               <div class="inline-flex rounded-lg border border-line overflow-hidden">
                 <button
                   v-for="p in PLATFORMS"
@@ -85,11 +78,11 @@
         </div>
       </article>
 
-      <p class="text-xs text-slate-500 text-center px-6 leading-relaxed">
+      <p class="text-xs text-slate-500 leading-relaxed pt-2">
         Diagrams are simplified. “Signed copy” means each recording is hashed and signed so it can be proven unaltered
         — see <RouterLink to="/recordings" class="text-glow">Recordings</RouterLink>.
       </p>
-      <p class="text-xs text-slate-500 text-center px-6 leading-relaxed">
+      <p class="text-xs text-slate-500 leading-relaxed">
         These use cases, with every step, are also in the repository:
         <a href="https://github.com/marcuspuchalla/undepressable/blob/main/docs/USE_CASES.md" target="_blank" rel="noopener" class="text-glow hover:underline">docs/USE_CASES.md</a>
         · source code and documentation at
@@ -102,6 +95,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
+import PageHeader from '../components/PageHeader.vue'
 
 // --- tiny SVG toolkit for the node-link topology diagrams (retro technical look) ---
 const W = 520
@@ -139,9 +133,9 @@ function note(x: number, y: number, text: string, color: string, size = 9) {
 
 type Status = 'now' | 'partial' | 'planned'
 const STATUS: Record<Status, { label: string; class: string }> = {
-  now: { label: 'WORKS NOW', class: 'bg-moss/10 text-moss' },
-  partial: { label: 'PARTLY NOW', class: 'bg-glow/10 text-glow' },
-  planned: { label: 'PLANNED', class: 'bg-slate-500/10 text-slate-400' },
+  now: { label: 'Works now', class: 'border-moss/40 text-moss' },
+  partial: { label: 'Partly now', class: 'border-glow/40 text-glow' },
+  planned: { label: 'Planned', class: 'border-slate-500/40 text-slate-400' },
 }
 
 const cases: { n: string; status: Status; title: string; body: string; svg: string }[] = [
