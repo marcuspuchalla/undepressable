@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <title>Undepressable</title>
+  <rect width="1024" height="1024" rx="228" fill="#121530"/>
+  <g transform="translate(512 512) scale(1.12) translate(-512 -512)" style="isolation:isolate">
+    <path d="M322 238H446V588A66 66 0 0 0 578 588V238H702V588A190 190 0 0 1 322 588Z" fill="#ff4fa0" transform="translate(-14 -7.700000000000001)" style="mix-blend-mode:screen"/>
+    <path d="M322 238H446V588A66 66 0 0 0 578 588V238H702V588A190 190 0 0 1 322 588Z" fill="#4fe0d9" transform="translate(14 7.700000000000001)" style="mix-blend-mode:screen"/>
+  </g>
+</svg>
