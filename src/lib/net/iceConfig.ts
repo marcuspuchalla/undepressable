@@ -33,6 +33,7 @@
 
 import { getPublicRelays, getExtraStun, refreshMintedRelays } from "./publicRelays";
 import { isBlendIn, blendInConfig, blendInApplies } from "./blendIn";
+import { builtinServers } from "./builtinRelays";
 
 const TURN_STORAGE_KEY = "undepressable_turn";
 
@@ -344,7 +345,7 @@ export function getRelaySetup(
 }
 
 export function hasRelay(setup: RelaySetup = getRelaySetup()): boolean {
-  return setup.source !== "none" || setup.publicServers.length > 0;
+  return setup.source !== "none" || setup.publicServers.length > 0 || builtinServers(viteEnv(), safeStorage()).length > 0;
 }
 
 /** Save relay settings entered on this device (replaces whatever was there). */
@@ -543,6 +544,9 @@ function baseServers(setup: RelaySetup, storage: StorageLike | null): RTCIceServ
   if (extra.length > 0) servers.push({ urls: extra });
   if (setup.turn) servers.push({ urls: setup.turn.urls, username: setup.turn.username, credential: setup.turn.credential });
   servers.push(...setup.publicServers);
+  // The project's relays, on by default (lib/net/builtinRelays.ts). They are
+  // never put in share links: every copy of the app has them already.
+  servers.push(...builtinServers(viteEnv(), storage));
   return servers;
 }
 

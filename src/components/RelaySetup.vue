@@ -30,6 +30,9 @@
           This build ships a relay. Anything you enter here replaces it on this device.
         </p>
 
+        <!-- The project's relays, on by default; a check asks which have allowance left -->
+        <BuiltinRelays @applied="onPublicApplied" />
+
         <!-- The quick option for people without a relay: free public ones, tested first -->
         <PublicRelayHelper :show-stun="showStun" :nat-kind="natKind" @applied="onPublicApplied" />
 
@@ -169,6 +172,7 @@ import {
   type RelaySetup,
 } from '../lib/net/iceConfig'
 import { testRelay, describeRelayError, type RelayTestResult, type RelayProtocol, type NatKind } from '../lib/net/natProbe'
+import BuiltinRelays from './BuiltinRelays.vue'
 import PublicRelayHelper from './PublicRelayHelper.vue'
 
 const props = defineProps<{ open?: boolean; inline?: boolean; autoTest?: boolean; showStun?: boolean; natKind?: NatKind | null }>()

@@ -1,0 +1,72 @@
+# The project's own relay (coturn) and relay-status, on one host.
+# Values come from deploy/.env (see .env.example); TLS for turns: on 443 and
+# HTTPS for the status service are terminated by the host's Traefik.
+services:
+  coturn:
+    image: coturn/coturn:4.19.2
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data/coturn:/var/lib/coturn
+    command:
+      - -n
+      - --log-file=stdout
+      - --listening-ip=${PUBLIC_IP}
+      - --external-ip=${PUBLIC_IP}
+      - --listening-port=3478
+      - --no-tls
+      - --no-dtls
+      - --min-port=${RELAY_MIN_PORT}
+      - --max-port=${RELAY_MAX_PORT}
+      - --realm=${FMP_REALM}
+      - --lt-cred-mech
+      - --fingerprint
+      # Users live in this database; relay-status adds the one user while the
+      # monthly limit allows and removes it after. STUN needs no user and
+      # keeps answering either way.
+      - --userdb=/var/lib/coturn/turndb
+      - --prometheus
+      - --prometheus-port=9641
+      - --user-quota=200
+      - --total-quota=4000
+      - --no-multicast-peers
+      - --no-cli
+      - --denied-peer-ip=0.0.0.0-0.255.255.255
+      - --denied-peer-ip=10.0.0.0-10.255.255.255
+      - --denied-peer-ip=100.64.0.0-100.127.255.255
+      - --denied-peer-ip=127.0.0.0-127.255.255.255
+      - --denied-peer-ip=169.254.0.0-169.254.255.255
+      - --denied-peer-ip=172.16.0.0-172.31.255.255
+      - --denied-peer-ip=192.168.0.0-192.168.255.255
+  relay-status:
+    build: ..
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATA_DIR: /data
+      FMP_USERDB: /coturn/turndb
+      FMP_METRICS_URL: http://host.docker.internal:9641/metrics
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - ./data/status:/data
+      - ./data/coturn:/coturn
+    networks: [proxy]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${PROXY_NETWORK}
+      traefik.http.routers.relay-status.rule: Host(`${STATUS_HOST}`)
+      traefik.http.routers.relay-status.entrypoints: https
+      traefik.http.routers.relay-status.tls.certresolver: letsencrypt
+      traefik.http.services.relay-status.loadbalancer.server.port: "8080"
+      # turns: on 443 — Traefik terminates TLS and passes plain TURN over TCP
+      # to coturn, so coturn needs no certificate of its own.
+      traefik.tcp.routers.turn-tls.rule: HostSNI(`${TURN_HOST}`)
+      traefik.tcp.routers.turn-tls.entrypoints: https
+      traefik.tcp.routers.turn-tls.tls.certresolver: letsencrypt
+      traefik.tcp.routers.turn-tls.service: turn-tls
+      traefik.tcp.services.turn-tls.loadbalancer.server.address: ${PUBLIC_IP}:3478
+networks:
+  proxy:
+    name: ${PROXY_NETWORK}
+    external: true

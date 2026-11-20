@@ -56,6 +56,12 @@ jobs:
           VITE_TURN_USERNAME: ${{ secrets.VITE_TURN_USERNAME }}
           VITE_TURN_CREDENTIAL: ${{ secrets.VITE_TURN_CREDENTIAL }}
           VITE_ICE_SERVERS_URL: ${{ secrets.VITE_ICE_SERVERS_URL }}
+          # The project's relays, on by default in every copy (a JSON list of
+          # {id, label, server}), and the relay-status service the app's
+          # "Check which are available" button asks — never asked otherwise.
+          # services/relay-status/README.md says how to produce both.
+          VITE_BUILTIN_RELAYS: ${{ secrets.VITE_BUILTIN_RELAYS }}
+          VITE_RELAY_STATUS_URL: ${{ vars.VITE_RELAY_STATUS_URL }}
       - name: Lay out the site
         run: |
           mkdir -p site
