@@ -55,6 +55,8 @@ async function profile() {
     ...(process.env.CHROMIUM_PATH ? { executablePath: process.env.CHROMIUM_PATH } : {}),
   })
   profiles.push({ ctx, dir })
+  // Offline pairing only: the real built-in relay stays out of the test.
+  await ctx.addInitScript(() => localStorage.setItem('undepressable_builtin_relays', JSON.stringify({ off: true })))
   const page = ctx.pages()[0] ?? (await ctx.newPage())
   const errors = []
   page.on('pageerror', (e) => errors.push(e.message))

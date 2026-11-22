@@ -62,6 +62,8 @@ async function device() {
     acceptDownloads: true,
   })
   contexts.push(ctx)
+  // Local pairing only: the real built-in relay stays out of the test.
+  await ctx.addInitScript(() => localStorage.setItem('undepressable_builtin_relays', JSON.stringify({ off: true })))
   const page = ctx.pages()[0] ?? (await ctx.newPage())
   const errors = []
   page.on('pageerror', (e) => errors.push(e.message))

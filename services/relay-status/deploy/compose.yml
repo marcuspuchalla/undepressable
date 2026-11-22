@@ -15,7 +15,6 @@ services:
       - --external-ip=${PUBLIC_IP}
       - --listening-port=3478
       - --no-tls
-      - --no-dtls
       - --min-port=${RELAY_MIN_PORT}
       - --max-port=${RELAY_MAX_PORT}
       - --realm=${FMP_REALM}
@@ -59,13 +58,24 @@ services:
       traefik.http.routers.relay-status.entrypoints: https
       traefik.http.routers.relay-status.tls.certresolver: letsencrypt
       traefik.http.services.relay-status.loadbalancer.server.port: "8080"
-      # turns: on 443 — Traefik terminates TLS and passes plain TURN over TCP
-      # to coturn, so coturn needs no certificate of its own.
+  # turns: on 443. Traefik terminates TLS and hands the plain TURN-over-TCP
+  # stream to this forwarder, which passes it to coturn — so coturn needs no
+  # certificate of its own. (Traefik's Docker labels cannot point a TCP route
+  # at an address outside a container, hence the forwarder.)
+  turn-tls-bridge:
+    image: alpine/socat:1.8.0.3
+    restart: unless-stopped
+    command: TCP-LISTEN:3478,fork,reuseaddr TCP:${PUBLIC_IP}:3478
+    networks: [proxy]
+    labels:
+      traefik.enable: "true"
+      traefik.docker.network: ${PROXY_NETWORK}
       traefik.tcp.routers.turn-tls.rule: HostSNI(`${TURN_HOST}`)
       traefik.tcp.routers.turn-tls.entrypoints: https
+      traefik.tcp.routers.turn-tls.tls: "true"
       traefik.tcp.routers.turn-tls.tls.certresolver: letsencrypt
       traefik.tcp.routers.turn-tls.service: turn-tls
-      traefik.tcp.services.turn-tls.loadbalancer.server.address: ${PUBLIC_IP}:3478
+      traefik.tcp.services.turn-tls.loadbalancer.server.port: "3478"
 networks:
   proxy:
     name: ${PROXY_NETWORK}

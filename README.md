@@ -198,7 +198,7 @@ Phones need HTTPS: use the published site or an HTTPS tunnel to the dev server (
 ## Before you rely on it
 
 - Read [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md): what it resists, and what it does not. Sealing is off by default. Signed releases are built but **no developer key is compiled in yet**. The app does no traffic obfuscation beyond TLS on 443.
-- Two strict networks (a VPN exit, a mobile carrier) cannot connect without a relay. The published site carries one only if whoever publishes it adds it ([docs/SELF_HOSTING.md](docs/SELF_HOSTING.md), "A relay for the published site"); the free public relays the app can test are volunteer-run and often gone.
+- Two strict networks (a VPN exit, a mobile carrier, a home router and a carrier) cannot connect without a relay. The app carries the project's own relays, on by default, each with a monthly limit after which it switches off until the next month ([services/relay-status](services/relay-status/README.md)); whoever runs them sees the addresses of the devices that use them. *Check which are available* in the relay panel asks the project's status service which still have allowance — the app never asks on its own. Your own relay always works: [docs/SELF_HOSTING.md](docs/SELF_HOSTING.md).
 - Participants see each other's addresses unless everything goes through a relay. A broadcast server sees what it is sent.
 - A match against the filmer means the same picture, not the same bytes; whose key it is has to be known from the link the filmer shared.
 - Nothing here has been through an external security review.

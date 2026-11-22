@@ -35,6 +35,13 @@ describe('coturn (fmp)', () => {
     expect(usedBytes(s, 'fmp', NOV)).toBe(4 * GB)
   })
 
+  it('counts a fresh relay with no traffic counters yet as zero, but not a non-relay answer', async () => {
+    const s = emptyState()
+    await coturnProvider(env(dbPath()), { fetch: async () => res('turn_ratelimit_total_buckets 0'), openDb }).poll(s, NOV)
+    expect(usedBytes(s, 'fmp', NOV)).toBe(0)
+    await expect(coturnProvider(env(dbPath()), { fetch: async () => res('<html>'), openDb }).poll(emptyState(), NOV)).rejects.toThrow('none of')
+  })
+
   it('adds the user to coturn while active and removes it when not', () => {
     const path = dbPath()
     const p = coturnProvider(env(path), { openDb })

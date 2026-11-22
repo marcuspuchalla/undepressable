@@ -32,7 +32,7 @@ if (!existsSync(join(EXT, 'manifest.json'))) {
 // Discovery through a local relay, so the online check needs no internet.
 const RELAY_PORT = '7778'
 const relay = spawn(process.execPath, [join(root, 'scripts', 'e2e', 'nostr-relay.mjs'), RELAY_PORT], { stdio: 'ignore' })
-const RELAY_STORAGE = { undepressable_nostr_relays: JSON.stringify([`ws://localhost:${RELAY_PORT}`]), undepressable_nostr_relays_only: '1' }
+const RELAY_STORAGE = { undepressable_nostr_relays: JSON.stringify([`ws://localhost:${RELAY_PORT}`]), undepressable_nostr_relays_only: '1', undepressable_builtin_relays: JSON.stringify({ off: true }) }
 const setStorage = (page, entries) => page.evaluate((e) => { for (const [k, v] of e) localStorage.setItem(k, v) }, Object.entries(entries))
 
 const MEDIA = ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream', '--disable-features=WebRtcHideLocalIpsWithMdns']

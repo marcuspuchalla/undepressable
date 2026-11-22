@@ -55,6 +55,14 @@ function verifierPlugin() {
 // without a relay is the same bytes as a build of the same commit anywhere.
 for (const k of Object.keys(process.env)) if (k.startsWith('VITE_') && process.env[k] === '') delete process.env[k]
 
+// The project's relays (builtin-relays.json), unless the build sets its own.
+// Read after the empty-variable cleanup, so an unset CI secret falls back here.
+{
+  const builtin = JSON.parse(readFileSync(resolve(__dirname, 'builtin-relays.json'), 'utf8'))
+  process.env.VITE_BUILTIN_RELAYS ??= JSON.stringify(builtin.relays ?? [])
+  process.env.VITE_RELAY_STATUS_URL ??= builtin.statusUrl ?? ''
+}
+
 // The installed Trystero must carry the small offer pools (scripts/patch-deps.mjs):
 // an unpatched copy would ship the connection burst the field report found.
 if (!isPatched()) throw new Error('trystero is not patched — run `npm install` (scripts/patch-deps.mjs)')

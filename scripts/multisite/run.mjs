@@ -72,7 +72,9 @@ function startAgent(siteKey, role, { args = [], profile = 'open', net = 'nat', s
   const env = {
     SITE: siteKey,
     DURATION_S: String(duration),
-    STORAGE_B64: Buffer.from(JSON.stringify(storage)).toString('base64'),
+    // Each scenario sets the relays it is about; the built-in ones would
+    // otherwise rescue the 'no relay' cases.
+    STORAGE_B64: Buffer.from(JSON.stringify({ undepressable_builtin_relays: JSON.stringify({ off: true }), ...storage })).toString('base64'),
     PROFILE: profile,
     ...(connectTimeout ? { CONNECT_TIMEOUT_S: String(connectTimeout) } : {}),
     ...(pairPath ? { PAIR_PATH: pairPath } : {}),

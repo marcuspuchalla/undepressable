@@ -1,6 +1,9 @@
 <template>
   <div class="rounded-xl border border-glow/25 bg-glow/5 p-3 space-y-3">
-    <!-- Public relays (TURN) -->
+    <!-- Public relays (TURN). Hidden when the build carries its own relays:
+         the one shared public relay known in 2026 is gone, and the built-in
+         ones above replace it. -->
+    <template v-if="!hasBuiltin">
     <div>
       <p class="text-sm font-medium text-slate-100">No relay of your own? Try free public ones.</p>
       <p class="text-xs text-slate-400 mt-1 leading-relaxed">
@@ -50,6 +53,8 @@
       </ul>
     </div>
 
+    </template>
+
     <!-- Extra STUN -->
     <details class="text-xs" :open="showStun" data-testid="stun-section">
       <summary class="cursor-pointer text-slate-300">
@@ -81,6 +86,9 @@
 </template>
 
 <script setup lang="ts">
+import { compiledRelays } from '../lib/net/builtinRelays'
+// The e2e harness points the public-relay test at a local relay in dev builds.
+const hasBuiltin = compiledRelays(((import.meta as any).env ?? {}) as Record<string, string | undefined>).length > 0 && !(import.meta as any).env?.DEV
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import {
   EXTRA_STUN_CANDIDATES,

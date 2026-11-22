@@ -1,0 +1,18 @@
+{
+  "_note": "Relays built into every copy of the app (src/lib/net/builtinRelays.ts). These credentials are public by design — they ship inside the app; the monthly limits enforced by services/relay-status are what keep that safe. Overridden by the VITE_BUILTIN_RELAYS / VITE_RELAY_STATUS_URL build variables when set.",
+  "statusUrl": "https://relay-status.152-53-160-100.sslip.io",
+  "relays": [
+    {
+      "id": "fmp",
+      "label": "Undepressable relay",
+      "server": {
+        "urls": [
+          "turn:turn.152-53-160-100.sslip.io:3478",
+          "turns:turn.152-53-160-100.sslip.io:443?transport=tcp"
+        ],
+        "username": "undepressable",
+        "credential": "f4ec93efbfcb653a5fb8b27b1373a3573ce7c54ee6f93b8f"
+      }
+    }
+  ]
+}

@@ -105,7 +105,7 @@ async function newPage(storage, extraArgs = []) {
   const discovery = LIVE && !process.env.LOCAL_RELAY ? {} : { undepressable_nostr_relays: JSON.stringify([RELAY]), undepressable_nostr_relays_only: '1' }
   await ctx.addInitScript((entries) => {
     for (const [k, v] of entries) localStorage.setItem(k, v)
-  }, Object.entries({ ...discovery, ...storage }))
+  }, Object.entries({ undepressable_builtin_relays: JSON.stringify({ off: true }), ...discovery, ...storage }))
   return ctx.newPage()
 }
 async function closeAll() {

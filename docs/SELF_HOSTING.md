@@ -151,6 +151,16 @@ Verify it works: chrome://webrtc-internals while connecting should show
 
 ## A relay for the published site
 
+The published app carries the project's relays, listed in `builtin-relays.json`
+(or the `VITE_BUILTIN_RELAYS` / `VITE_RELAY_STATUS_URL` build variables, which
+take precedence). Each has a monthly limit kept by `services/relay-status`,
+which runs next to the project's coturn and is described in its README:
+coturn's own counters, Cloudflare's analytics, and ExpressTURN's dashboard
+figure entered by hand. The rest of this section is for publishing a copy of
+the app with a relay of your own.
+
+### Publishing your own copy with your own relay
+
 Two strict networks — a VPN exit on one side, a mobile carrier's CGNAT on the
 other — cannot connect without a relay, whatever the app does, and the free
 public relays the app can test are volunteer-run and often gone. Whoever

@@ -52,7 +52,11 @@ export function coturnProvider(env, { fetch = globalThis.fetch, openDb } = {}) {
       const res = await fetch(cfg.metricsUrl, { signal: AbortSignal.timeout(5000) });
       if (!res.ok) throw new Error(`metrics answered ${res.status}`);
       const { sumMetrics } = await import('./usage.mjs');
-      const total = sumMetrics(await res.text(), cfg.metrics);
+      const text = await res.text();
+      // coturn creates its traffic counters on the first finished session: a
+      // relay that answers with its other metrics but none of these has
+      // carried nothing yet.
+      const total = sumMetrics(text, cfg.metrics) ?? (/^turn_/m.test(text) ? 0 : null);
       if (total === null) throw new Error(`none of ${cfg.metrics.join(', ')} in the metrics`);
       addCounterReading(state, 'fmp', total, now);
     },
